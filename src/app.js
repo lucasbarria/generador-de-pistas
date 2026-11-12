@@ -1142,93 +1142,199 @@ const REFS = {
     // a los costados, a media altura, tiene que haber algo que no sea camino (pasto, bosque, banquina)
     const sides = [...px(0, 0.55, 0.15, 0.7), ...px(0.85, 0.55, 1, 0.7)], sideOther = sides.filter(p => Math.max(...p) - Math.min(...p) >= 35 || L(p) < 60).length / (sides.length || 1);
     // tiene que verse un camino abajo al centro (no un lago, una montaña o una persona)
-    if (road.length < 200 || roadShare < 0.45 || water > 0.15 || rough < 10) return { ok: false, roadShare, water, rough, sideOther };
+    const all = px(0, 0.35, 1, 1), snow = all.filter(p => L(p) > 200 && Math.max(...p) - Math.min(...p) < 20).length / all.length;
+    const forest0 = px(0, 0.1, 1, 0.45, p => p[1] > p[0] + 4 && p[1] > p[2] + 4).length / (0.35 * W * H);
+    const waterAll = all.filter(p => p[2] > p[0] + 25 && p[2] >= p[1] && L(p) > 90).length / all.length;
+    // huella visual (dHash 8×8) para reconocer fotos repetidas
+    const hc = document.createElement('canvas'); hc.width = 9; hc.height = 8; const hx = hc.getContext('2d', { willReadFrequently: true }); hx.drawImage(bmp, 0, 0, 9, 8); const hd = hx.getImageData(0, 0, 9, 8).data;
+    let hash = ''; for (let yy = 0; yy < 8; yy++) for (let xx = 0; xx < 8; xx++) { const k = (yy * 9 + xx) * 4; hash += (hd[k] + hd[k + 1] + hd[k + 2]) > (hd[k + 4] + hd[k + 5] + hd[k + 6]) ? '1' : '0'; }
+    const env = { forest: Math.min(1, forest0), snow, water: waterAll };
+    if (road.length < 200 || roadShare < 0.45 || water > 0.15 || rough < 10) return { ok: false, roadShare, water, rough, sideOther, env, hash, w: bmp.width, h: bmp.height };
     const ls = road.map(L).sort((a, b) => a - b), cut = ls[Math.floor(ls.length * 0.55)], sun = med(road.filter(p => L(p) >= cut)), shade = med(road.filter(p => L(p) < ls[Math.floor(ls.length * 0.3)]));
     const sunL = L(sun), stones = road.filter(p => L(p) > sunL + 40).length / road.length;
     const verge = med([...px(0, 0.5, 0.2, 0.72), ...px(0.8, 0.5, 1, 0.72)].filter(p => p[1] > p[0] + 4 && p[1] > p[2]));
     const dry = [...px(0, 0.5, 0.2, 0.72), ...px(0.8, 0.5, 1, 0.72)].filter(p => p[0] > p[2] + 30 && Math.abs(p[0] - p[1]) < 25 && L(p) > 110).length / (0.4 * 0.22 * W * H);
     const forest = px(0, 0.1, 1, 0.45, p => p[1] > p[0] + 4 && p[1] > p[2] + 4).length / (0.35 * W * H);
-    return { ok: true, roadShare, rough, sideOther, road: sun, shade, verge, stones: Math.min(0.05, stones * 0.35), dry: Math.min(1, dry), forest: Math.min(1, forest) };
-  },
-  // búsqueda automática de fotos tomadas desde el camino (Mapillary: libres, CC BY-SA 4.0) a lo largo del recorrido
-  async autoFetch(routeLL, token, onProgress) {
-    if (!token) throw new Error('falta el token de Mapillary');
-    const T = encodeURIComponent(token), z = 14, tiles = new Map();
-    const tp = (la, lo) => [(lo + 180) / 360 * 2 ** z, (1 - Math.log(Math.tan(la * D2R) + 1 / Math.cos(la * D2R)) / Math.PI) / 2 * 2 ** z];
-    // dónde hay fotos: las capas de cobertura de Mapillary (más confiables que la búsqueda por zona)
-    const tileImgs = async (x, y) => { const k = x + '/' + y; if (tiles.has(k)) return tiles.get(k);
-      let out = []; try { const r = await fetch(`https://tiles.mapillary.com/maps/vtp/mly1_public/2/${z}/${x}/${y}?access_token=${T}`);
-        if (r.status === 401 || r.status === 403) throw new Error('el token de Mapillary no es válido');
-        if (r.ok) out = decodeMVT(await r.arrayBuffer(), 'image').map(f => { const [px, py] = f.lines[0][0], fx = x + px / f.extent, fy = y + py / f.extent;
-          const lo = fx / 2 ** z * 360 - 180, la = Math.atan(Math.sinh(Math.PI * (1 - 2 * fy / 2 ** z))) / D2R; return { ...f.props, la, lo }; });
-      } catch (e) { if (/token/.test(e.message)) throw e; }
-      tiles.set(k, out); return out; };
-    const pts = [], step = Math.max(1, Math.floor(routeLL.length / 25)); for (let i = 0; i < routeLL.length; i += step) pts.push(routeLL[i]);
-    const have = new Set(this.list.filter(r => r.auto).map(r => String(r.mly))); let added = 0, near = 0, done = 0, permErr = null;
-    for (const [la, lo] of pts) {
-      done++; onProgress && onProgress(done / pts.length);
-      const [fx, fy] = tp(la, lo), cand = [];
-      for (const dx of [-1, 0, 1]) for (const dy of [-1, 0, 1]) { const X = Math.floor(fx) + dx, Y = Math.floor(fy) + dy; if (Math.abs(fx - X - 0.5) > 0.6 + (dx ? 0.5 : 0) && dx) continue; cand.push(...await tileImgs(X, Y)); }
-      const best = cand.filter(m => !m.is_pano).map(m => ({ m, dist: Math.hypot((m.la - la) * 111320, (m.lo - lo) * 111320 * Math.cos(la * D2R)) })).filter(q => q.dist < 60)
-        .sort((a, b) => (a.dist - b.dist) * 0.02 - ((a.m.captured_at || 0) - (b.m.captured_at || 0)) / 3e11)[0];
-      if (!best) continue; near++; if (have.has(String(best.m.id))) continue;
-      try {
-        const r = await fetch(`https://graph.mapillary.com/${best.m.id}?access_token=${T}&fields=id,thumb_1024_url,captured_at,creator`), j = await r.json();
-        if (j.error) { permErr = j.error.message; if (/permission|does not exist/i.test(j.error.message)) break; continue; }
-        const blob = await LOCAL.fetchBlob(j.thumb_1024_url, { cache: false }), a = await this.analyze(blob), id = 'mly_' + best.m.id;
-        const rec = { id, mly: String(best.m.id), auto: true, name: `Mapillary ${best.m.id}${j.creator && j.creator.username ? ' — ' + j.creator.username : ''}`, blob, added: Date.now(), ll: [+best.m.la.toFixed(6), +best.m.lo.toFixed(6)], use: true, a,
-          date: best.m.captured_at ? new Date(best.m.captured_at).toISOString().slice(0, 10) : '', url: `https://www.mapillary.com/app/?pKey=${best.m.id}`, license: 'CC BY-SA 4.0' };
-        await LOCAL.put('refs', id, rec); have.add(String(best.m.id)); added++;
-      } catch (e) { }
-    }
-    if (near && !added && permErr) throw new Error(`hay fotos sobre el recorrido, pero Mapillary no deja bajarlas con este token ("${permErr}"). En mapillary.com → Dashboard → Developers, editá tu aplicación y marcá el permiso de lectura (Read)`);
-    await this.load(); return { added, near, points: pts.length };
-  },
-  // fotos libres sin token: Wikimedia Commons (fotos geolocalizadas, muchas de Panoramio) y Panoramax (fotos tomadas desde el camino)
-  async autoFetchFree(routeLL, onProgress) {
-    const pts = [], step = Math.max(1, Math.floor(routeLL.length / 20)); for (let i = 0; i < routeLL.length; i += step) pts.push(routeLL[i]);
-    const have = new Set(this.list.filter(r => r.auto).map(r => r.src + ':' + r.srcId)), cands = new Map(); let done = 0;
-    const distTo = (la, lo) => Math.min(...pts.map(([a, b]) => Math.hypot((a - la) * 111320, (b - lo) * 111320 * Math.cos(a * D2R))));
-    for (const [la, lo] of pts) {
-      done++; onProgress && onProgress(done / pts.length / 2);
-      try { const j = await (await fetch(`https://commons.wikimedia.org/w/api.php?action=query&list=geosearch&gscoord=${la}%7C${lo}&gsradius=250&gslimit=10&gsnamespace=6&format=json&origin=*`)).json();
-        for (const g of (j.query && j.query.geosearch) || []) if (!cands.has('wm:' + g.title)) cands.set('wm:' + g.title, { src: 'wm', srcId: g.title, ll: [g.lat, g.lon] }); } catch (e) { }
-      try { const d = 0.0015, j = await (await fetch(`https://api.panoramax.xyz/api/search?bbox=${lo - d / Math.cos(la * D2R)},${la - d},${lo + d / Math.cos(la * D2R)},${la + d}&limit=3`)).json();
-        for (const f of j.features || []) { const href = f.assets && (f.assets.sd || f.assets.thumb || {}).href; if (href && !cands.has('px:' + f.id)) cands.set('px:' + f.id, { src: 'px', srcId: f.id, ll: [f.geometry.coordinates[1], f.geometry.coordinates[0]], img: href, date: (f.properties.datetime || '').slice(0, 10), license: ((f.links || []).find(l => l.rel === 'license') || {}).title || 'CC BY-SA 4.0', author: (f.providers && f.providers[0] && f.providers[0].name) || '', url: `https://api.panoramax.xyz/#focus=pic&pic=${f.id}` }); } } catch (e) { }
-    }
-    // datos de Commons (miniatura, licencia, autor) de a 20
-    const wm = [...cands.values()].filter(c => c.src === 'wm');
-    for (let i = 0; i < wm.length; i += 20) {
-      try { const titles = wm.slice(i, i + 20).map(c => c.srcId).join('|'), j = await (await fetch(`https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent(titles)}&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=1024&format=json&origin=*`)).json();
-        for (const pg of Object.values((j.query && j.query.pages) || {})) { const c = cands.get('wm:' + pg.title), ii = pg.imageinfo && pg.imageinfo[0]; if (!c || !ii) continue; const m = ii.extmetadata || {};
-          c.img = ii.thumburl || ii.url; c.url = ii.descriptionurl; c.license = (m.LicenseShortName && m.LicenseShortName.value) || 'ver en Commons'; c.author = ((m.Artist && m.Artist.value) || '').replace(/<[^>]+>/g, '').trim(); c.date = ((m.DateTimeOriginal && m.DateTimeOriginal.value) || '').replace(/<[^>]+>/g, '').slice(0, 10); c.free = !!(m.LicenseShortName && /CC|Public domain|PD/i.test(m.LicenseShortName.value)); } } catch (e) { }
-    }
-    let added = 0, tried = 0, roads = 0; const list = [...cands.values()].filter(c => c.img && (c.src !== 'wm' || c.free)).sort((a, b) => distTo(...a.ll) - distTo(...b.ll)).slice(0, 30);
-    for (const c of list) {
-      tried++; onProgress && onProgress(0.5 + tried / list.length / 2);
-      if (have.has(c.src + ':' + c.srcId)) { roads++; continue; }
-      try { const blob = await (await fetch(c.img)).blob(), a = await this.analyze(blob); if (!a.ok) continue; roads++;
-        const id = c.src + '_' + String(c.srcId).replace(/[^\w]+/g, '_').slice(0, 60);
-        await LOCAL.put('refs', id, { id, src: c.src, srcId: c.srcId, auto: true, name: `${c.src === 'wm' ? 'Wikimedia Commons' : 'Panoramax'}${c.author ? ' — ' + c.author.slice(0, 40) : ''}`, blob, added: Date.now(), ll: c.ll.map(v => +(+v).toFixed(6)), use: true, a, date: c.date || '', url: c.url, license: c.license });
-        added++; } catch (e) { }
-    }
-    await this.load(); return { found: cands.size, tried, roads, added };
+    return { ok: true, env, hash, w: bmp.width, h: bmp.height, roadShare, rough, sideOther, road: sun, shade, verge, stones: Math.min(0.05, stones * 0.35), dry: Math.min(1, dry), forest: Math.min(1, forest) };
   },
   async add(file) {
     const blob = file, a = await this.analyze(blob), id = 'ref_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     const rec = { id, name: file.name, blob, added: Date.now(), ll: null, note: '', use: false, a }; // las fotos cargadas a mano solo sirven para comparar
     await LOCAL.put('refs', id, rec); return rec;
   },
+  // color del piso en el km d: de las fotos del camino más cercanas a lo largo del recorrido; si no hay cerca, el promedio
+  calAt(d) {
+    if (!this.cal) return null; const P = this.cal.byKm; if (!P || !P.length) return this.cal;
+    let wsum = 0, acc = [0, 0, 0], st = 0;
+    for (const r of P) { const w = 1 / (1 + (Math.abs(r.km * 1000 - d) / 400) ** 2); wsum += w; for (let c = 0; c < 3; c++) acc[c] += r.road[c] * w; st += r.stones * w; }
+    const near = Math.min(...P.map(r => Math.abs(r.km * 1000 - d)));
+    if (near > 2500 || wsum < 1e-6) return this.cal;
+    const loc = acc.map(v => Math.round(v / wsum * 0.94)), t = Math.min(1, 1500 / (near + 300)); // lejos de toda foto, vuelve al promedio
+    return { ...this.cal, road: this.cal.road.map((v, c) => Math.round(v * (1 - t) + loc[c] * t)), stones: this.cal.stones * (1 - t) + st / wsum * t };
+  },
   calibrate(on) {
-    const A = this.list.filter(r => r.auto && r.use && r.a && r.a.ok && (!this.area || (r.ll && this.area(r.ll)))); // solo imágenes buscadas solas (Mapillary) en la zona del tramo
+    const A = this.list.filter(r => r.auto && r.use && r.role === 'camino' && r.a && r.a.ok && (!this.area || (r.ll && this.area(r.ll)))); // solo fotos verificadas del camino de este tramo
     if (!on || !A.length) { this.cal = null; return null; }
     const med = (f) => { const v = A.map(f).filter(Boolean); if (!v.length) return null; return [0, 1, 2].map(c => { const s = v.map(p => p[c]).sort((a, b) => a - b); return s[s.length >> 1]; }); };
     const num = f => { const v = A.map(f).sort((a, b) => a - b); return v[v.length >> 1]; };
     // el color medido en la foto está iluminado por el sol; la textura se ilumina en el juego: se baja un 6 %
-    const road = med(r => r.a.road); this.cal = { n: A.length, road: road && road.map(v => Math.round(v * 0.94)), verge: med(r => r.a.verge), stones: num(r => r.a.stones), dry: num(r => r.a.dry) };
+    const road = med(r => r.a.road); this.cal = { n: A.length, road: road && road.map(v => Math.round(v * 0.94)), verge: med(r => r.a.verge), stones: num(r => r.a.stones), dry: num(r => r.a.dry), byKm: A.filter(r => r.km != null).map(r => ({ km: r.km, road: r.a.road, stones: r.a.stones })) };
     return this.cal;
   },
 };
+// ---------- AUTOMATIC REAL-WORLD PHOTO DISCOVERY: fotos reales del recorrido, buscadas, verificadas y aplicadas solas ----------
+// Cada fuente es un adaptador independiente (search sobre una caja geográfica → candidatas con coordenadas, orientación,
+// fecha, licencia y miniatura). Las fotos se verifican por distancia al trazado, orientación y contenido, se puntúan,
+// se asignan a un km del tramo y se usan para calibrar materiales. Nunca se incluyen en la pista exportada.
+const PHOTOS = {
+  STEP: 100, // m entre puntos de búsqueda
+  LEVELS: [{ lv: 1, max: 30, name: 'camino exacto' }, { lv: 2, max: 100, name: 'entorno inmediato' }, { lv: 3, max: 500, name: 'entorno ampliado' }, { lv: 4, max: 2000, name: 'entorno regional' }],
+  status: {}, report: null, layer: null,
+  // consulta JSON con caché local (14 días) y reintentos controlados
+  async json(url, src, { ttl = 14, tries = 3 } = {}) {
+    const key = 'json:' + url.replace(/access_token=[^&]+/, 'access_token=*'), hit = await LOCAL.get('tiles', key);
+    if (hit && Date.now() - hit.t < ttl * 864e5) return hit.v;
+    let err;
+    for (let i = 0; i < tries; i++) {
+      try { const r = await fetch(url); if (r.status === 429 || r.status >= 500) { err = new Error('HTTP ' + r.status); await new Promise(z => setTimeout(z, 700 * (i + 1) ** 2)); continue; }
+        const v = await r.json(); if (r.ok && !v.error) LOCAL.put('tiles', key, { t: Date.now(), v }); return v; }
+      catch (e) { err = e; await new Promise(z => setTimeout(z, 500 * (i + 1))); }
+    }
+    throw err || new Error('sin respuesta');
+  },
+  SOURCES: [
+    { id: 'commons', name: 'Wikimedia Commons', async search(b) {
+        const j = await PHOTOS.json(`https://commons.wikimedia.org/w/api.php?action=query&list=geosearch&gsbbox=${b.n}%7C${b.w}%7C${b.s}%7C${b.e}&gslimit=500&gsnamespace=6&format=json&origin=*`, 'commons');
+        const geo = (j.query && j.query.geosearch) || [], out = [];
+        for (let i = 0; i < geo.length; i += 50) {
+          const T = geo.slice(i, i + 50), k = await PHOTOS.json(`https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent(T.map(g => g.title).join('|'))}&prop=imageinfo&iiprop=url|extmetadata|size&iiurlwidth=1024&format=json&origin=*`, 'commons');
+          for (const pg of Object.values((k.query && k.query.pages) || {})) { const g = T.find(q => q.title === pg.title), ii = pg.imageinfo && pg.imageinfo[0]; if (!g || !ii) continue; const m = ii.extmetadata || {}, lic = (m.LicenseShortName && m.LicenseShortName.value) || '';
+            const dir = m.GPSImgDirection ? parseFloat(m.GPSImgDirection.value) : null;
+            out.push({ key: 'commons:' + pg.title, src: 'commons', ll: [g.lat, g.lon], heading: isFinite(dir) ? dir : null, date: ((m.DateTimeOriginal && m.DateTimeOriginal.value) || '').replace(/<[^>]+>/g, '').slice(0, 10), license: lic || 'sin licencia declarada', free: /CC|Public domain|PD|CC0/i.test(lic) && !/NC|ND/.test(lic),
+              author: ((m.Artist && m.Artist.value) || '').replace(/<[^>]+>/g, '').trim().slice(0, 60), img: ii.thumburl || ii.url, url: ii.descriptionurl, w: ii.width, h: ii.height, title: pg.title.replace(/^File:/, '') }); }
+        }
+        return out; } },
+    { id: 'panoramax', name: 'Panoramax', async search(b) {
+        const j = await PHOTOS.json(`https://api.panoramax.xyz/api/search?bbox=${b.w},${b.s},${b.e},${b.n}&limit=500`, 'panoramax');
+        return (j.features || []).map(f => { const P = f.properties || {}, lic = ((f.links || []).find(l => l.rel === 'license') || {}).title || 'CC BY-SA 4.0';
+          return { key: 'panoramax:' + f.id, src: 'panoramax', ll: [f.geometry.coordinates[1], f.geometry.coordinates[0]], heading: P['view:azimuth'] != null ? +P['view:azimuth'] : null, date: (P.datetime || '').slice(0, 10), license: lic.replace(/^License for this object \(|\)$/g, ''), free: true,
+            author: (f.providers && f.providers[0] && f.providers[0].name) || '', img: f.assets && ((f.assets.sd || f.assets.thumb || {}).href), url: `https://api.panoramax.xyz/#focus=pic&pic=${f.id}`, pano: P['exif'] && /equirect/i.test(JSON.stringify(P['exif'] || '')), title: 'Panoramax ' + f.id.slice(0, 8) }; }); } },
+    { id: 'mapillary', name: 'Mapillary', needs: 'token', async search(b) {
+        const tok = (localStorage.getItem('mlyToken') || '').trim(); if (!tok) { const e = new Error('sin token (opcional)'); e.skip = true; throw e; }
+        const z = 14, tp = (la, lo) => [Math.floor((lo + 180) / 360 * 2 ** z), Math.floor((1 - Math.log(Math.tan(la * D2R) + 1 / Math.cos(la * D2R)) / Math.PI) / 2 * 2 ** z)];
+        const [x0, y0] = tp(b.n, b.w), [x1, y1] = tp(b.s, b.e), out = [];
+        for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+          if ((x1 - x0 + 1) * (y1 - y0 + 1) > 40) break;
+          const blob = await LOCAL.fetchBlob(`https://tiles.mapillary.com/maps/vtp/mly1_public/2/${z}/${x}/${y}?access_token=${encodeURIComponent(tok)}`).catch(() => null); if (!blob) continue;
+          for (const f of decodeMVT(await blob.arrayBuffer(), 'image')) { const [px, py] = f.lines[0][0], fx = x + px / f.extent, fy = y + py / f.extent, P = f.props;
+            out.push({ key: 'mapillary:' + P.id, src: 'mapillary', ll: [Math.atan(Math.sinh(Math.PI * (1 - 2 * fy / 2 ** z))) / D2R, fx / 2 ** z * 360 - 180], heading: P.compass_angle != null ? +P.compass_angle : null, date: P.captured_at ? new Date(P.captured_at).toISOString().slice(0, 10) : '', license: 'CC BY-SA 4.0', free: true, pano: !!P.is_pano,
+              author: '', url: `https://www.mapillary.com/app/?pKey=${P.id}`, title: 'Mapillary ' + P.id,
+              img: async () => { const j = await PHOTOS.json(`https://graph.mapillary.com/${P.id}?access_token=${encodeURIComponent(tok)}&fields=thumb_1024_url`, 'mapillary', { tries: 1 }); if (!j.thumb_1024_url) throw new Error('Mapillary no deja bajar la foto (falla de su servicio con aplicaciones nuevas)'); return j.thumb_1024_url; } }); }
+        }
+        return out; } },
+  ],
+  // búsqueda completa sobre un recorrido: rPts en metros (proyección B.P), con su largo acumulado
+  async discover(rPts, P, onLog) {
+    const cum = [0]; for (let i = 1; i < rPts.length; i++) cum.push(cum[i - 1] + Math.hypot(rPts[i][0] - rPts[i - 1][0], rPts[i][1] - rPts[i - 1][1]));
+    const total = cum.at(-1), samples = [];
+    for (let d = 0, i = 0; d <= total; d += this.STEP) { while (i < rPts.length - 2 && cum[i + 1] < d) i++; const t = (d - cum[i]) / Math.max(1e-6, cum[i + 1] - cum[i]), x = rPts[i][0] + (rPts[i + 1][0] - rPts[i][0]) * t, y = rPts[i][1] + (rPts[i + 1][1] - rPts[i][1]) * t; samples.push({ d, x, y, ll: P.inv(x, y), tx: rPts[i + 1][0] - rPts[i][0], ty: rPts[i + 1][1] - rPts[i][1] }); }
+    // dónde cae una foto respecto del trazado: distancia, km y rumbo del camino ahí
+    const nearest = (x, y) => { let best = { dist: Infinity }; for (let i = 0; i + 1 < rPts.length; i++) { const a = rPts[i], b2 = rPts[i + 1], vx = b2[0] - a[0], vy = b2[1] - a[1], L2 = vx * vx + vy * vy || 1e-9; let t = ((x - a[0]) * vx + (y - a[1]) * vy) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t; const qx = a[0] + vx * t, qy = a[1] + vy * t, dd = Math.hypot(qx - x, qy - y); if (dd < best.dist) best = { dist: dd, d: cum[i] + Math.sqrt(L2) * t, qx, qy, vx, vy }; } return best; };
+    // cajas del corredor: tramos de ~3 km con 2,1 km de margen (alcanza el nivel regional)
+    const boxes = [];
+    for (let k = 0; k < samples.length; k += 30) { const ch = samples.slice(k, k + 31); let s = 90, n = -90, w = 180, e = -180; for (const q of ch) { s = Math.min(s, q.ll[0]); n = Math.max(n, q.ll[0]); w = Math.min(w, q.ll[1]); e = Math.max(e, q.ll[1]); }
+      const mLa = 2100 / 111320, mLo = 2100 / (111320 * Math.cos(ch[0].ll[0] * D2R)); boxes.push({ s: s - mLa, n: n + mLa, w: w - mLo, e: e + mLo }); }
+    // 1) buscar en todas las fuentes; si una falla, se sigue con las demás
+    const cands = new Map(); this.status = {};
+    for (const S0 of this.SOURCES) {
+      const st = this.status[S0.id] = { name: S0.name, found: 0, err: null };
+      for (const b of boxes) { try { for (const c of await S0.search(b)) if (!cands.has(c.key)) { cands.set(c.key, c); st.found++; } } catch (e) { st.err = e.message; if (e.skip) break; } }
+    }
+    // 2) verificación geográfica y de orientación
+    const rep = { total, found: cands.size, sel: [], disc: [], src: this.status, center: P.inv(rPts[rPts.length >> 1][0], rPts[rPts.length >> 1][1]) };
+    const angDiff = (a, b) => { const x = Math.abs(((a - b) % 360) + 360) % 360; return x > 180 ? 360 - x : x; };
+    const items = [];
+    for (const c of cands.values()) {
+      const [x, y] = P.fwd(c.ll[0], c.ll[1]), nr = nearest(x, y), L = this.LEVELS.find(q => nr.dist <= q.max);
+      c.dist = Math.round(nr.dist); c.km = +(nr.d / 1000).toFixed(2); c.level = L ? L.lv : 5;
+      if (!L) continue; // más allá de 2 km: no se usa
+      if (!c.free) { rep.disc.push({ ...c, why: 'licencia no libre (' + c.license + ')' }); continue; }
+      if (c.pano) { rep.disc.push({ ...c, why: 'foto 360° (sin perspectiva conocida)' }); continue; }
+      if (c.heading != null) { // ¿la cámara mira hacia el camino?
+        const roadB = (Math.atan2(nr.vx, nr.vy) / D2R + 360) % 360, toRoad = (Math.atan2(nr.qx - x, nr.qy - y) / D2R + 360) % 360;
+        c.oriented = nr.dist < 20 ? Math.min(angDiff(c.heading, roadB), angDiff(c.heading, roadB + 180)) < 50 : angDiff(c.heading, toRoad) < 55;
+      } else c.oriented = null;
+      items.push(c);
+    }
+    // 3) puntuación previa y límite de descargas (prefiere pocas fotos útiles a muchas irrelevantes)
+    const pre = c => 100 - c.dist / 10 + (c.oriented === true ? 25 : c.oriented === false ? -40 : 0) + (c.date ? (+c.date.slice(0, 4) - 2010) : 0);
+    items.sort((a, b) => a.level - b.level || pre(b) - pre(a));
+    const quota = { 1: 40, 2: 30, 3: 15, 4: 10 }, used = { 1: 0, 2: 0, 3: 0, 4: 0 }, hashes = [];
+    let k = 0;
+    for (const c of items) {
+      if (used[c.level] >= quota[c.level]) { rep.disc.push({ ...c, why: 'sobran fotos más útiles en este nivel' }); continue; }
+      used[c.level]++; k++; onLog && k % 10 === 0 && onLog(`Analizando fotos del lugar… ${k}`);
+      try {
+        const url = typeof c.img === 'function' ? await c.img() : c.img; if (!url) throw new Error('sin imagen');
+        const blob = await LOCAL.fetchBlob(url), a = await REFS.analyze(blob);
+        if (Math.min(a.w, a.h) < 300) { rep.disc.push({ ...c, why: 'baja resolución' }); continue; }
+        if (hashes.some(h => h.c.dist < 9e9 && Math.hypot((h.c.ll[0] - c.ll[0]) * 111320, (h.c.ll[1] - c.ll[1]) * 70000) < 60 && [...h.h].filter((b, i) => b !== a.hash[i]).length <= 6)) { rep.disc.push({ ...c, why: 'duplicada' }); continue; }
+        hashes.push({ c, h: a.hash });
+        if (a.env && a.env.water > 0.35 && !a.ok) { rep.disc.push({ ...c, why: 'muestra agua (lago o mar), no el camino' }); continue; }
+        // 4) rol de cada foto según distancia, orientación y contenido
+        let role, conf;
+        if (c.level <= 2 && a.ok && c.oriented !== false && (c.oriented === true || c.dist <= 25)) { role = 'camino'; conf = c.oriented === true ? 'alta' : 'media (sin orientación: está sobre el camino y se ve un camino)'; }
+        else if (c.level <= 2 && c.oriented === false) { rep.disc.push({ ...c, why: 'mira hacia otro lado' }); continue; }
+        else if (c.level <= 3) { role = 'entorno'; conf = a.ok ? 'media' : 'baja (no se ve el camino)'; }
+        else { role = 'regional'; conf = 'solo ambiente general'; }
+        const score = Math.round(pre(c) + (a.ok ? 30 : 0) + (role === 'camino' ? 20 : 0));
+        const id = c.src + '_' + String(c.key).replace(/[^\w]+/g, '_').slice(-60);
+        const rec = { id, auto: true, src: c.src, srcId: c.key, name: `${this.SOURCES.find(q => q.id === c.src).name}${c.author ? ' — ' + c.author : ''}`, title: c.title, blob, added: Date.now(), ll: c.ll.map(v => +(+v).toFixed(6)), use: true, a,
+          date: c.date, url: c.url, license: c.license, km: c.km, dist: c.dist, level: c.level, heading: c.heading, oriented: c.oriented, role, conf, score };
+        const prev = await LOCAL.get('refs', id); if (prev && prev.manual) { rec.use = prev.use; rec.role = prev.role; rec.manual = true; } // respeta las correcciones a mano
+        await LOCAL.put('refs', id, rec); rep.sel.push(rec);
+      } catch (e) { rep.disc.push({ ...c, why: e.message.includes('Mapillary') ? e.message : 'no se pudo descargar' }); }
+    }
+    rep.sel.sort((a, b) => a.km - b.km);
+    // 5) cobertura: qué partes del tramo tienen fotos del camino
+    const roadPh = rep.sel.filter(r => r.role === 'camino' && r.use); let cov = 0; for (const q of samples) if (roadPh.some(r => Math.abs(r.km * 1000 - q.d) <= 250)) cov++;
+    rep.coverage = samples.length ? cov / samples.length : 0;
+    this.report = rep; await REFS.load(); return rep;
+  },
+  showOnMap() {
+    if (typeof map === 'undefined' || !window.L || !L.circleMarker) return;
+    if (this.layer) { map.removeLayer(this.layer); this.layer = null; }
+    const R = this.report; if (!R) return; this.layer = L.layerGroup(); const col = { camino: '#22c55e', entorno: '#eab308', regional: '#94a3b8' };
+    for (const r of R.sel) { const m = L.circleMarker(r.ll, { radius: 6, color: '#0b1220', weight: 1, fillColor: col[r.role] || '#fff', fillOpacity: r.use ? 0.95 : 0.3 });
+      m.bindPopup(() => `<div style="width:220px"><img src="${URL.createObjectURL(r.blob)}" style="width:100%;border-radius:4px"><div><b>${r.role === 'camino' ? 'Muestra el camino' : r.role === 'entorno' ? 'Entorno' : 'Ambiente regional'}</b> · km ${r.km} · a ${r.dist} m</div><div>${r.name}, ${r.date || 's/f'} · ${r.license}</div><a href="${r.url}" target="_blank" rel="noopener">Abrir original</a></div>`);
+      this.layer.addLayer(m); }
+    this.layer.addTo(map);
+  },
+};
+async function renderPhotoPanel() {
+  const el = $('#photoPanel'); if (!el) return; const R = PHOTOS.report;
+  if (!R) { el.innerHTML = '<div class="mut">Se ejecuta solo al generar un tramo.</div>'; return; }
+  const srcs = Object.values(R.src).map(s => `${s.name}: ${s.err ? (s.err.includes('token') ? 'sin token (opcional)' : 'error — ' + s.err) : s.found + ' encontradas'}`).join(' · ');
+  const by = r => R.sel.filter(q => q.role === r).length, why = {}; R.disc.forEach(d => why[d.why] = (why[d.why] || 0) + 1);
+  el.innerHTML = `<div style="margin:4px 0">Ubicación: ${R.center.map(v => v.toFixed(4)).join(', ')} · tramo de ${(R.total / 1000).toFixed(1)} km</div>
+    <div class="mut" style="margin:4px 0">Fuentes: ${srcs}</div>
+    <div style="margin:4px 0"><b>${R.found}</b> fotos cerca · <b>${R.sel.length}</b> seleccionadas (${by('camino')} muestran el camino, ${by('entorno')} el entorno, ${by('regional')} el ambiente regional) · <b>${R.disc.length}</b> descartadas</div>
+    <div style="margin:4px 0">Tramo respaldado por fotos del camino: <b>${Math.round(R.coverage * 100)}%</b>. El resto usa satélite, biblioteca de materiales y generación procedural.</div>
+    ${R.disc.length ? `<details><summary class="mut">Por qué se descartaron</summary><div class="mut">${Object.entries(why).map(([w, n]) => `${n} × ${w}`).join('<br>')}</div></details>` : ''}
+    <div>${R.sel.map(r => `<div style="display:flex;gap:8px;align-items:center;margin:6px 0;opacity:${r.use ? 1 : 0.5}"><img data-pthumb="${r.id}" style="width:96px;height:56px;object-fit:cover;border-radius:4px">
+      <div style="font-size:12px;flex:1;min-width:0"><div><b>km ${r.km}</b> · a ${r.dist} m · ${r.role === 'camino' ? 'muestra el camino' : r.role === 'entorno' ? 'entorno' : 'regional'} · confianza ${r.conf}</div>
+      <div class="mut">${r.name} · ${r.date || 'sin fecha'} · ${r.license}${r.oriented === true ? ' · mira al camino' : r.oriented == null ? ' · sin orientación' : ''}</div>
+      <div><a href="${r.url}" target="_blank" rel="noopener">abrir</a> <button class="b" data-pgo="${r.id}">Comparar con el 3D</button> <button class="b" data-puse="${r.id}">${r.use ? 'Usar ✓' : 'No usar'}</button> ${r.role === 'camino' ? `<button class="b" data-prole="${r.id}" title="Corregir: no muestra este camino">No es el camino</button>` : ''}</div></div></div>`).join('')}</div>`;
+  for (const r of R.sel) { const im = el.querySelector(`[data-pthumb="${r.id}"]`); if (im) im.src = URL.createObjectURL(r.blob); }
+  const upd = async (id, f) => { const r = R.sel.find(q => q.id === id); f(r); r.manual = true; await LOCAL.put('refs', r.id, r); await REFS.load(); REFS.calibrate(true); renderPhotoPanel(); PHOTOS.showOnMap(); log('Corrección guardada. Volvé a generar para aplicarla al 3D.', 'ok'); };
+  el.querySelectorAll('[data-puse]').forEach(b => b.onclick = () => upd(b.dataset.puse, r => r.use = !r.use));
+  el.querySelectorAll('[data-prole]').forEach(b => b.onclick = () => upd(b.dataset.prole, r => r.role = 'entorno'));
+  el.querySelectorAll('[data-pgo]').forEach(b => b.onclick = () => { const r = R.sel.find(q => q.id === b.dataset.pgo), Rr = S.result; if (!Rr || !Rr.res) return;
+    const k = $('#navKm'); if (k) { k.value = Math.round(r.km * 1000 / Rr.res.total * 1000); k.dispatchEvent(new Event('input', { bubbles: true })); }
+    let cmp = $('#cmpPhoto'); if (!cmp) { cmp = document.createElement('div'); cmp.id = 'cmpPhoto'; cmp.style.cssText = 'position:absolute;left:10px;top:60px;z-index:6;width:min(42%,520px);background:#0b1220e6;padding:6px;border-radius:8px;color:#e8eef7;font:12px system-ui'; $('#viewer3d').appendChild(cmp); }
+    cmp.innerHTML = `<img src="${URL.createObjectURL(r.blob)}" style="width:100%;border-radius:4px"><div style="display:flex;justify-content:space-between;margin-top:4px"><span>Foto real · km ${r.km} · a ${r.dist} m del eje</span><button class="b" id="cmpClose">Cerrar</button></div>`;
+    $('#cmpClose').onclick = () => cmp.remove(); });
+}
 const sw = c => c ? `<span style="display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;background:rgb(${c.join(',')});border:1px solid #0006"></span>` : '—';
 async function renderRefs() {
   const el = $('#refList'); if (!el) return; await REFS.load();
@@ -2416,10 +2522,10 @@ function buildRoadStrips(B, res, o = {}) {
         // lomo central y bordes con ripio suelto y más claro (lo que las ruedas no pisan)
         const ridge = dirt ? Math.exp(-(s * s) / (2 * (P.hw * 0.16) ** 2)) * 0.18 : 0; rr *= 1 + ridge; gg *= 1 + ridge; bb *= 1 + ridge * 0.9;
         // tono arcilloso (tierra marrón entre el ripio), con manchas de barro seco
-        const clay = clayD * (0.75 + 0.5 * hashU(Math.floor(s / 1.5), Math.floor(d / 4), 9)), cl = (REFS.cal && REFS.cal.road) || [165, 160, 150], lum = (rr + gg + bb) / 3 / 150; // beige grisáceo de la tierra compactada (medido en fotos de Aguas Blancas)
+        const clay = clayD * (0.75 + 0.5 * hashU(Math.floor(s / 1.5), Math.floor(d / 4), 9)), cl = (REFS.calAt(d) || {}).road || [165, 160, 150], lum = (rr + gg + bb) / 3 / 150; // beige grisáceo de la tierra compactada (medido en fotos de Aguas Blancas)
         rr = rr * (1 - clay) + cl[0] * lum * clay; gg = gg * (1 - clay) + cl[1] * lum * clay; bb = bb * (1 - clay) + cl[2] * lum * clay;
         // piedras sueltas claras (3–8 cm), con la densidad medida en las fotos de referencia
-        if (dirt) { const st = (REFS.cal && REFS.cal.stones) ?? 0.012, cx = Math.floor(s / 0.06), cy = Math.floor(d / 0.06);
+        if (dirt) { const st = (REFS.calAt(d) || {}).stones ?? 0.012, cx = Math.floor(s / 0.06), cy = Math.floor(d / 0.06);
           if (hashU(cx, cy, 31) < st * (0.6 + 0.8 * Math.min(1, Math.abs(s) / P.hw))) { const b = 1.25 + 0.25 * hashU(cx, cy, 32); rr = Math.min(255, rr * b); gg = Math.min(255, gg * b); bb = Math.min(255, bb * b * 1.02); } }
         // fuera del ancho real del camino (en tramos más angostos) se ve la banquina
         if (Math.abs(s) > P.hw) { rr *= 0.9; gg *= 0.92; bb *= 0.85; }
@@ -2504,22 +2610,20 @@ async function rebuild(keepCam) {
       } catch (e) { log('Catálogo de imágenes libres no disponible (' + e.message + '): se usa Sentinel-2.'); }
       renderImgSources();
     }
-    // fotos tomadas desde el camino (Mapillary) para calibrar colores: solas, sin cargar nada a mano
-    const tok = (localStorage.getItem('mlyToken') || '').trim();
+    // AUTOMATIC REAL-WORLD PHOTO DISCOVERY: busca, verifica y aplica fotos reales del recorrido (nunca se exportan)
     REFS.area = null;
     if (o.autoRefs) {
-      const routeLL = []; { let acc = 0; for (let i = 0; i < rPts.length; i++) { if (i) acc += Math.hypot(rPts[i][0] - rPts[i - 1][0], rPts[i][1] - rPts[i - 1][1]); if (!i || acc >= 50) { routeLL.push(B.P.inv(rPts[i][0], rPts[i][1])); acc = 0; } } }
-      REFS.area = ll => { const [x, y] = B.P.fwd(ll[0], ll[1]); let m = Infinity; for (let i = 0; i < rPts.length; i += 4) m = Math.min(m, Math.hypot(rPts[i][0] - x, rPts[i][1] - y)); return m < 300; };
+      REFS.area = ll => { const [x, y] = B.P.fwd(ll[0], ll[1]); let m = Infinity; for (let i = 0; i < rPts.length; i += 4) m = Math.min(m, Math.hypot(rPts[i][0] - x, rPts[i][1] - y)); return m < 2100; };
       try {
-        log('Buscando fotos del lugar (Wikimedia Commons, Panoramax)…'); await tick();
-        const st = await REFS.autoFetchFree(routeLL);
-        log(st.found ? `Fotos libres del lugar: ${st.found} cerca del recorrido; ${st.roads} muestran un camino y sirven para medir colores (${st.added} nuevas).` : 'No hay fotos libres geolocalizadas cerca de este recorrido en Wikimedia Commons ni en Panoramax.', st.roads ? 'ok' : '');
-      } catch (e) { log('Fotos libres del lugar: ' + e.message + '.'); }
-      if (tok) { try { log('Buscando fotos tomadas desde el camino (Mapillary)…'); await tick(); const st = await REFS.autoFetch(routeLL, tok); if (st.near) log(`Mapillary: fotos en ${st.near} de ${st.points} puntos del recorrido (${st.added} nuevas).`, 'ok'); } catch (e) { log('Mapillary: ' + e.message + '.'); } }
+        log('Buscando fotos reales del recorrido (Wikimedia Commons, Panoramax, Mapillary)…'); await tick();
+        const R = await PHOTOS.discover(rPts, B.P, m => log(m));
+        const by = r => R.sel.filter(q => q.role === r).length, fails = Object.values(R.src).filter(s => s.err && !s.err.includes('token')).map(s => s.name + ': ' + s.err);
+        log(R.found ? `Fotos reales: ${R.found} cerca del recorrido, ${R.sel.length} seleccionadas (${by('camino')} del camino, ${by('entorno')} del entorno, ${by('regional')} regionales), ${R.disc.length} descartadas. ${Math.round(R.coverage * 100)}% del tramo respaldado por fotos del camino.` : 'Fotos reales: no hay fotos libres geolocalizadas de este recorrido. Se usa satélite, biblioteca de materiales y generación procedural.', R.sel.length ? 'ok' : '');
+        if (fails.length) log('Fuentes con problemas (se siguió con las demás): ' + fails.join(' · '));
+      } catch (e) { log('Fotos reales: ' + e.message + '. Se sigue sin fotos.'); }
       const c = REFS.calibrate(true);
-      if (c) { log(`Colores medidos en ${c.n} foto(s) del lugar: piso, banquina y piedras sueltas (las fotos no se incluyen en la pista).`, 'ok'); if (c.verge && TEX.grass) { TEX.grass = tint(TEX_DEFAULT.grass, `rgb(${c.verge.join(',')})`, 0.3); TEX.verge = makeVergeTex(); TEX.ditchside = makeDitchTex(); } }
-      else log('Sin fotos del lugar que muestren el camino: los colores salen del satélite y de la biblioteca de materiales.');
-      renderRefs();
+      if (c) { log(`Materiales calibrados con ${c.n} foto(s) del camino, km a km: color del piso, banquina y piedras sueltas.`, 'ok'); if (c.verge && TEX.grass) { TEX.grass = tint(TEX_DEFAULT.grass, `rgb(${c.verge.join(',')})`, 0.3); TEX.verge = makeVergeTex(); TEX.ditchside = makeDitchTex(); } }
+      renderPhotoPanel(); PHOTOS.showOnMap();
     }
     if (!REFS.area) REFS.cal = null;
     S.water = o.water ? collectWaterways(B) : { ww: [], bridgesOSM: [] };
