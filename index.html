@@ -620,12 +620,15 @@ const Core = (() => {
         for (let ii = run.i0; ii <= run.i1 + 1; ii++) {
           const i = ii % n, hw = W[i] / 2, sp0 = SP[i][side > 0 ? 0 : 1], P = (sp0.Dd > 0.12) === isD ? sp0.pts : sideProf(i, side, isD).pts;
           const col = ([e, h], u) => { const [x, y] = pos(i, side * (hw + e)); return { x, y, h, u, i, sc: side * hw }; }, d = dist[i] + (ii >= n ? total : 0);
-          const A = P.slice(0, cut + 1).map((q, k) => col(q, U[k])), Bc = P.slice(cut).map(q => col(q, q[0] / 5));
-          inner.push({ cols: side > 0 ? A : A.reverse(), d, step }); outer.push({ cols: side > 0 ? Bc : Bc.reverse(), d, step });
+          const A = P.slice(0, cut + 1).map((q, k) => col(q, U[k])), Bc = P.slice(cut).map((q, k) => { const c = col(q, q[0] / 5);
+            if (o.sideLumpAt && k > 0 && k < P.length - cut - 2) c.h += o.sideLumpAt(d, side, q[0]); return c; }); // montículos del talud (catálogo de costados)
+          inner.push({ cols: side > 0 ? A : A.reverse(), d, step }); outer.push({ cols: side > 0 ? Bc : Bc.reverse(), d, step, mat: o.sideMatAt ? o.sideMatAt(d, side) : null });
         }
         const key = run.key === 'DITCHMUD' ? 'SOFT' : isD ? 'DITCH' : 'GRASS', mat = run.key === 'DITCHMUD' ? 'ditchmud' : run.key === 'DITCHROCK' ? 'ditchrock' : isD ? 'ditchside' : 'verge';
         for (const m of ribbonMeshes(inner, false, key, mat, 7, { next: () => (key === 'GRASS' ? 500 : key === 'SOFT' ? 700 : 0) + cnt(key) })) meshes.push(m);
-        for (const m of ribbonMeshes(outer, false, 'GRASS', 'grass', 7, { next: () => 500 + cnt('GRASS') })) meshes.push(m);
+        // el talud cambia de tipo a lo largo (pasto con flores, tierra con agujas de pino, pasto seco con piedras): una malla por tramo
+        let a0 = 0; for (let k = 1; k <= outer.length; k++) { if (k < outer.length && (outer[k].mat || 'grass') === (outer[a0].mat || 'grass')) continue;
+          const part = outer.slice(a0, Math.min(outer.length, k + 1)); if (part.length > 1) for (const m of ribbonMeshes(part, false, 'GRASS', outer[a0].mat || 'grass', 7, { next: () => 500 + cnt('GRASS') })) meshes.push(m); a0 = k; }
       }
     }
     // accesos: un tramo corto de tierra que sale del camino hacia la propiedad o el sendero (12 m), sin cuneta debajo
@@ -3598,6 +3601,58 @@ function detectBiome(total) {
   if (!c) return null; f /= c; l /= c; const hum = RELIEF.H ? RELIEF.H.reduce((a, v) => a + v, 0) / RELIEF.H.length : 0.3;
   return f > 0.55 ? 'Patagonia bosque' : hum > 0.5 || l < 105 ? 'Zona húmeda' : 'Estepa / campo abierto';
 }
+
+// ---------- Catálogo de costados (fotos de Ushuaia, mismo bioma que Aguas Blancas y Tolhuin) ----------
+// Viene incluido: no hay que subir nada. Con las medidas de esas fotos (pasto, flores, pasto seco, tierra, agujas de pino,
+// piedras) se arman tres tipos de costado que se reparten solos por el tramo, con su textura, matas de pasto 3D,
+// montículos del talud y piedras semienterradas.
+const SIDE_REF = {"name":"Catálogo de costados — Tierra del Fuego (Ushuaia, mismo bioma que Aguas Blancas/Tolhuin)","photos":[{"id":"e26efcce","desc":"talud con pasto, diente de león y cordón","slope":0.35,"mounds":0.4,"share":{"flor":0.005,"pasto":0.612,"agujas":0.006,"pasto_seco":0.069,"piedra":0.183,"tierra":0.099},"col":{"flor":[216.0,200.0,64.0],"pasto":[94.0,109.0,63.0],"agujas":[140.0,123.0,94.0],"pasto_seco":[139.0,138.0,99.0],"piedra":[197.0,194.0,189.0],"tierra":[107.0,108.0,87.0]},"rock_blobs":5,"grass_tall":16.8},{"id":"2c36ed80","desc":"talud de pasto alto con flores hasta el guardarraíl","slope":0.5,"mounds":0.3,"share":{"flor":0.002,"pasto":0.673,"agujas":0.005,"pasto_seco":0.035,"piedra":0.126,"tierra":0.15},"col":{"flor":[242.0,216.0,60.0],"pasto":[92.0,111.0,78.0],"agujas":[147.0,130.0,113.0],"pasto_seco":[147.0,139.0,114.0],"piedra":[139.0,138.0,133.0],"tierra":[101.0,101.0,85.0]},"rock_blobs":5,"grass_tall":20.9},{"id":"f41d5c1f","desc":"talud de tierra gris con agujas de pino y matas de coirón","slope":0.6,"mounds":0.6,"share":{"flor":0.0,"pasto":0.221,"agujas":0.021,"pasto_seco":0.117,"piedra":0.486,"tierra":0.163},"col":{"flor":null,"pasto":[121.0,139.0,105.0],"agujas":[153.0,129.0,118.0],"pasto_seco":[163.0,155.0,132.0],"piedra":[145.0,142.0,139.0],"tierra":[136.0,130.0,116.0]},"rock_blobs":12,"grass_tall":18.6},{"id":"3915b1d3","desc":"banquina con matas verdes, agujas de pino y talud de tierra","slope":0.3,"mounds":0.6,"share":{"flor":0.0,"pasto":0.38,"agujas":0.037,"pasto_seco":0.131,"piedra":0.249,"tierra":0.202},"col":{"flor":null,"pasto":[124.0,147.0,99.0],"agujas":[147.0,124.0,110.0],"pasto_seco":[158.0,150.0,125.0],"piedra":[147.0,141.0,135.0],"tierra":[112.0,104.0,91.0]},"rock_blobs":7,"grass_tall":23.5},{"id":"2269ab02","desc":"prado de pasto alto con flores (diente de león)","slope":0.15,"mounds":0.3,"share":{"flor":0.013,"pasto":0.888,"agujas":0.002,"pasto_seco":0.031,"piedra":0.024,"tierra":0.028},"col":{"flor":[237.0,203.0,69.0],"pasto":[99.0,118.0,81.0],"agujas":[147.0,130.0,70.0],"pasto_seco":[158.0,155.0,99.0],"piedra":[128.0,129.0,120.0],"tierra":[86.0,87.0,75.0]},"rock_blobs":0,"grass_tall":18.7},{"id":"69d6e665","desc":"ladera con flores y pinos junto al camino","slope":0.45,"mounds":0.3,"share":{"flor":0.033,"pasto":0.86,"agujas":0.004,"pasto_seco":0.046,"piedra":0.02,"tierra":0.019},"col":{"flor":[231.0,196.0,52.0],"pasto":[102.0,122.0,69.0],"agujas":[147.0,128.0,51.0],"pasto_seco":[152.0,151.0,97.0],"piedra":[188.0,188.0,187.0],"tierra":[97.0,100.0,77.0]},"rock_blobs":1,"grass_tall":15.0},{"id":"12c5cb3e","desc":"piedras grandes semienterradas en pasto seco","slope":0.1,"mounds":0.2,"share":{"flor":0.0,"pasto":0.042,"agujas":0.035,"pasto_seco":0.18,"piedra":0.348,"tierra":0.336},"col":{"flor":null,"pasto":[133.0,145.0,98.0],"agujas":[146.0,127.0,111.0],"pasto_seco":[172.0,161.0,137.0],"piedra":[142.0,136.0,131.0],"tierra":[86.0,81.0,78.0]},"rock_blobs":9,"grass_tall":27.9},{"id":"9685e6cf","desc":"piedra redondeada semienterrada y lajas en pasto seco","slope":0.15,"mounds":0.3,"share":{"flor":0.0,"pasto":0.041,"agujas":0.1,"pasto_seco":0.301,"piedra":0.145,"tierra":0.31},"col":{"flor":null,"pasto":[128.0,140.0,91.0],"agujas":[144.0,123.0,103.0],"pasto_seco":[176.0,164.0,135.0],"piedra":[159.0,153.0,144.0],"tierra":[89.0,82.0,75.0]},"rock_blobs":5,"grass_tall":25.3}]};
+const SIDECAT = {
+  TYPES: {
+    side_a: { name: 'Pasto con flores (diente de león)', ids: ['e26efcce', '2c36ed80', '2269ab02', '69d6e665'], tuft: 0.55, rocks: 0.1 },
+    side_b: { name: 'Talud de tierra con agujas de pino y matas', ids: ['f41d5c1f', '3915b1d3'], tuft: 0.3, rocks: 0.4 },
+    side_c: { name: 'Pasto seco con piedras semienterradas', ids: ['12c5cb3e', '9685e6cf'], tuft: 0.22, rocks: 1 },
+  },
+  on: false,
+  agg(key) { const T = this.TYPES[key], L = SIDE_REF.photos.filter(p => T.ids.includes(p.id)), sh = {}, col = {};
+    for (const k of Object.keys(L[0].share)) { sh[k] = L.reduce((a, p) => a + p.share[k], 0) / L.length; const cs = L.map(p => p.col[k]).filter(Boolean); col[k] = cs.length ? [0, 1, 2].map(i => Math.round(cs.reduce((a, c) => a + c[i], 0) / cs.length)) : null; }
+    return { sh, col, mounds: L.reduce((a, p) => a + p.mounds, 0) / L.length, slope: L.reduce((a, p) => a + p.slope, 0) / L.length }; },
+  active() { const b = $('#biome') ? $('#biome').value : 'auto'; if (b === 'steppe' || b === 'mountain') return false; if (b === 'forest' || b === 'forestw' || b === 'wet') return true;
+    const B = S.base; if (!B || !B.P) return false; const c = B.pts[B.pts.length >> 1], [la, lo] = B.P.inv(c[0], c[1]); return la < -53.6 && la > -55.2 && lo > -69 && lo < -65.5; }, // Tierra del Fuego boscosa
+  build() { if (this.built) return; for (const k of Object.keys(this.TYPES)) { const a = this.TYPES[k].a = this.agg(k); TEX[k] = TEX_DEFAULT[k] = makeSideTex(k, a); } TEX.tuft = TEX_DEFAULT.tuft = makeTuftTex(); this.built = true; },
+  // tipo de costado en d (lado sd): húmedo y abierto → pasto con flores; bosque y ladera que sube → tierra con agujas; seco → pasto seco con piedras
+  typeAt(d, sd) { const h = RELIEF.humAt ? RELIEF.humAt(d) : 0.4, f = RELIEF.forestAt ? RELIEF.forestAt(d) : 0.5, n = vn2(d / 90, sd * 3.3, 201), n2 = vn2(d / 35, sd * 5.1, 202);
+    const a = 0.45 + h * 0.6 + n * 0.5, b = 0.2 + f * 0.7 + n2 * 0.45, c = 0.3 + (1 - h) * 0.5 + (1 - n) * 0.35; return a >= b && a >= c ? 'side_a' : b >= c ? 'side_b' : 'side_c'; },
+  lumpAt(d, sd, e) { const t = this.TYPES[this.typeAt(d, sd)].a; return t.mounds * 0.28 * Math.max(0, vn2(d / 3.5, e / 2.5 + sd * 9, 203) - 0.35) * Math.min(1, e / 2); },
+};
+function makeSideTex(key, a) {
+  const N = 512, c = document.createElement('canvas'); c.width = c.height = N; const x = c.getContext('2d'), img = x.createImageData(N, N), o = img.data, rng = rngOf(key.length * 977 + 13);
+  const n1 = noiseFieldS(N, 5, rng), n2 = noiseFieldS(N, 22, rng), n3 = noiseFieldS(N, 70, rng), C = a.col, sh = a.sh;
+  const g = C.pasto || [96, 118, 60], dry = C.pasto_seco || [150, 140, 100], earth = C.tierra || [120, 112, 100], need = C.agujas || [120, 80, 55], stone = C.piedra || [130, 130, 125];
+  const tot = sh.pasto + sh.pasto_seco + sh.tierra + sh.agujas + 1e-6, cg = sh.pasto / tot, cd = (sh.pasto + sh.pasto_seco) / tot, ce = (sh.pasto + sh.pasto_seco + sh.tierra) / tot;
+  for (let y = 0; y < N; y++) for (let xx = 0; xx < N; xx++) { const k = (y * N + xx) * 4, f = n1(xx, y) * 0.45 + n2(xx, y) * 0.35 + n3(xx, y) * 0.2, t = Math.max(0, Math.min(0.999, 0.5 + f * 0.9)), j = (rng() - 0.5) * 26;
+    const base = t < cg ? g : t < cd ? dry : t < ce ? earth : need; o[k] = base[0] * 0.92 + j; o[k + 1] = base[1] * 0.92 + j; o[k + 2] = base[2] * 0.92 + j * 0.8; o[k + 3] = 255; }
+  x.putImageData(img, 0, 0);
+  // briznas de pasto (verde y seco) y agujas de pino como trazos; flores amarillas; piedritas
+  const blades = Math.round(18000 * (sh.pasto + sh.pasto_seco)), needles = Math.round(9000 * sh.agujas / 0.05);
+  for (let i = 0; i < blades; i++) { const px = rng() * N, py = rng() * N, len = 3 + rng() * 9, dr = rng() < sh.pasto_seco / (sh.pasto + sh.pasto_seco + 1e-6), l = (rng() - 0.5) * 40, cc = dr ? dry : g;
+    x.strokeStyle = `rgba(${cc[0] + l},${cc[1] + l},${cc[2] + l * 0.6},0.75)`; x.lineWidth = 1; x.beginPath(); x.moveTo(px, py); x.lineTo(px + (rng() - 0.5) * 5, py - len); x.stroke(); }
+  for (let i = 0; i < needles; i++) { const px = rng() * N, py = rng() * N, an = rng() * Math.PI, len = 4 + rng() * 6, l = (rng() - 0.5) * 30; x.strokeStyle = `rgba(${need[0] + 20 + l},${need[1] + l},${need[2] + l},0.8)`; x.beginPath(); x.moveTo(px, py); x.lineTo(px + Math.cos(an) * len, py + Math.sin(an) * len); x.stroke(); }
+  const flowers = Math.round(2600 * sh.flor / 0.02); for (let i = 0; i < flowers; i++) { const px = rng() * N, py = rng() * N, r = 1.2 + rng() * 1.8; x.fillStyle = `rgb(${235 + rng() * 20},${190 + rng() * 30},${30 + rng() * 30})`; x.beginPath(); x.arc(px, py, r, 0, 6.3); x.fill(); }
+  const stones = Math.round(700 * sh.piedra * (key === 'side_a' ? 0.15 : 1)); for (let i = 0; i < stones; i++) { const px = rng() * N, py = rng() * N, r = 1.5 + rng() * 5, l = (rng() - 0.5) * 30, gr = x.createRadialGradient(px - r * 0.3, py - r * 0.3, 0.2, px, py, r);
+    gr.addColorStop(0, `rgb(${stone[0] + 30 + l},${stone[1] + 30 + l},${stone[2] + 30 + l})`); gr.addColorStop(1, `rgb(${stone[0] - 30 + l},${stone[1] - 30 + l},${stone[2] - 28 + l})`); x.fillStyle = gr; x.beginPath(); x.ellipse(px, py, r, r * (0.6 + rng() * 0.4), rng() * 3, 0, 6.3); x.fill(); }
+  return c;
+}
+// atlas de matas (fondo transparente): [pasto verde con flores | coirón seco | mata verde baja | pasto alto mixto]
+function makeTuftTex() {
+  const W = 1024, H = 256, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'), rng = rngOf(4242);
+  const A = SIDECAT.TYPES.side_a.a, B = SIDECAT.TYPES.side_c.a, g = A.col.pasto || [96, 118, 60], dry = B.col.pasto_seco || [160, 150, 105];
+  const tuft = (ox, col, n, hmax, flowers, curl) => { for (let i = 0; i < n; i++) { const bx = ox + 128 + (rng() - 0.5) * 150, h = hmax * (0.45 + rng() * 0.55), lean = (rng() - 0.5) * curl, l = (rng() - 0.5) * 40;
+      x.strokeStyle = `rgb(${col[0] + l},${col[1] + l},${col[2] + l * 0.6})`; x.lineWidth = 1.2 + rng() * 1.6; x.beginPath(); x.moveTo(bx, H - 2); x.quadraticCurveTo(bx + lean * 0.3, H - h * 0.6, bx + lean, H - h); x.stroke();
+      if (flowers && rng() < flowers) { x.fillStyle = `rgb(${240 + rng() * 15},${195 + rng() * 25},${35 + rng() * 25})`; x.beginPath(); x.arc(bx + lean, H - h - 2, 3 + rng() * 3, 0, 6.3); x.fill(); } } };
+  tuft(0, g, 260, 190, 0.12, 60); tuft(256, dry, 320, 210, 0, 110); tuft(512, g.map(v => v * 0.85), 220, 110, 0.05, 40); tuft(768, mixCol(g, dry, 0.4), 300, 230, 0.06, 80);
+  return c;
+}
 // ---------- Relieve del piso y humedad del camino ----------
 // Humedad (0 firme y seco … 1 barro) a lo largo del recorrido: camino más oscuro en el satélite, hondonadas (las mide el
 // núcleo con la altura) y tramos de huellones. Con ella varía el relieve: pocos baches en lo firme, muchos y hondos en lo
@@ -4123,11 +4178,12 @@ async function rebuild(keepCam) {
     S.roadH = roadH;
     // humedad del camino, relieve del piso y accesos (caminos laterales de OpenStreetMap que tocan el recorrido)
     { const tt = rPts.reduce((a, p, i) => i ? a + Math.hypot(p[0] - rPts[i - 1][0], p[1] - rPts[i - 1][1]) : 0, 0); RELIEF.env(tt); RELIEF.A = RELIEF.amp(); }
+    SIDECAT.on = SIDECAT.active(); if (SIDECAT.on) SIDECAT.build();
     const ACCS = []; { const cum = [0]; for (let i = 1; i < rPts.length; i++) cum.push(cum[i - 1] + Math.hypot(rPts[i][0] - rPts[i - 1][0], rPts[i][1] - rPts[i - 1][1]));
       for (const sr of (S.side || [])) for (const end of [sr.pts[0], sr.pts[sr.pts.length - 1]]) { const [x, y] = B.P.fwd(end[0], end[1]); let bd = 15, bi = -1; for (let i = 0; i < rPts.length; i += 2) { const dd = Math.hypot(rPts[i][0] - x, rPts[i][1] - y); if (dd < bd) { bd = dd; bi = i; } }
         if (bi < 1) continue; const a = rPts[bi - 1], b = rPts[bi], cr = (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]); ACCS.push({ d: cum[bi], sd: cr > 0 ? 1 : -1, w: 5 }); } }
     const routeArgs = { bareAt: S.autoW ? S.autoW.bare : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, terrRes: o.res, shoulder: Math.min(3.5, o.res * 1.5 + 1),
-      humAt: RELIEF.humAt, forestAt: RELIEF.forestAt, reliefAt: RELIEF.A ? (d, s, hw, c) => RELIEF.at(d, s, hw, c) : null, accesses: ACCS, procAccess: !$('#access') || $('#access').checked };
+      humAt: RELIEF.humAt, forestAt: RELIEF.forestAt, sideMatAt: SIDECAT.on ? (d, sd) => SIDECAT.typeAt(d, sd) : null, sideLumpAt: SIDECAT.on ? (d, sd, e) => SIDECAT.lumpAt(d, sd, e) : null, reliefAt: RELIEF.A ? (d, s, hw, c) => RELIEF.at(d, s, hw, c) : null, accesses: ACCS, procAccess: !$('#access') || $('#access').checked };
     S.live = { routeArgs, cache: { keyFn: () => JSON.stringify(S.edits.filter(e => e.kind === 'shape')) }, sideArgs: null, sideSegs: [] };
     res = Core.buildRoute({ ...routeArgs, ...editFns(o, S.lastTotal, B.closed), cache: S.live.cache });
     S.lastTotal = res.total;
@@ -4238,6 +4294,7 @@ async function rebuild(keepCam) {
         if (r.hs[i] + B.h0 > 1500) f = Math.max(f, 0.5);
         if (o.veg && i % 5 === 0) { const nx = -r.T[i][1], ny = r.T[i][0], off = r.W[i] / 2 + r.EX + 4; r.__rock = B.landAt(r.C[i][0] + nx * off, r.C[i][1] + ny * off) === 'rock' || B.landAt(r.C[i][0] - nx * off, r.C[i][1] - ny * off) === 'rock'; }
         if (r.__rock) f = 1;
+        if (SIDECAT.on) f = Math.max(f, 0.35 * SIDECAT.TYPES[SIDECAT.typeAt(r.dist[i], i % 2 ? 1 : -1)].rocks);
         return Math.min(1, (0.06 + f) * o.rocks);
       },
     });
@@ -4245,6 +4302,21 @@ async function rebuild(keepCam) {
     if (rk.count) log(`Piedras al costado: ${rk.count.toLocaleString()} (${rk.big.toLocaleString()} grandes con choque).`);
     const ditchM = r.DL.reduce((s, v, i) => s + (Math.max(v, r.DR[i]) > 0.12 ? 2 : 0), 0);
     if (ditchM) log(`Cunetas: ${(ditchM / 1000).toFixed(2)} km de camino con cuneta (piso resbaladizo).`);
+  }
+  if (B.mode === 'route' && SIDECAT.on && res) { // matas de pasto 3D (sin choque) en banquinas y taludes, según el tipo de costado
+    const hAt = Core.terrainHeightFn(ter, B.bbox, o.res), m = { name: 'TREES_tufts', mat: 'tuft', v: [], uv: [], f: [] }; let cnt = 0;
+    for (let i = 0; i < res.n && cnt < 60000; i += 1) for (const sd of [1, -1]) {
+      const d = res.dist[i], tp = SIDECAT.TYPES[SIDECAT.typeAt(d, sd)], dens = tp.tuft * 2; if ((res.accessPts || []).some(a => Math.abs(a.d - d) < 8)) continue;
+      for (let q = 0; q < 6; q++) { if (hashU(i, sd * 7 + q, 301) > dens * 0.45) continue;
+        const e = 0.35 + Math.pow(hashU(i, sd * 7 + q, 302), 1.6) * 7, lat = sd * (res.W[i] / 2 + e), nx = -res.T[i][1], ny = res.T[i][0], x0 = res.C[i][0] + nx * lat + res.T[i][0] * hashU(i, q, 303) * 2, y0 = res.C[i][1] + ny * lat + res.T[i][1] * hashU(i, q, 303) * 2;
+        const DD = sd > 0 ? res.DL[i] : res.DR[i]; if (DD > 0.12 && e < 1.4) continue; // no dentro de la zanja
+        const h = hAt(x0, y0); if (h == null) continue; const sz = 0.35 + hashU(i, q, 304) * 0.5, slot = tp === SIDECAT.TYPES.side_a ? (hashU(i, q, 305) < 0.6 ? 0 : 3) : tp === SIDECAT.TYPES.side_c ? 1 : (hashU(i, q, 305) < 0.5 ? 2 : 1), a0 = hashU(i, q, 306) * 3.14;
+        for (const a of [a0, a0 + Math.PI / 2]) { const ca = Math.cos(a) * sz * 0.6, sa = Math.sin(a) * sz * 0.6, b = m.v.length;
+          m.v.push([x0 - ca, y0 - sa, h - 0.03], [x0 + ca, y0 + sa, h - 0.03], [x0 + ca, y0 + sa, h + sz], [x0 - ca, y0 - sa, h + sz]);
+          m.uv.push([slot / 4 + 0.004, 0.01], [(slot + 1) / 4 - 0.004, 0.01], [(slot + 1) / 4 - 0.004, 0.99], [slot / 4 + 0.004, 0.99]); m.f.push([b, b + 1, b + 2], [b, b + 2, b + 3]); }
+        cnt++; }
+    }
+    if (cnt) { meshes.push(m); log(`Costados (catálogo de fotos de Ushuaia, mismo bioma): ${Object.values(SIDECAT.TYPES).map(t => t.name.toLowerCase()).join(', ')}. ${cnt.toLocaleString()} matas de pasto 3D (sin choque), montículos en los taludes y piedras semienterradas.`, 'ok'); }
   }
   let OCC = [];
   if (B.mode === 'route' && o.objects) {
@@ -4547,7 +4619,7 @@ async function buildZip(R) {
   const tr = zip.folder('content').folder('tracks').folder(slug), src = $('#withSrc').checked ? zip.folder('fuente_' + slug) : null, ref = zip.folder('referencia_rbr_btb');
   const usedMats = [...new Set(R.meshes.map(m => m.mat))];
   const keys = [...new Set(R.meshes.filter(m => !/^(LINES|TREES|ROCKS|BANNERS|OBJECTS)_/.test(m.name)).map(m => m.name.replace(/^\d+/, '')))];
-  const kd = m => (m === 'line' || m === 'tree' || m === 'people' || m.startsWith('tc_') || m.startsWith('rs_')) ? '1 1 1' : (TEXDEF[m] || SURF[MAT2KEY[m]]).col.map(v => (v / 255).toFixed(2)).join(' ');
+  const kd = m => (m === 'line' || m === 'tree' || m === 'tuft' || m.startsWith('side_') || m === 'people' || m.startsWith('tc_') || m.startsWith('rs_')) ? '1 1 1' : (TEXDEF[m] || SURF[MAT2KEY[m]]).col.map(v => (v / 255).toFixed(2)).join(' ');
   $('#prog').textContent = 'Escribiendo modelo 3D…'; await tick();
   if ($('#withSrc').checked) {
     src.file('track.obj', Core.toOBJ(R.meshes, 'track.mtl')); await tick();
@@ -4657,7 +4729,7 @@ const PV = { renderer: null };
 function pvMat(k) {
   return PV.mats[k] || (PV.mats[k] = (() => {
     const t = new THREE.CanvasTexture(TEX[k]); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
-    if (k === 'tree' || k === 'people') { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide }); }
+    if (k === 'tree' || k === 'people' || k === 'tuft') { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide }); }
     if (k === 'fwire' || k === 'fgate') return new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.5 });
     if (k.startsWith('rs_')) { t.wrapS = THREE.ClampToEdgeWrapping; t.wrapT = THREE.ClampToEdgeWrapping; }
     if (hasNormal(k) && THREE.MeshPhongMaterial) { const nt = new THREE.CanvasTexture(normalOf(k)); nt.wrapS = t.wrapS; nt.wrapT = t.wrapT;
@@ -5067,7 +5139,7 @@ function chunkMesh(m, size = 100) {
     return o;
   });
 }
-const MAT_SHADER = { people: { shader: 'ksPerPixelAT', alpha: true }, tree: { shader: 'ksPerPixelAT', alpha: true }, fwire: { shader: 'ksPerPixelAT', alpha: true }, fgate: { shader: 'ksPerPixelAT', alpha: true } };
+const MAT_SHADER = { tuft: { shader: 'ksPerPixelAT', alpha: true }, people: { shader: 'ksPerPixelAT', alpha: true }, tree: { shader: 'ksPerPixelAT', alpha: true }, fwire: { shader: 'ksPerPixelAT', alpha: true }, fgate: { shader: 'ksPerPixelAT', alpha: true } };
 async function buildKN5(R, slug, invert) {
   SPLIT_N = 0; const w = new BinW();
   w.ascii('sc6969'); w.i32(5);
@@ -5080,7 +5152,7 @@ async function buildKN5(R, slug, invert) {
   for (const m of mats) {
     // en Assetto Corsa el sol pega más fuerte que en la vista previa y la luz ambiente es azulada:
     // oscurecemos y entibiamos las texturas de suelo para que el ripio no quede blanco y las banquinas no se vean azules
-    const G = m === 'tree' || m === 'line' ? null : ['gravel', 'loose', 'asphalt', 'wet', 'ice', 'snow', 'powder'].includes(m) ? [0.7, 0.68, 0.62] : [0.8, 0.79, 0.72];
+    const G = m === 'tree' || m === 'tuft' || m === 'line' ? null : ['gravel', 'loose', 'asphalt', 'wet', 'ice', 'snow', 'powder'].includes(m) ? [0.7, 0.68, 0.62] : [0.8, 0.79, 0.72];
     const data = TEX[m].__dxt ? canvasToDDS(TEX[m], m.startsWith('rs_') ? [0.72, 0.7, 0.64] : [0.86, 0.85, 0.8], true) : canvasToDDS(TEX[m], G);
     w.i32(1); w.str(m + '.dds'); w.i32(data.length); w.bytes(data);
   }
