@@ -992,29 +992,54 @@ function makeVergeTex() {
   x.drawImage(m, 0, 0);
   return c;
 }
-// textura del costado con cuneta (u = a lo ancho del perfil): piedras de la berma → talud húmedo → fondo con barro y agua
-// → contratalud con musgo → suelo del bosque. Las capas se funden con bordes suaves; a lo largo (v) se repite sin corte.
+// textura del costado con cuneta (u = a lo ancho del perfil), como las zanjas de Aguas Blancas:
+// borde del camino → pared de la zanja (tierra arcillosa cortada) → fondo húmedo → pared de enfrente y terrones
+// apilados (arcilla clara) → talud de pasto con matas secas. A lo largo (v) se repite sin corte.
 function makeDitchTex() {
   const N = 512, c = document.createElement('canvas'); c.width = c.height = N; const x = c.getContext('2d');
-  const src = k => PHOTO_CANVAS[k] || TEX[k] || TEX.grass;
-  const band = (img, u0, u1, f, filter) => {
-    const m = document.createElement('canvas'); m.width = m.height = N; const mx = m.getContext('2d');
-    if (filter) mx.filter = filter; mx.drawImage(img, 0, 0, N, N); mx.filter = 'none'; mx.globalCompositeOperation = 'destination-in';
-    const g = mx.createLinearGradient(0, 0, N, 0), cl = v => Math.max(0, Math.min(1, v));
-    g.addColorStop(0, `rgba(0,0,0,${u0 <= 0 ? 1 : 0})`); g.addColorStop(cl(u0 - f), `rgba(0,0,0,${u0 <= 0 ? 1 : 0})`); g.addColorStop(cl(u0 + f), 'rgba(0,0,0,1)');
-    g.addColorStop(cl(u1 - f), 'rgba(0,0,0,1)'); g.addColorStop(cl(u1 + f), `rgba(0,0,0,${u1 >= 1 ? 1 : 0})`); g.addColorStop(1, `rgba(0,0,0,${u1 >= 1 ? 1 : 0})`);
-    mx.fillStyle = g; mx.fillRect(0, 0, N, N); x.drawImage(m, 0, 0);
-  };
-  x.drawImage(TEX.forest || src('forest'), 0, 0, N, N);
-  band(src('ditch'), 0.5, 0.8, 0.07, 'brightness(0.82) saturate(1.1)');             // contratalud: tierra húmeda con matas
-  x.globalAlpha = 0.45; band(TEX.grass, 0.68, 0.9, 0.08, 'brightness(0.75) saturate(0.85)'); x.globalAlpha = 1; // matas de pasto y musgo arriba
-  band(src('ditch'), 0.1, 0.46, 0.05, 'brightness(0.78)');                           // talud interno
-  band(src('mud'), 0.38, 0.62, 0.04, 'brightness(0.62) contrast(1.15)');             // fondo: barro
-  band(src('loose'), -1, 0.16, 0.04, 'brightness(0.95) sepia(0.15)');                // berma: ripio que tiran las ruedas
-  // agua quieta en el fondo (reflejo gris azulado, cortado en charcos)
-  const w = x.createLinearGradient(0, 0, N, 0); w.addColorStop(0.44, 'rgba(70,80,86,0)'); w.addColorStop(0.49, 'rgba(70,80,86,0.55)'); w.addColorStop(0.53, 'rgba(70,80,86,0.55)'); w.addColorStop(0.58, 'rgba(70,80,86,0)');
-  for (let y = 0; y < N; y += 8) { const a = 0.5 + 0.5 * Math.sin(y * 0.031) * Math.sin(y * 0.013 + 1.7); if (a < 0.35) continue; x.globalAlpha = Math.min(1, (a - 0.35) * 1.6); x.fillStyle = w; x.fillRect(0, y, N, 8); }
-  x.globalAlpha = 1;
+  const gr = document.createElement('canvas'); gr.width = gr.height = N; gr.getContext('2d').drawImage(TEX.grass || makeGroundTex('grass'), 0, 0, N, N);
+  const G = gr.getContext('2d').getImageData(0, 0, N, N).data, img = x.createImageData(N, N), o = img.data;
+  const n1 = noiseField(N, 6), n2 = noiseField(N, 24), n3 = noiseField(N, 80), nl = noiseField(N, 18), nt = noiseField(N, 14), nf = noiseField(N, 90);
+  const sm = (a, b, t) => { const u = Math.max(0, Math.min(1, (t - a) / (b - a))); return u * u * (3 - 2 * u); };
+  const mix = (A, B, t) => [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t];
+  for (let py = 0; py < N; py++) for (let px = 0; px < N; px++) {
+    const u = px / N, k = (py * N + px) * 4, f = n2(px, py) * 0.5 + n3(px, py) * 0.5, gn = (Math.random() - 0.5) * 14;
+    const road = [168 + f * 12, 155 + f * 12, 140 + f * 11];                 // tierra compactada del camino
+    const cut = [150 + f * 22, 128 + f * 20, 100 + f * 18];                  // pared cortada: arcilla
+    const wet = [96 + f * 14, 80 + f * 12, 62 + f * 10];                      // fondo húmedo
+    // terrones: relieve con luz de arriba a la izquierda (derivada del ruido), en vez de manchas planas
+    const hgt = nl(px, py) * 0.6 + nf(px, py) * 0.4, sh = Math.max(0.7, Math.min(1.18, 1 + (nl(px - 4, py - 4) - nl(px + 4, py + 4)) * 1.1 + (nf(px - 1, py - 1) - nf(px + 1, py + 1)) * 0.5));
+    const clod = [(166 + hgt * 18) * sh, (149 + hgt * 16) * sh, (124 + hgt * 14) * sh];
+    const dryT = Math.max(0, Math.min(1, (nt(px * 2, py * 0.5) - 0.15) * 2.5)), g0 = [G[k], G[k + 1], G[k + 2]], grass = mix(g0, [146, 134, 90], dryT * 0.55);
+    let col = road;
+    col = mix(col, cut, sm(0.04, 0.1, u));
+    col = mix(col, wet, sm(0.24, 0.3, u) * (1 - sm(0.38, 0.44, u)));
+    col = mix(col, cut, sm(0.38, 0.44, u));
+    col = mix(col, clod, sm(0.44, 0.5, u + n1(px, py) * 0.03));
+    col = mix(col, grass, sm(0.6, 0.72, u + n1(px, py) * 0.06 + hgt * 0.04));
+    // agua quieta en partes del fondo
+    const pud = Math.max(0, 1 - Math.abs(u - 0.34) / 0.035) * Math.max(0, Math.min(1, (n1(px, py * 0.4) - 0.1) * 3)); if (pud > 0) col = mix(col, [70, 76, 78], pud * 0.55);
+    o[k] = col[0] + gn; o[k + 1] = col[1] + gn; o[k + 2] = col[2] + gn; o[k + 3] = 255;
+  }
+  x.putImageData(img, 0, 0);
+  // briznas de pasto y pajas secas sobre el talud
+  for (let i = 0; i < 9000; i++) { const px = N * (0.62 + Math.random() * 0.38), py = Math.random() * N, len = 4 + Math.random() * 9, dry = Math.random() < 0.3, l = rnd(-20, 20);
+    x.strokeStyle = dry ? `rgba(${165 + l},${150 + l},${100 + l},0.7)` : `rgba(${70 + l},${100 + l},${40 + l * 0.5},0.6)`; x.lineWidth = 1; x.beginPath(); x.moveTo(px, py); x.lineTo(px + rnd(-3, 3), py - len); x.stroke();
+    if (py - len < 0) { x.beginPath(); x.moveTo(px, py + N); x.lineTo(px, py + N - len); x.stroke(); } }
+  return c;
+}
+// tierra arcillosa compactada (camino de Aguas Blancas): beige grisáceo, liso, grano fino, pocas piedritas y manchas de humedad
+function makeClayRoadTex() {
+  const N = 512, c = document.createElement('canvas'); c.width = c.height = N; const x = c.getContext('2d'), img = x.createImageData(N, N), o = img.data;
+  const n1 = noiseField(N, 4), n2 = noiseField(N, 16), n3 = noiseField(N, 64), n4 = noiseField(N, 160), wetN = noiseField(N, 5);
+  for (let py = 0; py < N; py++) for (let px = 0; px < N; px++) {
+    const k = (py * N + px) * 4, f = n1(px, py) * 0.35 + n2(px, py) * 0.3 + n3(px, py) * 0.2 + n4(px, py) * 0.15 + (Math.random() - 0.5) * 0.25;
+    let r = 166 + f * 16, g = 153 + f * 15, b = 138 + f * 14;
+    const w = Math.max(0, wetN(px, py) - 0.45) * 2.2; if (w > 0) { const t = Math.min(0.55, w); r *= 1 - t * 0.55; g *= 1 - t * 0.57; b *= 1 - t * 0.58; }
+    o[k] = r; o[k + 1] = g; o[k + 2] = b; o[k + 3] = 255;
+  }
+  x.putImageData(img, 0, 0);
+  for (let i = 0; i < 900; i++) { const l = rnd(-30, 25), r0 = rnd(0.6, 2.2); x.fillStyle = `rgba(${150 + l},${142 + l},${132 + l},0.85)`; x.beginPath(); x.arc(rnd(0, N), rnd(0, N), r0, 0, Math.PI * 2); x.fill(); } // piedritas
   return c;
 }
 function soften(src, k) {
@@ -1045,7 +1070,7 @@ const photoReady = (async () => {
     if ($('#grassType').value === 'dry') { TEX.grass = TEX_DEFAULT.grass = PHOTO_CANVAS.grass; }
     TEX.tree = TEX_DEFAULT.tree = buildPhotoTreeAtlas();
     TEX.forest = TEX_DEFAULT.forest = tint(PHOTO_CANVAS.forest, 'rgb(70,96,48)', 0.55); // suelo de bosque con musgo (no rojizo)
-    TEX.verge = TEX_DEFAULT.verge = makeVergeTex(); TEX.ditchside = TEX_DEFAULT.ditchside = makeDitchTex();
+    TEX.verge = TEX_DEFAULT.verge = makeVergeTex(); TEX.ditchside = TEX_DEFAULT.ditchside = makeDitchTex(); TEX.clay = TEX_DEFAULT.clay = makeClayRoadTex();
     for (const k of OBJ_MATS) TEX[k] = TEX_DEFAULT[k] = objTex(k);
     if (typeof refreshPreviewTextures === 'function' && S.result) refreshPreviewTextures();
   } catch (e) { console.warn('Texturas de fotos no disponibles', e); }
@@ -2040,7 +2065,7 @@ function buildRoadStrips(B, res, o = {}) {
     for (let d = d0; d <= d1; d += 4) hwMax = Math.max(hwMax, at(d).hw);
     const HW = hwMax + 0.15, cv = document.createElement('canvas'); cv.width = STRIP_W; cv.height = STRIP_H; const cx = cv.getContext('2d'), img = cx.createImageData(STRIP_W, STRIP_H), od = img.data;
     for (let py = 0; py < STRIP_H; py++) {
-      const v = 1 - (py + 0.5) / STRIP_H, d = d0 + v * STRIP_LEN, P = at(Math.min(total, d)), mat = matAt[Math.max(0, Math.min(matAt.length - 1, Math.round(d / 2)))] || 'gravel', D = tdat(mat === 'clay' ? 'gravel' : mat), E = tdat('loose'), dirt = mat !== 'asphalt' && mat !== 'snow' && mat !== 'ice' && mat !== 'wet', clayD = !dirt ? 0 : o.clay === 'auto' ? (S.autoSurf ? S.autoSurf.clay(d) : 0.4) : +(o.clay ?? 0.4);
+      const v = 1 - (py + 0.5) / STRIP_H, d = d0 + v * STRIP_LEN, P = at(Math.min(total, d)), mat = matAt[Math.max(0, Math.min(matAt.length - 1, Math.round(d / 2)))] || 'gravel', D = tdat(mat === 'clay' ? 'clay' : mat), E = tdat('loose'), dirt = mat !== 'asphalt' && mat !== 'snow' && mat !== 'ice' && mat !== 'wet', clayD = !dirt ? 0 : o.clay === 'auto' ? (S.autoSurf ? S.autoSurf.clay(d) : 0.4) : +(o.clay ?? 0.4);
       const [la0, lo0] = B.P.inv(P.x, P.y);
       for (let px = 0; px < STRIP_W; px++) {
         const s = ((px + 0.5) / STRIP_W * 2 - 1) * HW, o = (py * STRIP_W + px) * 4; allPx++;
@@ -2060,16 +2085,16 @@ function buildRoadStrips(B, res, o = {}) {
         }
         // piedras sueltas hacia los bordes (el ripio que tiran las ruedas)
         const edge = Math.max(0, (Math.abs(s) - (P.hw - 0.9)) / 0.9);
-        if (edge > 0 && (mat === 'gravel' || mat === 'clay')) { const ex = ((Math.floor(s / 5 * E.w) % E.w) + E.w) % E.w, ey = ((Math.floor(d / 5 * E.h) % E.h) + E.h) % E.h, e0 = (ey * E.w + ex) * 4, w = Math.min(1, edge); rr = rr * (1 - w) + E.d[e0] * w; gg = gg * (1 - w) + E.d[e0 + 1] * w; bb = bb * (1 - w) + E.d[e0 + 2] * w; }
+        if (edge > 0 && mat === 'gravel') { const ex = ((Math.floor(s / 5 * E.w) % E.w) + E.w) % E.w, ey = ((Math.floor(d / 5 * E.h) % E.h) + E.h) % E.h, e0 = (ey * E.w + ex) * 4, w = Math.min(1, edge); rr = rr * (1 - w) + E.d[e0] * w; gg = gg * (1 - w) + E.d[e0 + 1] * w; bb = bb * (1 - w) + E.d[e0 + 2] * w; }
         // huellas de las ruedas: más lisas y algo más oscuras
         // huellas de las ruedas: tierra arcillosa apisonada, lisa y más oscura, con surcos finos a lo largo
         const tw = P.hw * 0.42 + Math.sin(d * 0.013 + h1) * 0.15, tr = (dirt ? 1 : 0.25) * Math.exp(-((Math.abs(s) - tw) ** 2) / (2 * 0.38 ** 2)) * (0.8 + 0.2 * Math.sin(d * 0.05 + h1));
         const groove = 1 - 0.08 * tr * (0.5 + 0.5 * Math.sin(s * 41 + hashU(Math.floor(d / 7), 0, 5) * 6)), mean = (rr + gg + bb) / 3, smooth = tr * 0.55;
-        rr = (rr * (1 - smooth) + mean * smooth) * (1 - 0.34 * tr) * groove; gg = (gg * (1 - smooth) + mean * smooth) * (1 - 0.36 * tr) * groove; bb = (bb * (1 - smooth) + mean * smooth) * (1 - 0.38 * tr) * groove;
+        rr = (rr * (1 - smooth) + mean * smooth) * (1 - 0.13 * tr) * groove; gg = (gg * (1 - smooth) + mean * smooth) * (1 - 0.14 * tr) * groove; bb = (bb * (1 - smooth) + mean * smooth) * (1 - 0.15 * tr) * groove; // huellas apenas marcadas (tierra apisonada, no surcos negros)
         // lomo central y bordes con ripio suelto y más claro (lo que las ruedas no pisan)
         const ridge = dirt ? Math.exp(-(s * s) / (2 * (P.hw * 0.16) ** 2)) * 0.18 : 0; rr *= 1 + ridge; gg *= 1 + ridge; bb *= 1 + ridge * 0.9;
         // tono arcilloso (tierra marrón entre el ripio), con manchas de barro seco
-        const clay = clayD * (0.75 + 0.5 * hashU(Math.floor(s / 1.5), Math.floor(d / 4), 9)), cl = [150, 118, 86], lum = (rr + gg + bb) / 3 / 128;
+        const clay = clayD * (0.75 + 0.5 * hashU(Math.floor(s / 1.5), Math.floor(d / 4), 9)), cl = [168, 152, 132], lum = (rr + gg + bb) / 3 / 150; // beige grisáceo de la tierra compactada (medido en fotos de Aguas Blancas)
         rr = rr * (1 - clay) + cl[0] * lum * clay; gg = gg * (1 - clay) + cl[1] * lum * clay; bb = bb * (1 - clay) + cl[2] * lum * clay;
         // fuera del ancho real del camino (en tramos más angostos) se ve la banquina
         if (Math.abs(s) > P.hw) { rr *= 0.9; gg *= 0.92; bb *= 0.85; }

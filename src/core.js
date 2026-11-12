@@ -230,23 +230,26 @@ const Core = (() => {
     // cunetas: 'auto' = a los dos lados salvo donde el terreno cae fuerte (terraplén), más honda del lado del cerro;
     // 'both' = siempre a los dos lados; 'none' = sin cunetas
     const mode = o.ditch || 'none';
-    const autoD = sl => sl < -0.15 ? 0 : 0.5 + 0.35 * Math.min(1, Math.max(0, (sl + 0.02) / 0.15));
-    let DLs = SLL.map(sl => mode === 'both' ? 0.6 : mode === 'auto' ? autoD(sl) : 0);
-    let DRs = SLR.map(sl => mode === 'both' ? 0.6 : mode === 'auto' ? autoD(sl) : 0);
+    const autoD = sl => sl < -0.15 ? 0 : 0.38 + 0.22 * Math.min(1, Math.max(0, (sl + 0.02) / 0.15));
+    let DLs = SLL.map(sl => mode === 'both' ? 0.45 : mode === 'auto' ? autoD(sl) : 0);
+    let DRs = SLR.map(sl => mode === 'both' ? 0.45 : mode === 'auto' ? autoD(sl) : 0);
     DLs = smooth1D(DLs, 5, closed); DRs = smooth1D(DRs, 5, closed);
     // perfil transversal de cada costado (distancias desde el borde del ripio):
     // berma de piedras → cuneta en V con fondo → contratalud que sube (o baja) hasta el terreno real de ese lado
-    const sideProf = (i, sd) => {
-      const sl = sd > 0 ? SLL[i] : SLR[i], Dd = sd > 0 ? DLs[i] : DRs[i], hw = W[i] / 2, edge = surfH(i, sd * hw);
+    const sideProf = (i, sd, force) => {
+      const sl = sd > 0 ? SLL[i] : SLR[i], Dd = force === true ? Math.max(0.13, sd > 0 ? DLs[i] : DRs[i]) : force === false ? 0 : sd > 0 ? DLs[i] : DRs[i], hw = W[i] / 2, edge = surfH(i, sd * hw);
       const bare = o.bareAt ? o.bareAt(dist[i], sd) : 1, bw = Math.max(0.25, Math.min(1.0, 0.35 * bare + 0.15));
       const tg = e => hs[i] + sl * (hw + e) - 0.05;
       let pts, xe, clear;
       if (Dd > 0.12) {
-        const e2 = bw + 0.7, e3 = e2 + 0.3, bot = edge - Dd;
-        xe = e3 + 0.9; for (let k = 0; k < 3; k++) xe = Math.min(9, e3 + Math.max(0.9, (tg(xe) - bot) / 1.0));
+        // zanja angosta cavada al borde del camino (como en Aguas Blancas): pared casi vertical del lado del camino,
+        // fondo de ~0,3 m, pared de tierra arcillosa del otro lado con terrones apilados encima (desparejo a lo largo)
+        const d = dist[i], lump = 0.1 + 0.08 * Math.sin(d * 0.37 + sd) * Math.sin(d * 0.113 + 2 * sd) + 0.06 * Math.sin(d * 1.3 + sd * 3);
+        const bot = edge - Dd, mtop = edge + Math.max(0.02, lump), a0 = 0.1, a1 = 0.32, a2 = 0.62, a3 = 0.9, a4 = 1.3;
+        xe = a4 + 0.8; for (let k = 0; k < 3; k++) { const dh = tg(xe) - mtop; xe = Math.min(9, a4 + Math.max(0.8, Math.abs(dh) * (dh < 0 ? 1.5 : 1.1))); }
         const top = tg(xe);
-        pts = [[0, edge], [bw, edge - 0.06], [e2, bot], [e3, bot + 0.02], [(e3 + xe) / 2, bot + (top - bot) * 0.42], [xe, top]];
-        clear = e3 + 0.4;
+        pts = [[0, edge], [a0, edge - 0.04], [a1, bot], [a2, bot + 0.03], [a3, mtop - 0.04], [a4, mtop - 0.06], [(a4 + xe) / 2, mtop + (top - mtop) * 0.5], [xe, top]];
+        clear = a4 + 0.3;
       } else {
         const b0 = edge - 0.06; xe = bw + 1;
         for (let k = 0; k < 3; k++) { const dh = tg(xe) - b0; xe = Math.min(9, bw + Math.max(1, Math.abs(dh) * (dh < 0 ? 1.5 : 1.2))); }
@@ -292,7 +295,7 @@ const Core = (() => {
       for (const m of ribbonMeshes(secs, false, run.key, MAT[run.key], 7, { next: () => cnt(run.key) })) { m.road = true; meshes.push(m); }
     }
     // costados: berma, cuneta y contratalud (o banquina y terraplén donde no hay cuneta)
-    const UD = [0, 0.14, 0.42, 0.55, 0.78, 1, 1, 1], UV = [0, 0.2, 0.45, 0.7, 0.9, 1, 1, 1];
+    const UD = [0, 0.06, 0.28, 0.4, 0.55, 0.64, 0.82, 1, 1, 1], UV = [0, 0.2, 0.45, 0.7, 0.9, 1, 1, 1];
     for (const side of [1, -1]) {
       const Dd = side > 0 ? DLs : DRs, onBridge = i => o.bridge && o.bridge(C[i][0], C[i][1]), sideKey = i => onBridge(i) ? 'NONE' : Dd[i] > 0.12 ? 'DITCH' : 'VERGE', runs2 = [];
       for (let i = 0; i < segCount; i++) { const k = sideKey(i), last = runs2[runs2.length - 1]; if (last && last.key === k) last.i1 = i; else runs2.push({ key: k, i0: i, i1: i }); }
@@ -300,7 +303,7 @@ const Core = (() => {
         if (run.key === 'NONE') continue; // en los puentes no hay banquina: se ve el río abajo
         const secs = [], U = run.key === 'DITCH' ? UD : UV;
         for (let ii = run.i0; ii <= run.i1 + 1; ii++) {
-          const i = ii % n, hw = W[i] / 2, P = SP[i][side > 0 ? 0 : 1].pts;
+          const i = ii % n, hw = W[i] / 2, sp0 = SP[i][side > 0 ? 0 : 1], isD = run.key === 'DITCH', P = (sp0.Dd > 0.12) === isD ? sp0.pts : sideProf(i, side, isD).pts;
           const ord = side > 0 ? P.map((q, k) => [q, U[k]]) : P.map((q, k) => [q, U[k]]).reverse();
           secs.push({ cols: ord.map(([[e, h], u]) => { const [x, y] = pos(i, side * (hw + e)); return { x, y, h, u, i, sc: side * hw }; }), d: dist[i] + (ii >= n ? total : 0), step });
         }
