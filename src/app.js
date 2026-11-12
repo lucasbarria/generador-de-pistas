@@ -2490,7 +2490,7 @@ const PHOTOMAT = {
   // paleta combinada de varias fotos (colores con su peso), reducida a 6 tonos ordenados de oscuro a claro
   palette(list, pick = () => true) {
     const all = [];
-    for (const p of list) { const L0 = lumOf(p.albedo); for (const [c, w] of p.pal) if (c[2] <= c[0] + 12 && lumOf(c) >= L0 * 0.72 && pick(c, L0, p)) all.push([c.map(v => v * 0.94), w * this.weight(p)]); } // sin el azul de la sombra; color propio ≈ 94% del color al sol
+    for (const p of list) { const L0 = lumOf(p.albedo); for (const [c, w] of p.pal) if (c[2] <= c[0] + 12 && lumOf(c) >= L0 * 0.72 && pick(c, L0, p)) all.push([[c[0] * 0.86, c[1] * 0.83, c[2] * 0.81], w * this.weight(p)]); } // sin el azul de la sombra; color propio: el de la foto al sol menos la luz del sol y del cielo (calibrado con la vista 3D)
     if (!all.length) return null;
     all.sort((a, b) => lumOf(a[0]) - lumOf(b[0]));
     const out = [], n = Math.min(6, all.length), tot = all.reduce((a, q) => a + q[1], 0);
@@ -2535,20 +2535,24 @@ const PHOTOMAT = {
   // bosque cerrado → grava gris; más oscuro → tierra compactada o húmeda. Cambios suaves (~400 m).
   distribute(total) {
     const M = this.mats, n = Math.ceil(total / 20) + 1, idx = Object.fromEntries(M.map((m, i) => [m.id, i])), A = this.mix = [];
-    const SA = S.autoSurf && S.autoSurf.at, lums = SA ? Array.from({ length: n }, (_, k) => (SA(k * 20) || {}).lum).filter(v => v != null).sort((a, b) => a - b) : [], lmed = lums.length ? lums[lums.length >> 1] : 128;
-    const base = { AB_02: 1, AB_01: 0.8, AB_03: 0.35, AB_04: 0.35, AB_05: 0.12, AB_06: 0 };
+    const SA = S.autoSurf && S.autoSurf.at, Q = Array.from({ length: n }, (_, k) => SA ? SA(k * 20) : null);
+    // posición de cada punto entre todos los del tramo (0 = el más oscuro / menos bosque, 1 = el más claro / más bosque)
+    const rank = f => { const v = Q.map((q, k) => [q ? f(q) : null, k]).filter(x => x[0] != null).sort((p, q) => p[0] - q[0]), r = new Float32Array(n).fill(0.5); v.forEach(([, k], i) => r[k] = v.length > 1 ? i / (v.length - 1) : 0.5); return r; };
+    const LR = rank(q => q.lum), FR = rank(q => q.forest);
     for (let k = 0; k < n; k++) {
-      const q = SA ? SA(k * 20) : null, w = new Float32Array(M.length);
-      const fo = q ? q.forest : 0.3 + 0.3 * Math.sin(k * 20 / 900 + 1.3), ln = q && q.lum != null ? Math.max(-1.5, Math.min(1.5, (q.lum - lmed) / 25)) : Math.sin(k * 20 / 650) * 0.6, cl = q ? q.clay : 0.4;
-      for (const m of M) { let v = base[m.id] ?? 0.3;
-        if (m.id === 'AB_03') v *= fo > 0.6 ? 1.7 : fo < 0.3 ? 0.5 : 1;
-        if (m.id === 'AB_04') v *= (fo < 0.3 ? 1.6 : fo > 0.6 ? 0.7 : 1) * (1 + Math.max(0, ln) * 0.8);
-        if (m.id === 'AB_02') v *= (fo < 0.3 ? 1.2 : 1) * (1 + Math.max(0, ln) * 0.3);
-        if (m.id === 'AB_01') v *= (1 + Math.max(0, -ln) * 0.5) * (0.8 + cl * 0.6);
-        if (m.id === 'AB_05') v *= Math.max(0, -ln) * (fo > 0.5 ? 1.5 : 0.6);
+      const q = Q[k], w = new Float32Array(M.length), lr = SA ? LR[k] : 0.5 + 0.4 * Math.sin(k * 20 / 650), fr = SA ? FR[k] : 0.5 + 0.4 * Math.sin(k * 20 / 900 + 1.3), cl = q ? q.clay : 0.4;
+      for (const m of M) { let v;
+        switch (m.id) {
+          case 'AB_02': v = 1.0 * (0.5 + lr); break;                                   // ripio fino: donde el camino se ve más claro
+          case 'AB_01': v = 0.9 * (0.5 + (1 - lr)) * (0.7 + cl); break;                // tierra compactada: más oscuro y arcilloso
+          case 'AB_03': v = 1.1 * fr ** 1.5 * (0.6 + (1 - lr) * 0.6); break;           // grava gris: bosque cerrado y sombra
+          case 'AB_04': v = 1.1 * (1 - fr) ** 1.5 * (0.4 + lr); break;                 // tierra clara con piedra: abierto y claro
+          case 'AB_05': v = 0.9 * (1 - lr) ** 2 * fr; break;                           // húmeda: oscuro dentro del bosque
+          default: v = 0;
+        }
         // variación propia y lenta (para no repetir lo mismo en 15 km), reproducible
-        v *= 0.75 + 0.5 * hashU(Math.floor(k / 25), idx[m.id], 41) * 0.5 + 0.25 * hashU(Math.floor(k / 9), idx[m.id], 43);
-        w[idx[m.id]] = v; }
+        v *= 0.8 + 0.3 * hashU(Math.floor(k / 25), idx[m.id], 41) + 0.15 * hashU(Math.floor(k / 9), idx[m.id], 43);
+        w[idx[m.id]] = v ** 2.2; }
       A.push(w);
     }
     // suavizado ±200 m
