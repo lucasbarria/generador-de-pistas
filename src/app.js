@@ -1039,7 +1039,7 @@ function opt() {
     snow: $('#snow').checked, snowAlt: +$('#snowAlt').value, snowRoad: $('#snowRoad').checked,
     veg: $('#veg').checked, density: +$('#density').value, treeHit: $('#treeHit').checked,
     treeClear: Math.max(0.5, +$('#treeClear').value || 3), forest: $('#forest').value,
-    ditch: $('#ditch').value, rocks: +$('#rocks').value,
+    ditch: 'none', rocks: +$('#rocks').value,
   };
 }
 const slugify = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'pista';
@@ -2793,7 +2793,6 @@ const HELP = {
   lines: 'Líneas pintadas: agrega las líneas blancas (solo en asfalto).',
   margin: 'Margen de terreno: cuántos metros de campo se generan a cada lado del camino. Más margen = más paisaje pero archivo más pesado.',
   hsmooth: 'Suavizado de alturas: alisa los saltos de la elevación del satélite para que el camino no tenga escalones falsos.',
-  ditch: 'Cunetas: zanjas a los costados con piso resbaladizo. Automática pone cuneta a los dos lados, más honda del lado alto de la ladera.',
   rocks: 'Piedras al costado: cantidad de piedras en la banquina; las grandes tienen choque.',
   autobank: 'Peralte automático: inclina el camino en las curvas hasta ese máximo de grados. 0 = camino plano.',
   veg: 'Vegetación y suelos reales: usa el mapa y la foto satelital para poner bosque, pasto, agua, etc. donde realmente están.',
