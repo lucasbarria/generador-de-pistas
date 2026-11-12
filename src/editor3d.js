@@ -5,8 +5,9 @@
 // únicamente alrededor de la zona editada. El perfil del panel y el de la vista 3D muestran lo mismo.
 
 const ED = { prec: 0.01, cpSel: null, cpSpacing: 10, cpInterp: 'pchip', rasType: 'cresta', tool: 'height', active: null, undo: [], redo: [], drag: null, pending: false, gz: [], hover: null, anchor: null, keys: new Set(), commitT: null };
-const ED_KIND = { profile: 'profile', rasante: 'rasante', height: 'raise', bank: 'bank', jump: 'jump', bump: 'bump', pothole: 'pothole', cattle: 'cattle', width: 'width', curve: 'shape', smooth: 'smooth' };
+const ED_KIND = { place: 'place', profile: 'profile', rasante: 'rasante', height: 'raise', bank: 'bank', jump: 'jump', bump: 'bump', pothole: 'pothole', cattle: 'cattle', width: 'width', curve: 'shape', smooth: 'smooth' };
 const ED_TOOLS = [
+  ['place', '🏠 Objetos y árboles', 'Poné árboles (de a uno o con pincel), casas, personas, piedras, puentes y lagos donde quieras. La goma borra.'],
   ['profile', '📈 Puntos de control', 'Altimetría por puntos: cada punto se edita solo (altura al centímetro, pendiente de entrada y salida, bloqueo). Entre dos extremos fijos: recta, suavizar, cresta o valle.'],
   ['rasante', '⛰ Rasante', 'Cresta, valle, compresión, depresión u ondulaciones con aproximación, zona superior y salida configurables.'],
   ['height', '⇕ Altura / pendiente', 'Punto: subir o bajar. Tramo: manijas al inicio y al final para armar la pendiente; las naranjas alargan la transición.'],
@@ -73,7 +74,7 @@ const edCenter = e => e.d !== undefined ? e.d : (e.d0 + e.d1) / 2;
 function edSecSel() { const s = S.sel; return s.d1 - s.d0 < 10 ? { d0: Math.max(0, s.d0 - 25), d1: Math.min(edR().total, s.d0 + 25) } : { d0: s.d0, d1: s.d1 }; }
 // la edición que manipulan las manijas de la herramienta actual (puede no existir todavía: se crea al arrastrar)
 function edTarget() {
-  const kind = ED_KIND[ED.tool]; if (!S.sel) return null;
+  const kind = ED_KIND[ED.tool]; if (kind === 'place' || !S.sel) return null;
   if (ED.active && ED.active.kind === kind && S.edits.includes(ED.active)) return ED.active;
   const s = S.sel, pt = s.d1 - s.d0 < 1;
   if (kind === 'raise') return S.edits.find(e => e.kind === 'raise' && (pt ? e.d1 - e.d0 < 1 && Math.abs(e.d0 - s.d0) < 1.5 : Math.abs(e.d0 - s.d0) < 1.5 && Math.abs(e.d1 - s.d1) < 1.5)) || null;
@@ -133,10 +134,17 @@ function edProfOp(op, amp) {
 function edEnsure() { let e = edTarget(); if (!e) { e = edMake(ED_KIND[ED.tool]); if (e) S.edits.push(e); } if (e) ED.active = e; return e; }
 
 // ---------- deshacer ----------
-function edPushUndo() { ED.undo.push(JSON.stringify(S.edits)); if (ED.undo.length > 100) ED.undo.shift(); ED.redo = []; }
+const edSnap = () => JSON.stringify({ e: S.edits, p: S.placed });
+function edPushUndo() { ED.undo.push(edSnap()); if (ED.undo.length > 100) ED.undo.shift(); ED.redo = []; }
 function edUndo(redo) {
   const from = redo ? ED.redo : ED.undo, to = redo ? ED.undo : ED.redo; if (!from.length) return;
-  to.push(JSON.stringify(S.edits)); S.edits = JSON.parse(from.pop()); ED.active = null; editsChanged();
+  to.push(edSnap()); const st = JSON.parse(from.pop()), lakesBefore = S.placed.filter(o => o.k === 'lake');
+  const sameEdits = JSON.stringify(st.e) === JSON.stringify(S.edits);
+  S.edits = st.e; S.placed = st.p || []; ED.active = null; if (OB.sel && !S.placed.includes(OB.sel)) OB.sel = null;
+  if (!sameEdits) editsChanged();
+  const lakes = [...lakesBefore, ...S.placed.filter(o => o.k === 'lake')];
+  if (lakes.length && S.base) obLakeCommit(lakes.map(o => obXY(o).concat([o.r]))); else obRefresh();
+  obPanel();
 }
 
 // ---------- actualización en vivo ----------
@@ -310,7 +318,7 @@ function cattleMeshes(r) {
 // tipo: 'up' = arrastre vertical, 'along' = a lo largo del camino, 'side' = hacia los costados, 'plane' = libre en planta
 const GZ_COL = { cp: 0xff5c8a, cpSel: 0x00e5ff, lock: 0x7d848c, up: 0xff5c8a, both: 0xc77dff, along: 0xffb020, side: 0x2ecc71, plane: 0xffd200, move: 0xffffff };
 function edGizmoDefs() {
-  const r = edR(); if (!r || !S.sel) return [];
+  const r = edR(); if (!r || !S.sel || ED.tool === 'place') return [];
   const e = edTarget(), kind = ED_KIND[ED.tool], s = S.sel, out = [];
   const G = (type, d, lat, yOff, drag, tip, col) => out.push({ type, d: edClampD(d), lat, yOff, drag, tip, col: col || type });
   const clampMin = (v, m) => Math.max(m, v);
@@ -418,6 +426,7 @@ function edPlaceGizmos() {
 }
 // el tamaño en pantalla de las manijas no depende de la distancia
 function edFrame() {
+  if (PV.onFrameOB) PV.onFrameOB();
   if (ED.gz.length && PV.camera) for (const g of ED.gz) { const k = PV.camera.position.distanceTo(g.mesh.position) * 0.011 * (ED.hover === g || (ED.drag && ED.drag.g === g) ? 1.45 : 1); g.mesh.scale.setScalar(Math.max(0.05, k)); }
   // teclado: WASD / flechas = desplazarse, Q/E = girar, R/F = acercar/alejar
   if (ED.keys.size && PV.camera && $('#viewer').style.display !== 'none') {
@@ -558,6 +567,7 @@ function edRefresh(light) {
   if (!route) { ED.gz = []; if (ED.gzGroup) PV.scene.remove(ED.gzGroup); return; }
   if (light && ED.gz.length) { edPlaceGizmos(); edPanel(true); return; }
   edBuildGizmos(); edPanel(); if (ED.panelOn && $('#viewer').style.display !== 'none') PROF3.draw();
+  obRings(); obDrawMini(); const km = $('#navKm'); if (km && S.sel) { km.value = Math.round((S.sel.d0 + S.sel.d1) / 2 / edR().total * 1000); $('#navKmTxt').textContent = ((S.sel.d0 + S.sel.d1) / 2000).toFixed(2) + ' km'; }
 }
 function edPanel(light) {
   const R = S.result, r = edR(); if (!r || !ED.panelOn) return;
@@ -589,7 +599,8 @@ function edPanel(light) {
   $('#vpPrec').onchange = ev => { ED.prec = +ev.target.value; edPanel(); };
   // parámetros de la edición elegida (se pueden escribir: precisión)
   const e = edTarget(), kind = ED_KIND[ED.tool];
-  if (kind === 'profile' && (!light || !ED.drag)) { edProfilePanel(e); }
+  if (kind === 'place') { obPanel(light); }
+  else if (kind === 'profile' && (!light || !ED.drag)) { edProfilePanel(e); }
   else if (!light || !ED.drag) {
     const ps = e && ED_PARAMS[e.kind] ? ED_PARAMS[e.kind](e) : [];
     let html = `<div class="vp-t">${ED_TOOLS.find(t => t[0] === ED.tool)[2]}</div>`;
@@ -829,7 +840,7 @@ $('#vpTools').querySelectorAll('button').forEach(b => b.onclick = () => {
   const t = b.dataset.tool; ED.tool = t; if (ED.active && ED.active.kind !== ED_KIND[t]) ED.active = null;
   // salto, lomada, bache, guardaganado: se crean al tocar la herramienta (en el punto elegido)
   if (S.sel && ['jump', 'bump', 'pothole', 'cattle', 'rasante'].includes(t) && !edTarget()) { edPushUndo(); const e = edMake(ED_KIND[t]); S.edits.push(e); ED.active = e; editsChanged(); return; }
-  edRefresh(); drawProfile();
+  edRefresh(); drawProfile(); obRings(null);
 });
 $('#dragR').onchange = () => edRefresh();
 function edHookViewer() {
@@ -844,6 +855,10 @@ function edHookViewer() {
   el.addEventListener('pointerdown', ev => {
     down = { x: ev.clientX, y: ev.clientY, b: ev.button };
     if (ev.button !== 0 || !edOn()) return;
+    if (ED.tool === 'place') {   // objetos: pintar árboles o arrastrar el objeto elegido
+      if (OB.onDown(ev)) { PV.controls.enabled = false; el.setPointerCapture(ev.pointerId); ev.stopImmediatePropagation(); ev.preventDefault(); }
+      return;
+    }
     const g = edPickGizmo(ev); if (!g) return;
     if (!edStartDrag(g, '3d')) return;
     PV.controls.enabled = false; el.setPointerCapture(ev.pointerId); el.style.cursor = 'grabbing';
@@ -851,11 +866,16 @@ function edHookViewer() {
   }, true);
   el.addEventListener('pointermove', ev => {
     if (ED.drag && ED.drag.src === '3d') { edApplyDrag(edDragDelta(ev), ev.shiftKey); return; }
+    if (OB.active()) { OB.onMove(ev); return; }
+    if (edOn() && ED.tool === 'place' && !ev.buttons) { OB.hover(ev); return; }
     if (!edOn() || ev.buttons) return;
     const g = edPickGizmo(ev); if (g !== ED.hover) { ED.hover = g; el.style.cursor = g ? 'grab' : ''; edHint(g ? g.tip : ''); }
   });
   el.addEventListener('pointerup', ev => {
     if (ED.drag && ED.drag.src === '3d') { edEndDrag(); el.style.cursor = ''; edHint(''); return; }
+    if (OB.active()) { OB.onUp(ev, false); PV.controls.enabled = true; down = null; return; }
+    const isClick = down && down.b === 0 && Math.hypot(ev.clientX - down.x, ev.clientY - down.y) < 5;
+    if (isClick && edOn() && ED.tool === 'place' && !PV.drive) { OB.onUp(ev, true); down = null; return; }
     // clic sin arrastrar sobre el camino = elegir
     if (down && down.b === 0 && Math.hypot(ev.clientX - down.x, ev.clientY - down.y) < 5 && edR() && !PV.drive) {
       const q = edPickRoad(ev); if (q) edSelect(q.d, ev.shiftKey);
@@ -885,7 +905,9 @@ function edHookViewer() {
     const k = ev.key.toLowerCase();
     if ((ev.ctrlKey || ev.metaKey) && k === 'z') { ev.preventDefault(); edUndo(ev.shiftKey); return; }
     if ((ev.ctrlKey || ev.metaKey) && k === 'y') { ev.preventDefault(); edUndo(true); return; }
+    if ((k === 'delete' || k === 'backspace') && ED.tool === 'place' && OB.sel) { ev.preventDefault(); OB.del(); return; }
     if ((k === 'delete' || k === 'backspace') && ED.active) { ev.preventDefault(); edDelete(ED.active); return; }
+    if (k === 'escape' && ED.tool === 'place' && OB.sel) { OB.sel = null; obRings(); obPanel(); return; }
     if (k === 'escape') { S.sel = null; ED.active = null; selInfo(); drawSel(); drawProfile(); edRefresh(); edBuildSelMesh(); return; }
     if (['w', 'a', 's', 'd', 'q', 'e', 'r', 'f', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k) && !ev.ctrlKey && !ev.metaKey) { ED.keys.add(k); if (k.startsWith('arrow')) ev.preventDefault(); }
   });

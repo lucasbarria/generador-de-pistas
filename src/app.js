@@ -18,6 +18,7 @@ const S = {
   mode: 'route', wps: [], markers: [], routeLine: null, routeGeom: null,
   rectStart: null, rect: null, rectBounds: null, ways: null, waysLayer: null,
   spawn: null, spawnMarker: null, picking: null, result: null,
+  placed: [], // objetos puestos a mano en la vista 3D: árboles, casas, personas, puentes, lagos, zonas sin árboles
   side: [], sideLayer: null, // caminos laterales: [{ pts: [[lat, lng]…], cls, unpaved }]
 };
 
@@ -1724,6 +1725,7 @@ async function rebuild(keepCam) {
   const CARVE = B.mode === 'route' && S.water && S.water.ww.length ? makeCarve(S.water.ww) : null;
   if (CARVE) log(`Ríos y arroyos: ${S.water.ww.length} tramos de agua en la zona${S.crossings.length ? ` · el camino cruza ${S.crossings.filter(b => b.bridge).length} puente(s) y ${S.crossings.filter(b => !b.bridge).length} alcantarilla(s)` : ''}.`);
   const terOpts = {
+    lakes: B.mode === 'route' ? obLakes(B) : null,
     carve: CARVE, edgeFix: o.edgeFix && B.mode === 'route', bbox: B.bbox, res: o.res, margin: B.mode === 'route' ? o.margin : Infinity, segs: res.segs, height: B.height, heightS: B.heightS,
     flat: o.res * 1.5, blend: Math.max(12, o.res * 3), depth: 0.15,
     surfAt: (h, slope, x, y) => {
@@ -1771,7 +1773,7 @@ async function rebuild(keepCam) {
     const tr = Core.buildTrees({
       trunkDist: o.treeHit ? 30 : 0, wallCounter, clear: o.treeClear,
       ter, bbox: B.bbox, res: o.res, segs: res.segs, base: 3, maxTrees: { 0.5: 30000, 1: 60000, 1.8: 100000 }[o.density] || 60000,
-      spacingAt: (x, y) => { if (CARVE && CARVE(x, y) > 0.3) return 0; if (OCC.some(q => Math.abs(q.c[0] - x) < q.R && Math.abs(q.c[1] - y) < q.R)) return 0; const sp = SP[B.landAt(x, y)]; return sp ? sp / Math.sqrt(o.density) : 0; },
+      spacingAt: (x, y) => { if (CARVE && CARVE(x, y) > 0.3) return 0; if (obCleared(x, y)) return 0; if (OCC.some(q => Math.abs(q.c[0] - x) < q.R && Math.abs(q.c[1] - y) < q.R)) return 0; const sp = SP[B.landAt(x, y)]; return sp ? sp / Math.sqrt(o.density) : 0; },
       kindAt: (x, y, h) => {
         const lc = B.landAt(x, y); if (lc === 'wetland') return 2;
         const alt = h + B.h0, r = frac(x, y);
@@ -1783,6 +1785,7 @@ async function rebuild(keepCam) {
     if (tr.trunks) log(`${tr.trunks.toLocaleString()} árboles cerca del camino con tronco sólido (se choca).`);
     log(`Vegetación: ${tr.count.toLocaleString()} árboles${tr.candidates > tr.count ? ' (se alcanzó el máximo; bajá la densidad o achicá la zona para más detalle)' : ''}.`);
   }
+  if (B.mode === 'route' && S.placed.length) { const pm = obMeshes(B, ter); meshes.push(...pm); log(`Objetos puestos a mano: ${obStats()}.`); }
   if (B.mode === 'route' && res.zone) {
     try { await APITUR_EMBLEM.decode(); } catch (e) { }
     TEX.banner = makeBannerTex(o.name); if (PV.mats) delete PV.mats.banner;
@@ -2050,7 +2053,7 @@ async function buildZip(R) {
   const tr = zip.folder('content').folder('tracks').folder(slug), src = $('#withSrc').checked ? zip.folder('fuente_' + slug) : null, ref = zip.folder('referencia_rbr_btb');
   const usedMats = [...new Set(R.meshes.map(m => m.mat))];
   const keys = [...new Set(R.meshes.filter(m => !/^(LINES|TREES|ROCKS|BANNERS|OBJECTS)_/.test(m.name)).map(m => m.name.replace(/^\d+/, '')))];
-  const kd = m => (m === 'line' || m === 'tree') ? '1 1 1' : (TEXDEF[m] || SURF[MAT2KEY[m]]).col.map(v => (v / 255).toFixed(2)).join(' ');
+  const kd = m => (m === 'line' || m === 'tree' || m === 'people') ? '1 1 1' : (TEXDEF[m] || SURF[MAT2KEY[m]]).col.map(v => (v / 255).toFixed(2)).join(' ');
   $('#prog').textContent = 'Escribiendo modelo 3D…'; await tick();
   if ($('#withSrc').checked) {
     src.file('track.obj', Core.toOBJ(R.meshes, 'track.mtl')); await tick();
@@ -2158,7 +2161,7 @@ const PV = { renderer: null };
 function pvMat(k) {
   return PV.mats[k] || (PV.mats[k] = (() => {
     const t = new THREE.CanvasTexture(TEX[k]); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
-    if (k === 'tree') { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide }); }
+    if (k === 'tree' || k === 'people') { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide }); }
     if (k === 'fwire' || k === 'fgate') return new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.5 });
     return new THREE.MeshLambertMaterial({ map: t, polygonOffset: k === 'line', polygonOffsetFactor: -2 });
   })());
@@ -2556,7 +2559,7 @@ function chunkMesh(m, size = 100) {
     return o;
   });
 }
-const MAT_SHADER = { tree: { shader: 'ksPerPixelAT', alpha: true }, fwire: { shader: 'ksPerPixelAT', alpha: true }, fgate: { shader: 'ksPerPixelAT', alpha: true } };
+const MAT_SHADER = { people: { shader: 'ksPerPixelAT', alpha: true }, tree: { shader: 'ksPerPixelAT', alpha: true }, fwire: { shader: 'ksPerPixelAT', alpha: true }, fgate: { shader: 'ksPerPixelAT', alpha: true } };
 async function buildKN5(R, slug, invert) {
   SPLIT_N = 0; const w = new BinW();
   w.ascii('sc6969'); w.i32(5);
@@ -2720,7 +2723,7 @@ function projectState() {
     wps: S.wps.map(p => [p.lat, p.lng]), edits: S.edits, gps: S.gpsTrack ? S.gpsTrack.map(p => [+p[0].toFixed(7), +p[1].toFixed(7), +(+p[2] || 0).toFixed(1)]) : null,
     rect: b ? [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()] : null,
     spawn: S.spawn ? [S.spawn.lat, S.spawn.lng] : null,
-    side: S.side,
+    side: S.side, placed: S.placed,
     view: map.getCenter ? [map.getCenter().lat, map.getCenter().lng, map.getZoom()] : null,
   };
 }
@@ -2734,7 +2737,7 @@ async function loadProject(st) {
   ED.active = null; ED.cpSel = null; ED.undo = []; ED.redo = [];
   S.wps.forEach((p, i) => map.removeLayer(S.markers[i])); S.wps = []; S.markers = [];
   G.path = st.pick?.path || []; G.steps = st.pick?.steps || []; G.virtual = st.pick?.virtual || [];
-  S.side = st.side || []; drawSide();
+  S.side = st.side || []; drawSide(); S.placed = st.placed || []; OB.sel = null;
   if (st.rect) {
     const [s, w, n, e] = st.rect, b = L.latLngBounds([s, w], [n, e]);
     if (S.rect) map.removeLayer(S.rect);
@@ -2772,7 +2775,7 @@ $('#openProj').onchange = async ev => {
 let lastAuto = '';
 setInterval(() => {
   try {
-    const st = projectState(); if (!st.pick.path.length && !st.wps.length && !st.rect && !st.side.length) return;
+    const st = projectState(); if (!st.pick.path.length && !st.wps.length && !st.rect && !st.side.length && !st.placed.length) return;
     const s = JSON.stringify({ ...st, saved: undefined, view: undefined });
     if (s !== lastAuto) { lastAuto = s; localStorage.setItem('generador-pistas-auto', JSON.stringify(st)); }
   } catch (e) { }

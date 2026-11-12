@@ -61,6 +61,12 @@ input[type=checkbox]{width:auto}
 #vprof{position:absolute;left:12px;width:calc(100% - 338px);bottom:12px;height:150px;z-index:3;background:#0f1114ee;border:1px solid #fff2;border-radius:10px;cursor:crosshair;touch-action:none}
 .edit.on{background:#ff7ad91a}.edit{cursor:pointer}
 @media(max-width:900px){#vpanel{top:auto;height:42%;width:auto;left:12px;bottom:174px}#vprof{width:calc(100% - 24px)}}
+#vnavbox{position:absolute;top:58px;left:12px;width:200px;z-index:3;display:flex;flex-direction:column;gap:6px}
+#vmini{width:200px;height:170px;background:#0f1114dd;border:1px solid #fff2;border-radius:10px;cursor:crosshair;touch-action:none}
+#vnav{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}#vnav .b,#navLow{background:#000a;color:#fff;border-color:#fff3;padding:7px 0;font-size:15px;touch-action:none;user-select:none}#navLow{font-size:12.5px;padding:6px}
+.navkm{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:5px 8px;font-size:12px;display:grid;gap:3px}.navkm input{padding:0}
+.ob-types{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:4px 0 8px}.ob-types .b{padding:6px 4px;font-size:12px}.ob-types .b.on{background:#7cff7c;color:#111;border-color:#7cff7c}
+@media(max-width:900px){#vnavbox{display:none}}
 #profile{width:100%;height:170px;display:block;background:#0f1114;border-radius:8px;cursor:crosshair;touch-action:none}
 #hoverInfo{min-height:34px;margin-top:6px}
 #selInfo{color:#00c8ff;font-size:13px;margin:4px 0}
@@ -101,6 +107,16 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <div class="vp-help">Clic: elegir punto · Shift+clic: tramo · Arrastrar (izq. o rueda apretada): mover · Derecho o Ctrl+arrastrar: girar · Rueda: zoom al cursor · Doble clic: centrar · WASD/flechas: recorrer · Q/E girar · Supr: borrar cambio · Ctrl+Z / Ctrl+Y: deshacer / rehacer · Esc: soltar selección</div>
       </div>
       <canvas id="vprof" style="display:none"></canvas>
+      <div id="vnavbox">
+        <canvas id="vmini" title="Mapa del tramo: clic o arrastrar para ir ahí"></canvas>
+        <div id="vnav">
+          <button class="b" data-key="q" title="Girar a la izquierda (Q)">⟲</button><button class="b" data-key="w" title="Adelante (W)">▲</button><button class="b" data-key="e" title="Girar a la derecha (E)">⟳</button>
+          <button class="b" data-key="a" title="Izquierda (A)">◀</button><button class="b" data-key="s" title="Atrás (S)">▼</button><button class="b" data-key="d" title="Derecha (D)">▶</button>
+          <button class="b" data-key="r" title="Acercar (R o rueda)">＋</button><button class="b" id="navTop" title="Vista desde arriba">🛰</button><button class="b" data-key="f" title="Alejar (F o rueda)">－</button>
+        </div>
+        <button class="b" id="navLow" title="Cámara a ras del piso">👁 A ras del piso</button>
+        <label class="navkm">Ir al <span id="navKmTxt">0.00 km</span><input type="range" id="navKm" min="0" max="1000" value="0"></label>
+      </div>
     </div>
   </div>
   <aside>

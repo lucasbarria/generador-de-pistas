@@ -3,6 +3,6 @@
 from pathlib import Path
 s = Path(__file__).parent / 'src'
 core = (s / 'core.js').read_text(encoding='utf8').replace("if (typeof module !== 'undefined') module.exports = Core;", '')
-html = (s / 'template.html').read_text(encoding='utf8').replace('/*CORE*/', core).replace('/*APP*/', (s / 'app.js').read_text(encoding='utf8') + '\n' + (s / 'editor3d.js').read_text(encoding='utf8'))
+html = (s / 'template.html').read_text(encoding='utf8').replace('/*CORE*/', core).replace('/*APP*/', (s / 'app.js').read_text(encoding='utf8') + '\n' + (s / 'editor3d.js').read_text(encoding='utf8') + '\n' + (s / 'objetos.js').read_text(encoding='utf8'))
 (Path(__file__).parent / 'index.html').write_text(html, encoding='utf8')
 print('index.html listo')

@@ -11,12 +11,14 @@ Recreá cualquier camino real desde el mapa y exportalo a **Assetto Corsa** (`.k
 - Casas y estancias (mapa + techos detectados en el satélite), alambrados y tranqueras.
 - Largada con pancarta y reloj, control horario 30 m antes, llegada y control stop 30 m después.
 - Editor del camino (perfil, superficies, zonas resbaladizas, nieve), arrastre de curvas en 3D y notas de ruta.
+- Objetos a mano en la vista 3D: pincel de árboles (densidad, especie y altura), goma, casas, galpones, personas, público, piedras, puentes y lagos.
 
 ## Cómo modificarla
 El código está en `src/`:
 - `src/core.js` — geometría: camino, terreno, árboles, piedras.
 - `src/app.js` — mapa, datos, texturas, objetos, exportación `.kn5`.
 - `src/editor3d.js` — edición directa en la vista 3D: selección, manijas, actualización en vivo y perfil sincronizado.
+- `src/objetos.js` — objetos puestos a mano (árboles con pincel, casas, personas, piedras, puentes, lagos) y navegación simple (mapa chico, botones, barra de km).
 - `src/template.html` — la página y los controles.
 
 Después de cambiar algo en `src/`, corré `python3 build.py` para regenerar `index.html` y subí los dos.

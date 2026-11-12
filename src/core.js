@@ -439,6 +439,12 @@ const Core = (() => {
       else { let t = (best - Fz) / B; t = t * t * (3 - 2 * t); h = (bH - depth - dd) * (1 - t) + h * t; }
     }
     if (o.carve) { const cv = o.carve(x, y); if (cv > 0) h = Math.min(h, hNat - 0.15) - cv; } // el cauce sigue su nivel natural aunque el camino suba al puente
+    // lagos puestos a mano: lecho hundido adentro y orilla aplanada hasta el nivel del agua
+    if (o.lakes) for (const L of o.lakes) {
+      const d = Math.hypot(x - L.x, y - L.y), bank = L.bank || 6; if (d >= L.r + bank) continue;
+      if (d < L.r) { let t = Math.min(1, (L.r - d) / Math.max(1, L.r * 0.35)); t = t * t * (3 - 2 * t); h = Math.min(h, L.h - 0.35 - L.depth * t); }
+      else { let t = 1 - (d - L.r) / bank; t = t * t * (3 - 2 * t); h = h * (1 - t) + Math.min(h, L.h + 0.05) * t; }
+    }
     return h;
   }
   // recalcula el terreno solo dentro de un rectángulo (edición en vivo). Devuelve los puntos de la grilla que cambiaron.
