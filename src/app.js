@@ -1143,13 +1143,34 @@ const REFS = {
     const forest = px(0, 0.1, 1, 0.45, p => p[1] > p[0] + 4 && p[1] > p[2] + 4).length / (0.35 * W * H);
     return { ok: true, road: sun, shade, verge, stones: Math.min(0.05, stones * 0.35), dry: Math.min(1, dry), forest: Math.min(1, forest) };
   },
+  // búsqueda automática de fotos tomadas desde el camino (Mapillary: libres, CC BY-SA 4.0) a lo largo del recorrido
+  async autoFetch(routeLL, token, onProgress) {
+    if (!token) throw new Error('falta el token de Mapillary');
+    const pts = [], step = Math.max(1, Math.floor(routeLL.length / 25)); for (let i = 0; i < routeLL.length; i += step) pts.push(routeLL[i]);
+    const have = new Set(this.list.filter(r => r.auto).map(r => r.mly)); let added = 0, near = 0, done = 0;
+    for (const [la, lo] of pts) {
+      done++; onProgress && onProgress(done / pts.length);
+      const dLa = 0.0006, dLo = 0.0006 / Math.cos(la * D2R); // ~65 m alrededor del punto
+      let j; try { const r = await fetch(`https://graph.mapillary.com/images?access_token=${encodeURIComponent(token)}&fields=id,thumb_1024_url,computed_geometry,geometry,captured_at,compass_angle,is_pano,creator&bbox=${lo - dLo},${la - dLa},${lo + dLo},${la + dLa}&limit=8`);
+        if (r.status === 401 || r.status === 403) throw new Error('el token de Mapillary no es válido'); j = await r.json(); } catch (e) { if (/token/.test(e.message)) throw e; continue; }
+      const imgs = (j.data || []).filter(m => !m.is_pano && m.thumb_1024_url).map(m => { const g = (m.computed_geometry || m.geometry).coordinates; return { m, ll: [g[1], g[0]], dist: Math.hypot((g[1] - la) * 111320, (g[0] - lo) * 111320 * Math.cos(la * D2R)) }; }).sort((a, b) => a.dist - b.dist);
+      const best = imgs[0]; if (!best) continue; near++; if (have.has(best.m.id)) continue;
+      try {
+        const blob = await LOCAL.fetchBlob(best.m.thumb_1024_url, { cache: false }), a = await this.analyze(blob), id = 'mly_' + best.m.id;
+        const rec = { id, mly: best.m.id, auto: true, name: `Mapillary ${best.m.id}${best.m.creator && best.m.creator.username ? ' — ' + best.m.creator.username : ''}`, blob, added: Date.now(), ll: best.ll.map(v => +v.toFixed(6)), use: true, a,
+          date: best.m.captured_at ? new Date(best.m.captured_at).toISOString().slice(0, 10) : '', url: `https://www.mapillary.com/app/?pKey=${best.m.id}`, license: 'CC BY-SA 4.0' };
+        await LOCAL.put('refs', id, rec); have.add(best.m.id); added++;
+      } catch (e) { }
+    }
+    await this.load(); return { added, near, points: pts.length };
+  },
   async add(file) {
     const blob = file, a = await this.analyze(blob), id = 'ref_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-    const rec = { id, name: file.name, blob, added: Date.now(), ll: null, note: '', use: true, a };
+    const rec = { id, name: file.name, blob, added: Date.now(), ll: null, note: '', use: false, a }; // las fotos cargadas a mano solo sirven para comparar
     await LOCAL.put('refs', id, rec); return rec;
   },
   calibrate(on) {
-    const A = this.list.filter(r => r.use && r.a && r.a.ok);
+    const A = this.list.filter(r => r.auto && r.use && r.a && r.a.ok && (!this.area || (r.ll && this.area(r.ll)))); // solo imágenes buscadas solas (Mapillary) en la zona del tramo
     if (!on || !A.length) { this.cal = null; return null; }
     const med = (f) => { const v = A.map(f).filter(Boolean); if (!v.length) return null; return [0, 1, 2].map(c => { const s = v.map(p => p[c]).sort((a, b) => a - b); return s[s.length >> 1]; }); };
     const num = f => { const v = A.map(f).sort((a, b) => a - b); return v[v.length >> 1]; };
@@ -1166,7 +1187,7 @@ async function renderRefs() {
     <img data-thumb="${r.id}" style="width:96px;height:48px;object-fit:cover;border-radius:4px;opacity:${r.use ? 1 : 0.4}">
     <div style="flex:1;min-width:0;font-size:12px"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
     <div class="mut">${r.a && r.a.ok ? `piso ${sw(r.a.road)} sombra ${sw(r.a.shade)} banquina ${sw(r.a.verge)} · piedras ${Math.round(r.a.stones * 1000) / 10}%` : 'no se reconoció el camino en la foto'}</div>
-    <input data-ll="${r.id}" placeholder="lat, lon (de Google Maps)" value="${r.ll ? r.ll.join(', ') : ''}" style="width:170px;margin-top:2px"> <button class="b" data-go="${r.id}" title="Ver ese punto en el 3D">Ir</button> <button class="b" data-use="${r.id}">${r.use ? 'Usar ✓' : 'No usar'}</button> <button class="b" data-del="${r.id}">✕</button></div></div>`).join('');
+    <input data-ll="${r.id}" placeholder="lat, lon (de Google Maps)" value="${r.ll ? r.ll.join(', ') : ''}" style="width:170px;margin-top:2px"> <button class="b" data-go="${r.id}" title="Ver ese punto en el 3D">Ir</button> ${r.auto ? `<button class="b" data-use="${r.id}">${r.use ? 'Usar ✓' : 'No usar'}</button> <a href="${r.url}" target="_blank" rel="noopener">ver</a> ${r.date || ''}` : '<span class="mut">solo para comparar</span>'} <button class="b" data-del="${r.id}">✕</button></div></div>`).join('');
   for (const r of REFS.list) { const im = el.querySelector(`[data-thumb="${r.id}"]`); if (im) im.src = URL.createObjectURL(r.blob); }
   el.querySelectorAll('[data-ll]').forEach(i => i.onchange = async () => { const r = REFS.list.find(q => q.id === i.dataset.ll), ll = parseLL(i.value); r.ll = ll; await LOCAL.put('refs', r.id, r); });
   el.querySelectorAll('[data-use]').forEach(b => b.onclick = async () => { const r = REFS.list.find(q => q.id === b.dataset.use); r.use = !r.use; await LOCAL.put('refs', r.id, r); renderRefs(); });
@@ -1178,8 +1199,8 @@ async function renderRefs() {
     if (bd > 150) { log(`La foto está a ${Math.round(bd)} m del recorrido: revisá las coordenadas.`, 'err'); return; }
     const k = $('#navKm'); if (k) { k.value = Math.round(R.res.dist[bi] / R.res.total * 1000); k.dispatchEvent(new Event('input', { bubbles: true })); }
     log(`Foto "${r.name}": km ${(R.res.dist[bi] / 1000).toFixed(2)} del tramo, a ${Math.round(bd)} m del eje. Compará la vista "a ras del piso" con la foto.`, 'ok'); });
-  const c = REFS.calibrate($('#refCal') ? $('#refCal').checked : true);
-  if (c) el.insertAdjacentHTML('beforeend', `<div class="mut" style="margin:4px 0">Calibración con ${c.n} foto(s): piso ${sw(c.road)} · banquina ${sw(c.verge)} · piedras sueltas ${Math.round(c.stones * 1000) / 10}% · pasto seco ${Math.round(c.dry * 100)}%. Se aplica al generar.</div>`);
+  const c = REFS.cal;
+  if (c) el.insertAdjacentHTML('beforeend', `<div class="mut" style="margin:4px 0">Calibración con ${c.n} foto(s): piso ${sw(c.road)} · banquina ${sw(c.verge)} · piedras sueltas ${Math.round(c.stones * 1000) / 10}% · pasto seco ${Math.round(c.dry * 100)}%. Fuente: Mapillary (CC BY-SA 4.0).</div>`);
 }
 if ($('#refFile')) $('#refFile').onchange = async ev => { for (const f of ev.target.files) { try { const r = await REFS.add(f); log(`Referencia "${f.name}": ${r.a.ok ? 'camino reconocido, colores medidos.' : 'no se reconoció el camino (sirve igual para comparar).'}`, r.a.ok ? 'ok' : ''); } catch (e) { log('No se pudo leer ' + f.name, 'err'); } } ev.target.value = ''; renderRefs(); };
 if ($('#refCal')) $('#refCal').onchange = () => renderRefs();
@@ -1352,7 +1373,7 @@ function opt() {
     snow: $('#snow').checked, snowAlt: +$('#snowAlt').value, snowRoad: $('#snowRoad').checked,
     veg: $('#veg').checked, density: +$('#density').value, treeHit: $('#treeHit').checked,
     treeClear: Math.max(0.3, +$('#treeClear').value || 0.8), forest: $('#forest').value,
-    ditch: $('#ditch') ? $('#ditch').value : 'none', autoMargin: !!($('#autoMargin') && $('#autoMargin').checked), freeImg: !$('#freeImg') || $('#freeImg').checked, rocks: +$('#rocks').value,
+    ditch: $('#ditch') ? $('#ditch').value : 'none', autoMargin: !!($('#autoMargin') && $('#autoMargin').checked), freeImg: !$('#freeImg') || $('#freeImg').checked, autoRefs: !$('#refCal') || $('#refCal').checked, rocks: +$('#rocks').value,
   };
 }
 const slugify = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'pista';
@@ -1369,7 +1390,7 @@ function dataKey(o) {
 async function generate() {
   logEl().innerHTML = ''; busy(true);
   try { await photoReady; await MATLIB.apply(); renderLibInfo(); } catch (e) { console.warn('biblioteca', e); }
-  try { await REFS.load(); const c = REFS.calibrate($('#refCal') ? $('#refCal').checked : true); if (c && c.verge && TEX.grass) { TEX.grass = tint(TEX_DEFAULT.grass, `rgb(${c.verge.join(',')})`, 0.3); TEX.verge = makeVergeTex(); TEX.ditchside = makeDitchTex(); } if (c) log(`Referencias: ${c.n} foto(s) del lugar calibran el color del piso, la banquina y las piedras sueltas (las fotos no se incluyen en la pista).`); } catch (e) { }
+  try { await REFS.load(); } catch (e) { }
   const o = opt(), key = dataKey(o);
   if (!S.base || S.base.key !== key) await fetchBase(o, key);
   else log('Mismo recorrido: reutilizo la elevación descargada.');
@@ -2433,6 +2454,22 @@ async function rebuild(keepCam) {
       } catch (e) { log('Catálogo de imágenes libres no disponible (' + e.message + '): se usa Sentinel-2.'); }
       renderImgSources();
     }
+    // fotos tomadas desde el camino (Mapillary) para calibrar colores: solas, sin cargar nada a mano
+    const tok = (localStorage.getItem('mlyToken') || '').trim();
+    REFS.area = null;
+    if (o.autoRefs && tok) {
+      try {
+        log('Buscando fotos tomadas desde el camino (Mapillary)…'); await tick();
+        const routeLL = []; { let acc = 0; for (let i = 0; i < rPts.length; i++) { if (i) acc += Math.hypot(rPts[i][0] - rPts[i - 1][0], rPts[i][1] - rPts[i - 1][1]); if (!i || acc >= 50) { routeLL.push(B.P.inv(rPts[i][0], rPts[i][1])); acc = 0; } } }
+        const st = await REFS.autoFetch(routeLL, tok);
+        REFS.area = ll => { const [x, y] = B.P.fwd(ll[0], ll[1]); let m = Infinity; for (let i = 0; i < rPts.length; i += 4) m = Math.min(m, Math.hypot(rPts[i][0] - x, rPts[i][1] - y)); return m < 120; };
+        const c = REFS.calibrate(true);
+        log(st.near ? `Fotos desde el camino: hay en ${st.near} de ${st.points} puntos del recorrido (${st.added} nuevas guardadas). ${c ? `Colores medidos en ${c.n} foto(s): piso, banquina y piedras sueltas.` : ''}` : 'Mapillary no tiene fotos de este camino: los colores salen del satélite y de los materiales.', st.near ? 'ok' : '');
+        if (c && c.verge && TEX.grass) { TEX.grass = tint(TEX_DEFAULT.grass, `rgb(${c.verge.join(',')})`, 0.3); TEX.verge = makeVergeTex(); TEX.ditchside = makeDitchTex(); }
+        renderRefs();
+      } catch (e) { log('Fotos desde el camino: ' + e.message + '.', 'err'); }
+    } else if (o.autoRefs && !tok) log('Fotos desde el camino: falta el token gratuito de Mapillary (en "Referencias"). Sin él, los colores salen del satélite.');
+    if (!REFS.area) REFS.cal = null;
     S.water = o.water ? collectWaterways(B) : { ww: [], bridgesOSM: [] };
     S.crossings = o.water ? findCrossings(rPts, S.water) : [];
     const BRs = S.crossings.filter(b => b.bridge);
@@ -3630,8 +3667,9 @@ const HELP = {
   roadTex: 'Textura continua del camino: cada 80 m de camino lleva su propia textura que sigue las curvas y el ancho, sin repeticiones visibles. Si cargaste una ortofoto (vuelo de dron) es la foto real del camino; si no, se arma con el ripio, las huellas de las ruedas y piedras sueltas en los bordes (generado). Incluye relieve fino (mapa de normales) que es solo visual: no cambia la física.',
   demSrc: 'Elevación base: Copernicus GLO-30 es el modelo de elevación libre más preciso con cobertura mundial (30 m por píxel, radar 2011–2015). Se descarga gratis del catálogo abierto de HOT y queda guardado en la compu. Donde no hay dato, se completa con Terrarium (SRTM y otras). Los dos son modelos de 30 m: no reproducen cunetas ni baches.',
   freeImg: 'Imágenes libres del recorrido: busca sola en OpenAerialMap y en los datos abiertos de Maxar imágenes de drones o satélites con licencia libre (de 3 cm a 1 m por píxel). Si cubren el camino, se usan para la textura del camino y sus costados, con su atribución en LICENCIAS_DATOS.txt. Si no hay (lo más común en zonas rurales), sigue con Sentinel-2. Costo: cero.',
-  refFile: 'Fotos de referencia: capturas de Street View o Google Earth, o fotos tuyas tomadas desde el camino. La app mide el color del piso al sol y a la sombra, la banquina y las piedras sueltas, y con eso calibra las texturas generadas. Pegá las coordenadas de cada foto (clic derecho en Google Maps) para ir a ese punto en el 3D y comparar. Las fotos nunca se incluyen en la pista.',
-  refCal: 'Calibrar colores: usa la mediana de las fotos marcadas "Usar" para el color del piso, la banquina y la cantidad de piedras sueltas.',
+  refFile: 'Fotos cargadas a mano: solo para comparar con el 3D (no calibran nada). Pegá sus coordenadas para ir a ese punto. Nunca se incluyen en la pista.',
+  refCal: 'Fotos desde el camino automáticas: al generar, busca en Mapillary (fotos libres tomadas desde autos y bicis, licencia CC BY-SA) la foto más cercana cada ~500 m del recorrido, y mide el color del piso, la banquina y las piedras sueltas. Necesita un token gratuito de Mapillary.',
+  mlyToken: 'Token gratuito de Mapillary: entrá a mapillary.com, creá una cuenta, andá a Dashboard → Developers → Register application y copiá el "Client Token" (empieza con MLY|). Queda guardado solo en esta compu.',
   matSrc: 'Materiales del suelo: la biblioteca libre usa fotos de materiales reales de Poly Haven (licencia CC0: uso libre, también comercial), con su escala real en metros. Se descarga una sola vez y sirve para todos los caminos del mundo. "Fotos de la app" usa las texturas tomadas en Tierra del Fuego.',
   libDl: 'Baja una sola vez unos 20 materiales (tierra compactada, ripio fino y grueso, grava, barro, arena, asfalto, pasto, suelo de bosque, hojarasca, roca, turba, nieve) y los guarda en esta compu. Los próximos proyectos no vuelven a descargarlos.',
   libExp: 'Guarda toda la biblioteca en un .zip para pasársela a otra persona o a otra compu (por ejemplo, a Nicolás).',
@@ -3781,3 +3819,28 @@ if ($('#matSrc')) $('#matSrc').onchange = async () => { await photoReady; MATLIB
   if (S.result) refreshPreviewTextures(); renderLibInfo(); };
 if ($('#cacheClr')) $('#cacheClr').onclick = async () => { await LOCAL.clear('tiles'); log('Caché de descargas (elevación e imágenes) vaciada. La biblioteca de materiales se conserva.', 'ok'); };
 photoReady.then(async () => { try { await MATLIB.apply(); } catch (e) { } renderLibInfo(); });
+
+if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') || ''; $('#mlyToken').onchange = () => { localStorage.setItem('mlyToken', $('#mlyToken').value.trim()); log('Token de Mapillary guardado en esta compu.', 'ok'); }; }
+
+// ---------- Coordenadas del punto donde está la cámara en el 3D (para abrir el mismo lugar en Google Earth / Street View) ----------
+(function coordHud() {
+  const host = document.getElementById('viewer3d'); if (!host) return;
+  const hud = document.createElement('div'); hud.id = 'coordHud';
+  hud.style.cssText = 'position:absolute;right:10px;bottom:10px;z-index:5;background:#0b1220d9;color:#e8eef7;font:12px system-ui;padding:6px 8px;border-radius:8px;display:none;gap:6px;align-items:center;flex-wrap:wrap;max-width:min(560px,calc(100% - 20px))';
+  hud.innerHTML = '<span id="chTxt" style="font-variant-numeric:tabular-nums"></span><button class="b" id="chCopy" title="Copiar las coordenadas">Copiar</button><a class="b" id="chEarth" target="_blank" rel="noopener" title="Abrir este punto en Google Earth, mirando hacia donde mira la cámara">Google Earth</a><a class="b" id="chSV" target="_blank" rel="noopener" title="Abrir el Street View más cercano a este punto">Street View</a><a class="b" id="chMly" target="_blank" rel="noopener" title="Fotos libres de Mapillary cerca de este punto">Mapillary</a>';
+  if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+  host.appendChild(hud); let txt = '';
+  $('#chCopy').onclick = () => { navigator.clipboard && navigator.clipboard.writeText(txt.split(' ·')[0]); $('#chCopy').textContent = 'Copiado'; setTimeout(() => $('#chCopy').textContent = 'Copiar', 1200); };
+  setInterval(() => {
+    const R = S.result; if (!PV.camera || !R || !R.P || $('#viewer').style.display === 'none') { hud.style.display = 'none'; return; }
+    const c = PV.camera.position, t = PV.controls ? PV.controls.target : c, [la, lo] = R.P.inv(c.x, -c.z);
+    if (!isFinite(la)) return;
+    const head = ((Math.atan2(t.x - c.x, -(t.z - c.z)) / D2R) + 360) % 360, alt = Math.round((R.h0 || 0) + c.y);
+    let km = ''; if (R.res && R.res.C) { let bi = 0, bd = Infinity; for (let i = 0; i < R.res.C.length; i += 2) { const d = Math.hypot(R.res.C[i][0] - c.x, R.res.C[i][1] + c.z); if (d < bd) { bd = d; bi = i; } } if (bd < 60) km = ` · km ${(R.res.dist[bi] / 1000).toFixed(2)}`; }
+    txt = `${la.toFixed(6)}, ${lo.toFixed(6)} · ${alt} m${km}`; $('#chTxt').textContent = '📍 ' + txt;
+    $('#chEarth').href = `https://earth.google.com/web/@${la.toFixed(6)},${lo.toFixed(6)},${alt}a,120d,35y,${head.toFixed(0)}h,78t,0r`;
+    $('#chSV').href = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${la.toFixed(6)},${lo.toFixed(6)}&heading=${head.toFixed(0)}`;
+    $('#chMly').href = `https://www.mapillary.com/app/?lat=${la.toFixed(6)}&lng=${lo.toFixed(6)}&z=18`;
+    hud.style.display = 'flex';
+  }, 400);
+})();
