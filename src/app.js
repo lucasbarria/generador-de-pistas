@@ -1146,22 +1146,35 @@ const REFS = {
   // búsqueda automática de fotos tomadas desde el camino (Mapillary: libres, CC BY-SA 4.0) a lo largo del recorrido
   async autoFetch(routeLL, token, onProgress) {
     if (!token) throw new Error('falta el token de Mapillary');
+    const T = encodeURIComponent(token), z = 14, tiles = new Map();
+    const tp = (la, lo) => [(lo + 180) / 360 * 2 ** z, (1 - Math.log(Math.tan(la * D2R) + 1 / Math.cos(la * D2R)) / Math.PI) / 2 * 2 ** z];
+    // dónde hay fotos: las capas de cobertura de Mapillary (más confiables que la búsqueda por zona)
+    const tileImgs = async (x, y) => { const k = x + '/' + y; if (tiles.has(k)) return tiles.get(k);
+      let out = []; try { const r = await fetch(`https://tiles.mapillary.com/maps/vtp/mly1_public/2/${z}/${x}/${y}?access_token=${T}`);
+        if (r.status === 401 || r.status === 403) throw new Error('el token de Mapillary no es válido');
+        if (r.ok) out = decodeMVT(await r.arrayBuffer(), 'image').map(f => { const [px, py] = f.lines[0][0], fx = x + px / f.extent, fy = y + py / f.extent;
+          const lo = fx / 2 ** z * 360 - 180, la = Math.atan(Math.sinh(Math.PI * (1 - 2 * fy / 2 ** z))) / D2R; return { ...f.props, la, lo }; });
+      } catch (e) { if (/token/.test(e.message)) throw e; }
+      tiles.set(k, out); return out; };
     const pts = [], step = Math.max(1, Math.floor(routeLL.length / 25)); for (let i = 0; i < routeLL.length; i += step) pts.push(routeLL[i]);
-    const have = new Set(this.list.filter(r => r.auto).map(r => r.mly)); let added = 0, near = 0, done = 0;
+    const have = new Set(this.list.filter(r => r.auto).map(r => String(r.mly))); let added = 0, near = 0, done = 0, permErr = null;
     for (const [la, lo] of pts) {
       done++; onProgress && onProgress(done / pts.length);
-      const dLa = 0.0006, dLo = 0.0006 / Math.cos(la * D2R); // ~65 m alrededor del punto
-      let j; try { const r = await fetch(`https://graph.mapillary.com/images?access_token=${encodeURIComponent(token)}&fields=id,thumb_1024_url,computed_geometry,geometry,captured_at,compass_angle,is_pano,creator&bbox=${lo - dLo},${la - dLa},${lo + dLo},${la + dLa}&limit=8`);
-        if (r.status === 401 || r.status === 403) throw new Error('el token de Mapillary no es válido'); j = await r.json(); if (j.error && done === 1) throw new Error('Mapillary respondió: ' + j.error.message + ' (revisá el token)'); } catch (e) { if (/token/.test(e.message)) throw e; continue; }
-      const imgs = (j.data || []).filter(m => !m.is_pano && m.thumb_1024_url).map(m => { const g = (m.computed_geometry || m.geometry).coordinates; return { m, ll: [g[1], g[0]], dist: Math.hypot((g[1] - la) * 111320, (g[0] - lo) * 111320 * Math.cos(la * D2R)) }; }).sort((a, b) => a.dist - b.dist);
-      const best = imgs[0]; if (!best) continue; near++; if (have.has(best.m.id)) continue;
+      const [fx, fy] = tp(la, lo), cand = [];
+      for (const dx of [-1, 0, 1]) for (const dy of [-1, 0, 1]) { const X = Math.floor(fx) + dx, Y = Math.floor(fy) + dy; if (Math.abs(fx - X - 0.5) > 0.6 + (dx ? 0.5 : 0) && dx) continue; cand.push(...await tileImgs(X, Y)); }
+      const best = cand.filter(m => !m.is_pano).map(m => ({ m, dist: Math.hypot((m.la - la) * 111320, (m.lo - lo) * 111320 * Math.cos(la * D2R)) })).filter(q => q.dist < 60)
+        .sort((a, b) => (a.dist - b.dist) * 0.02 - ((a.m.captured_at || 0) - (b.m.captured_at || 0)) / 3e11)[0];
+      if (!best) continue; near++; if (have.has(String(best.m.id))) continue;
       try {
-        const blob = await LOCAL.fetchBlob(best.m.thumb_1024_url, { cache: false }), a = await this.analyze(blob), id = 'mly_' + best.m.id;
-        const rec = { id, mly: best.m.id, auto: true, name: `Mapillary ${best.m.id}${best.m.creator && best.m.creator.username ? ' — ' + best.m.creator.username : ''}`, blob, added: Date.now(), ll: best.ll.map(v => +v.toFixed(6)), use: true, a,
+        const r = await fetch(`https://graph.mapillary.com/${best.m.id}?access_token=${T}&fields=id,thumb_1024_url,captured_at,creator`), j = await r.json();
+        if (j.error) { permErr = j.error.message; if (/permission|does not exist/i.test(j.error.message)) break; continue; }
+        const blob = await LOCAL.fetchBlob(j.thumb_1024_url, { cache: false }), a = await this.analyze(blob), id = 'mly_' + best.m.id;
+        const rec = { id, mly: String(best.m.id), auto: true, name: `Mapillary ${best.m.id}${j.creator && j.creator.username ? ' — ' + j.creator.username : ''}`, blob, added: Date.now(), ll: [+best.m.la.toFixed(6), +best.m.lo.toFixed(6)], use: true, a,
           date: best.m.captured_at ? new Date(best.m.captured_at).toISOString().slice(0, 10) : '', url: `https://www.mapillary.com/app/?pKey=${best.m.id}`, license: 'CC BY-SA 4.0' };
-        await LOCAL.put('refs', id, rec); have.add(best.m.id); added++;
+        await LOCAL.put('refs', id, rec); have.add(String(best.m.id)); added++;
       } catch (e) { }
     }
+    if (near && !added && permErr) throw new Error(`hay fotos sobre el recorrido, pero Mapillary no deja bajarlas con este token ("${permErr}"). En mapillary.com → Dashboard → Developers, editá tu aplicación y marcá el permiso de lectura (Read)`);
     await this.load(); return { added, near, points: pts.length };
   },
   async add(file) {
