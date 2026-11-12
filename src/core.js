@@ -295,20 +295,24 @@ const Core = (() => {
       for (const m of ribbonMeshes(secs, false, run.key, MAT[run.key], 7, { next: () => cnt(run.key) })) { m.road = true; meshes.push(m); }
     }
     // costados: berma, cuneta y contratalud (o banquina y terraplén donde no hay cuneta)
-    const UD = [0, 0.06, 0.28, 0.4, 0.55, 0.64, 0.82, 1, 1, 1], UV = [0, 0.2, 0.45, 0.7, 0.9, 1, 1, 1];
+    // dos cintas por costado: la zanja (o la berma) con su textura a lo ancho, y el talud de pasto con textura
+    // a escala real (u = metros / 5), así el pasto no queda estirado en rayas
+    const UD = [0, 0.06, 0.28, 0.4, 0.55, 0.64], UV = [0, 0.25, 0.6], CUT_D = 5, CUT_V = 2;
     for (const side of [1, -1]) {
       const Dd = side > 0 ? DLs : DRs, onBridge = i => o.bridge && o.bridge(C[i][0], C[i][1]), sideKey = i => onBridge(i) ? 'NONE' : Dd[i] > 0.12 ? 'DITCH' : 'VERGE', runs2 = [];
       for (let i = 0; i < segCount; i++) { const k = sideKey(i), last = runs2[runs2.length - 1]; if (last && last.key === k) last.i1 = i; else runs2.push({ key: k, i0: i, i1: i }); }
       for (const run of runs2) {
         if (run.key === 'NONE') continue; // en los puentes no hay banquina: se ve el río abajo
-        const secs = [], U = run.key === 'DITCH' ? UD : UV;
+        const isD = run.key === 'DITCH', cut = isD ? CUT_D : CUT_V, U = isD ? UD : UV, inner = [], outer = [];
         for (let ii = run.i0; ii <= run.i1 + 1; ii++) {
-          const i = ii % n, hw = W[i] / 2, sp0 = SP[i][side > 0 ? 0 : 1], isD = run.key === 'DITCH', P = (sp0.Dd > 0.12) === isD ? sp0.pts : sideProf(i, side, isD).pts;
-          const ord = side > 0 ? P.map((q, k) => [q, U[k]]) : P.map((q, k) => [q, U[k]]).reverse();
-          secs.push({ cols: ord.map(([[e, h], u]) => { const [x, y] = pos(i, side * (hw + e)); return { x, y, h, u, i, sc: side * hw }; }), d: dist[i] + (ii >= n ? total : 0), step });
+          const i = ii % n, hw = W[i] / 2, sp0 = SP[i][side > 0 ? 0 : 1], P = (sp0.Dd > 0.12) === isD ? sp0.pts : sideProf(i, side, isD).pts;
+          const col = ([e, h], u) => { const [x, y] = pos(i, side * (hw + e)); return { x, y, h, u, i, sc: side * hw }; }, d = dist[i] + (ii >= n ? total : 0);
+          const A = P.slice(0, cut + 1).map((q, k) => col(q, U[k])), Bc = P.slice(cut).map(q => col(q, q[0] / 5));
+          inner.push({ cols: side > 0 ? A : A.reverse(), d, step }); outer.push({ cols: side > 0 ? Bc : Bc.reverse(), d, step });
         }
-        const key = run.key === 'DITCH' ? 'DITCH' : 'GRASS', mat = run.key === 'DITCH' ? 'ditchside' : 'verge';
-        for (const m of ribbonMeshes(secs, false, key, mat, 7, { next: () => (key === 'GRASS' ? 500 : 0) + cnt(key) })) meshes.push(m);
+        const key = isD ? 'DITCH' : 'GRASS', mat = isD ? 'ditchside' : 'verge';
+        for (const m of ribbonMeshes(inner, false, key, mat, 7, { next: () => (key === 'GRASS' ? 500 : 0) + cnt(key) })) meshes.push(m);
+        for (const m of ribbonMeshes(outer, false, 'GRASS', 'grass', 7, { next: () => 500 + cnt('GRASS') })) meshes.push(m);
       }
     }
     if (o.lines) {

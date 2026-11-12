@@ -1031,11 +1031,11 @@ function makeDitchTex() {
 // tierra arcillosa compactada (camino de Aguas Blancas): beige grisáceo, liso, grano fino, pocas piedritas y manchas de humedad
 function makeClayRoadTex() {
   const N = 512, c = document.createElement('canvas'); c.width = c.height = N; const x = c.getContext('2d'), img = x.createImageData(N, N), o = img.data;
-  const n1 = noiseField(N, 4), n2 = noiseField(N, 16), n3 = noiseField(N, 64), n4 = noiseField(N, 160), wetN = noiseField(N, 5);
+  const n1 = noiseField(N, 4), n2 = noiseField(N, 16), n3 = noiseField(N, 64), n4 = noiseField(N, 160), wetN = noiseField(N, 2);
   for (let py = 0; py < N; py++) for (let px = 0; px < N; px++) {
     const k = (py * N + px) * 4, f = n1(px, py) * 0.35 + n2(px, py) * 0.3 + n3(px, py) * 0.2 + n4(px, py) * 0.15 + (Math.random() - 0.5) * 0.25;
     let r = 166 + f * 16, g = 153 + f * 15, b = 138 + f * 14;
-    const w = Math.max(0, wetN(px, py) - 0.45) * 2.2; if (w > 0) { const t = Math.min(0.55, w); r *= 1 - t * 0.55; g *= 1 - t * 0.57; b *= 1 - t * 0.58; }
+    const w = Math.max(0, wetN(px, py) - 0.62) * 1.6; if (w > 0) { const t = Math.min(0.3, w); r *= 1 - t * 0.5; g *= 1 - t * 0.52; b *= 1 - t * 0.53; } // alguna mancha de humedad, suave
     o[k] = r; o[k + 1] = g; o[k + 2] = b; o[k + 3] = 255;
   }
   x.putImageData(img, 0, 0);
