@@ -137,6 +137,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
       <label class="f" title="Si en Assetto Corsa los autos aparecen mirando para atrás, marcá esto y volvé a exportar">Invertir dirección de salida <span><input type="checkbox" id="invertSpawn"></span></label>
       <label class="f">Lugares de salida <input id="pits" type="number" value="4" min="1" max="24"></label>
       <label class="f" title="Casas y estancias (del mapa y detectadas por los techos en la foto satelital), alambrados y tranqueras">Objetos reales (casas, alambrados, tranqueras) <span><input type="checkbox" id="objects" checked></span></label>
+      <label class="f" title="Cauces de ríos y arroyos del mapa, agua, puentes con guardarraíl y alcantarillas">Ríos, arroyos y puentes <span><input type="checkbox" id="water" checked></span></label>
       <label class="f">Alambrados <select id="fences"><option value="auto" selected>Automático (campo/estepa, no en bosque)</option><option value="always">En todo el tramo</option><option value="none">Sin alambrados</option></select></label>
       <label class="f" title="Agrega 30 m antes de la largada (presentación / control horario) y 30 m después de la llegada (control stop), con pancartas, carteles FIA y reloj. El cronómetro del juego corre de la largada a la llegada.">Largada, llegada y controles (pancartas y reloj) <span><input type="checkbox" id="rallyZones" checked></span></label>
     </section>
@@ -375,9 +376,10 @@ const Core = (() => {
     // banquinas y cunetas a los dos lados
     const DDmax = DLs.map((v, i) => Math.max(v, DRs[i]));
     for (const side of [1, -1]) {
-      const Dd = side > 0 ? DLs : DRs, sideKey = i => Dd[i] > 0.12 ? 'DITCH' : 'VERGE', runs2 = [];
+      const Dd = side > 0 ? DLs : DRs, onBridge = i => o.bridge && o.bridge(C[i][0], C[i][1]), sideKey = i => onBridge(i) ? 'NONE' : Dd[i] > 0.12 ? 'DITCH' : 'VERGE', runs2 = [];
       for (let i = 0; i < segCount; i++) { const k = sideKey(i), last = runs2[runs2.length - 1]; if (last && last.key === k) last.i1 = i; else runs2.push({ key: k, i0: i, i1: i }); }
       for (const run of runs2) {
+        if (run.key === 'NONE') continue; // en los puentes no hay banquina: se ve el río abajo
         const secs = [];
         for (let ii = run.i0; ii <= run.i1 + 1; ii++) {
           const i = ii % n, hw = W[i] / 2, e = surfH(i, side * hw), low = e - 0.15 - DDmax[i] + 0.03;
@@ -496,6 +498,7 @@ const Core = (() => {
           if (best < Fz) h = bH - depth - dd;
           else { let t = (best - Fz) / B; t = t * t * (3 - 2 * t); h = (bH - depth - dd) * (1 - t) + h * t; }
         }
+        if (o.carve) h -= o.carve(x, y);
         H[j * nx + i] = h;
       }
       if (progress && j % 50 === 0) progress(j / ny);
@@ -940,13 +943,14 @@ async function loadTiles(bounds, maxTiles = 60) {
               lines.push({ g, cls: f.props.class, unpaved: f.props.class === 'track' || f.props.surface === 'unpaved', tunnel: f.props.brunnel === 'tunnel', bridge: f.props.brunnel === 'bridge' });
             }
           }
-          const blds = [], pois = [];
+          const blds = [], pois = [], wws = [];
           for (const f of feats) {
             const sc = EXT / f.extent, G = ([x, y]) => [tx * EXT + x * sc, ty * EXT + y * sc];
-            if (f.layer === 'building' && f.type === 3) for (const ring of f.lines) { if (ring.length >= 3) blds.push({ g: ring.map(G), h: +f.props.render_height || 0 }); }
+            if (f.layer === 'waterway' && f.type === 2) for (const ln of f.lines) { if (ln.length > 1) wws.push({ g: ln.map(G), cls: f.props.class || 'stream', tunnel: f.props.brunnel === 'tunnel', name: f.props.name || '' }); }
+            else if (f.layer === 'building' && f.type === 3) for (const ring of f.lines) { if (ring.length >= 3) blds.push({ g: ring.map(G), h: +f.props.render_height || 0 }); }
             else if ((f.layer === 'poi' || f.layer === 'place') && f.type === 1 && f.props.name) for (const ln of f.lines) pois.push({ g: G(ln[0]), name: f.props.name, cls: f.props.class || f.props.subclass || '' });
           }
-          T.cache.set(tx + '/' + ty, { lines, land: landRaster(feats), blds, pois }); break;
+          T.cache.set(tx + '/' + ty, { lines, land: landRaster(feats), blds, pois, wws }); break;
         } catch (e) { if (tries === 2) fails++; else await new Promise(r => setTimeout(r, 600)); }
       }
     }
@@ -959,7 +963,7 @@ async function loadTiles(bounds, maxTiles = 60) {
 }
 
 // ---------- Tipo de suelo (bosque, pasto, agua…) desde las mismas teselas ----------
-const LAYERS = new Set(['transportation', 'landcover', 'landuse', 'water', 'building', 'poi', 'place']);
+const LAYERS = new Set(['transportation', 'landcover', 'landuse', 'water', 'waterway', 'building', 'poi', 'place']);
 const LAND = ['none', 'grass', 'farmland', 'wood', 'wetland', 'rock', 'sand', 'ice', 'water', 'urban'];
 const LAND_ORDER = ['urban', 'farmland', 'grass', 'wetland', 'wood', 'sand', 'rock', 'ice', 'water']; // se pinta en este orden (lo último gana)
 const LANDUSE_URBAN = /residential|commercial|industrial|retail|garages|school|university|college|kindergarten|hospital|railway|military|bus_station|library|suburb|quarter|neighbourhood/;
@@ -1293,7 +1297,7 @@ const TEXDEF = {
   line: { col: [235, 235, 230], amp: 6 }, forest: { col: [58, 72, 38], amp: 26 }, farmland: { col: [128, 122, 70], amp: 20, rows: true },
   wetland: { col: [70, 84, 52], amp: 22 }, rock: { col: [118, 116, 110], amp: 28 }, sand: { col: [206, 186, 140], amp: 14 },
   water: { col: [52, 92, 120], amp: 8 }, urban: { col: [112, 116, 96], amp: 22 },
-  banner: { col: [200, 200, 200], amp: 0 }, bwall: { col: [217, 210, 194], amp: 0 }, broofr: { col: [150, 46, 36], amp: 0 }, broofb: { col: [44, 78, 130], amp: 0 }, broofg: { col: [52, 104, 64], amp: 0 }, broofs: { col: [150, 150, 146], amp: 0 }, fpost: { col: [107, 90, 68], amp: 0 }, fwire: { col: [74, 74, 70], amp: 0 }, fgate: { col: [123, 100, 72], amp: 0 }, ditch: { col: [74, 70, 46], amp: 24 }, verge: { col: [120, 112, 92], amp: 22 }, bark: { col: [84, 62, 44], amp: 20, rows: true }, boulder: { col: [128, 124, 116], amp: 30 },
+  banner: { col: [200, 200, 200], amp: 0 }, bconc: { col: [154, 152, 144], amp: 0 }, brail: { col: [190, 195, 198], amp: 0 }, bwall: { col: [217, 210, 194], amp: 0 }, broofr: { col: [150, 46, 36], amp: 0 }, broofb: { col: [44, 78, 130], amp: 0 }, broofg: { col: [52, 104, 64], amp: 0 }, broofs: { col: [150, 150, 146], amp: 0 }, fpost: { col: [107, 90, 68], amp: 0 }, fwire: { col: [74, 74, 70], amp: 0 }, fgate: { col: [123, 100, 72], amp: 0 }, ditch: { col: [74, 70, 46], amp: 24 }, verge: { col: [120, 112, 92], amp: 22 }, bark: { col: [84, 62, 44], amp: 20, rows: true }, boulder: { col: [128, 124, 116], amp: 30 },
 };
 const ROAD_KEYS = ['ROAD', 'GRAVEL', 'WET', 'LOOSE', 'MUD', 'SNOW', 'ICE'];
 $('#surfKey').innerHTML = ROAD_KEYS.map(k => `<option value="${k}">${SURF[k].name} (agarre ${Math.round(SURF[k].mu * 100)}%)</option>`).join('');
@@ -1717,7 +1721,7 @@ function opt() {
   return {
     name: $('#tname').value.trim() || 'Mi pista', width: +$('#width').value, surface: $('#surface').value,
     lines: $('#lines').checked, margin: +$('#margin').value, res: +$('#res').value, hSmooth: +$('#hsmooth').value,
-    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, fences: $('#fences') ? $('#fences').value : 'auto',
+    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, fences: $('#fences') ? $('#fences').value : 'auto',
     autoBank: Math.max(0, Math.min(20, +$('#autobank').value || 0)),
     snow: $('#snow').checked, snowAlt: +$('#snowAlt').value, snowRoad: $('#snowRoad').checked,
     veg: $('#veg').checked, density: +$('#density').value, treeHit: $('#treeHit').checked,
@@ -1839,6 +1843,8 @@ function objTex(kind) {
     for (let i = 0; i < N; i++) { const l = Math.sin(i / N * Math.PI * 16) * 18; x.fillStyle = `rgb(${col[0] + l},${col[1] + l},${col[2] + l})`; x.fillRect(i, 0, 1, N); }
     x.fillStyle = 'rgba(0,0,0,0.08)'; for (let k = 0; k < 3; k++) x.fillRect(0, k * 170 + 80, N, 3);
   } else if (kind === 'fpost') { x.fillStyle = '#6b5a44'; x.fillRect(0, 0, N, N); for (let i = 0; i < 300; i++) { x.fillStyle = `rgba(40,30,20,${rnd(0.1, 0.3)})`; x.fillRect(rnd(0, N), 0, rnd(1, 3), N); } }
+  else if (kind === 'bconc') { x.fillStyle = '#9a9890'; x.fillRect(0, 0, N, N); for (let i = 0; i < 4000; i++) { x.fillStyle = `rgba(${rnd(60, 160)},${rnd(60, 155)},${rnd(55, 145)},0.15)`; x.fillRect(rnd(0, N), rnd(0, N), rnd(1, 4), rnd(1, 4)); } x.fillStyle = 'rgba(60,55,45,0.25)'; x.fillRect(0, N * 0.85, N, N * 0.15); }
+  else if (kind === 'brail') { const g = x.createLinearGradient(0, 0, 0, N); g.addColorStop(0, '#c9cdd0'); g.addColorStop(0.3, '#8e9497'); g.addColorStop(0.5, '#d8dcde'); g.addColorStop(0.7, '#8e9497'); g.addColorStop(1, '#b9bdc0'); x.fillStyle = g; x.fillRect(0, 0, N, N); }
   else if (kind === 'fwire') { x.clearRect(0, 0, N, N); x.fillStyle = '#4a4a46'; for (const v of [0.12, 0.33, 0.54, 0.75, 0.94]) x.fillRect(0, N * (1 - v) - 2, N, 4); for (const u of [0.5]) { x.fillStyle = '#7a6a52'; x.fillRect(N * u - 3, 0, 6, N); } }
   else if (kind === 'fgate') { // tranquera de madera
     x.clearRect(0, 0, N, N); x.fillStyle = '#7b6448';
@@ -1847,7 +1853,7 @@ function objTex(kind) {
   }
   return c;
 }
-const OBJ_MATS = ['bwall', 'broofr', 'broofb', 'broofg', 'broofs', 'fpost', 'fwire', 'fgate'];
+const OBJ_MATS = ['bwall', 'broofr', 'broofb', 'broofg', 'broofs', 'fpost', 'fwire', 'fgate', 'bconc', 'brail'];
 async function overpassObjects(B) {
   const b = B.bbox, [n, w] = B.P.inv(b.minx, b.maxy), [s, e] = B.P.inv(b.maxx, b.miny);
   const q = `[out:json][timeout:20];(way["barrier"~"fence|wall|hedge"](${s},${w},${n},${e});node["barrier"~"gate|cattle_grid|lift_gate|swing_gate"](${s},${w},${n},${e});way["building"](${s},${w},${n},${e}););out geom;`;
@@ -1887,6 +1893,7 @@ async function buildObjects(B, o, res, ter, wallCounter) {
     const ca = Math.cos(dir), sa = Math.sin(dir), cr = (u, v) => [c[0] + ca * u - sa * v, c[1] + sa * u + ca * v];
     const pts = [cr(-L / 2, -Wd / 2), cr(L / 2, -Wd / 2), cr(L / 2, Wd / 2), cr(-L / 2, Wd / 2)];
     if (pts.some(p => rd(p[0], p[1], 10) < 4)) return false;
+    if (o.CARVE && pts.concat([c]).some(p => o.CARVE(p[0], p[1]) > 0.2)) return false;
     const hs = pts.map(p => hAt(p[0], p[1])); if (hs.some(h => h == null)) return false;
     const hip = L / Wd < 1.6; // casas casi cuadradas: techo a cuatro aguas (como las de las estancias)
     const z0 = Math.min(...hs) - 0.3, zt = Math.max(...hs) + Hw, ridge = zt + Math.min(Wd, 14) * (hip ? 0.38 : 0.3);
@@ -1954,7 +1961,8 @@ async function buildObjects(B, o, res, ter, wallCounter) {
         const p = [r.C[i][0] + nx * off * sg, r.C[i][1] + ny * off * sg], lc = B.landAt(p[0], p[1]), sv = SV ? SV(p[0], p[1]) : -1;
         const ok = o.fences === 'always' || (lc !== 'wood' && lc !== 'water' && lc !== 'wetland' && lc !== 'urban' && sv < 0.35);
         const busy = occupied.some(q => Math.hypot(q.c[0] - p[0], q.c[1] - p[1]) < q.R);
-        if (ok && !busy && rd(p[0], p[1], off) > off - r.W[i] / 2 - 3.5) { if (i % 2 === 0) cur[k].push(p); } else { if (cur[k].length > 1) fences.push(cur[k]); cur[k] = []; }
+        const wet = o.CARVE && o.CARVE(p[0], p[1]) > 0.3;
+        if (ok && !busy && !wet && rd(p[0], p[1], off) > off - r.W[i] / 2 - 3.5) { if (i % 2 === 0) cur[k].push(p); } else { if (cur[k].length > 1) fences.push(cur[k]); cur[k] = []; }
       }
     }
     cur.forEach(c => { if (c.length > 1) fences.push(c); });
@@ -2038,6 +2046,107 @@ async function buildObjects(B, o, res, ter, wallCounter) {
   log(`Objetos: ${nb} edificios (${blds.filter(x => x.src === 'mapa').length} del mapa, ${blds.filter(x => x.src === 'satélite').length} detectados en el satélite${approx ? `, ${approx} estancia(s) aproximada(s) por nombre` : ''}), ${(fl / 1000).toFixed(2)} km de alambrado${OP ? '' : ' (generado según la zona: OpenStreetMap no respondió)'}, ${ng} tranqueras.`);
   return { meshes, occupied };
 }
+// ---------- Ríos, arroyos y puentes ----------
+const WW_SPEC = { river: { w: 12, d: 2.4, bank: 5 }, canal: { w: 5, d: 1.5, bank: 1.5 }, stream: { w: 4.5, d: 1.3, bank: 3 }, ditch: { w: 1.8, d: 0.6, bank: 1 }, drain: { w: 1.8, d: 0.6, bank: 1 } };
+function collectWaterways(B) {
+  const bb = B.bbox, P = B.P, [n0, w0] = P.inv(bb.minx, bb.maxy), [s0, e0] = P.inv(bb.maxx, bb.miny), [gx0, gy0] = ll2g(n0, w0), [gx1, gy1] = ll2g(s0, e0), out = [], bridgesOSM = [];
+  const L = g => g.map(([gx, gy]) => { const [la, lo] = g2ll(gx, gy); return P.fwd(la, lo); });
+  for (let tx = Math.floor(gx0 / EXT); tx <= Math.floor(gx1 / EXT); tx++) for (let ty = Math.floor(gy0 / EXT); ty <= Math.floor(gy1 / EXT); ty++) {
+    const c = T.cache.get(tx + '/' + ty); if (!c) continue;
+    for (const w of c.wws || []) out.push({ pts: L(w.g), spec: WW_SPEC[w.cls] || WW_SPEC.stream, cls: w.cls, tunnel: w.tunnel, name: w.name });
+    for (const ln of c.lines) if (ln.bridge) bridgesOSM.push(...L(ln.g));
+  }
+  return { ww: out, bridgesOSM };
+}
+// profundidad del cauce en (x, y): fondo plano y barrancas suaves a los costados
+function makeCarve(ww) {
+  const cs = 25, grid = new Map();
+  for (const w of ww) for (let i = 0; i + 1 < w.pts.length; i++) {
+    const a = w.pts[i], b = w.pts[i + 1], s = { a, b, sp: w.spec }, R = w.spec.w / 2 + w.spec.bank;
+    for (let gx = Math.floor((Math.min(a[0], b[0]) - R) / cs); gx <= Math.floor((Math.max(a[0], b[0]) + R) / cs); gx++)
+      for (let gy = Math.floor((Math.min(a[1], b[1]) - R) / cs); gy <= Math.floor((Math.max(a[1], b[1]) + R) / cs); gy++) { const k = gx + ',' + gy; (grid.get(k) || grid.set(k, []).get(k)).push(s); }
+  }
+  return (x, y) => {
+    const L = grid.get(Math.floor(x / cs) + ',' + Math.floor(y / cs)); if (!L) return 0; let best = 0;
+    for (const s of L) {
+      const vx = s.b[0] - s.a[0], vy = s.b[1] - s.a[1], L2 = vx * vx + vy * vy || 1e-9; let t = ((x - s.a[0]) * vx + (y - s.a[1]) * vy) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const e = Math.hypot(s.a[0] + vx * t - x, s.a[1] + vy * t - y), hw = s.sp.w / 2;
+      let d = 0; if (e < hw) d = s.sp.d; else if (e < hw + s.sp.bank) { const u = (e - hw) / s.sp.bank; d = s.sp.d * (1 - u * u * (3 - 2 * u)); }
+      if (d > best) best = d;
+    }
+    return best;
+  };
+}
+// cruces del camino con ríos y arroyos: puente (ríos/canales, o donde el mapa marca puente) o alcantarilla (arroyos chicos)
+function findCrossings(route, W) {
+  const out = [];
+  const segX = (a, b, c, d) => { const r = [b[0] - a[0], b[1] - a[1]], s = [d[0] - c[0], d[1] - c[1]], den = r[0] * s[1] - r[1] * s[0]; if (Math.abs(den) < 1e-9) return null;
+    const t = ((c[0] - a[0]) * s[1] - (c[1] - a[1]) * s[0]) / den, u = ((c[0] - a[0]) * r[1] - (c[1] - a[1]) * r[0]) / den; return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? { p: [a[0] + r[0] * t, a[1] + r[1] * t], r, s } : null; };
+  for (const w of W.ww) for (let j = 0; j + 1 < w.pts.length; j++) for (let i = 0; i + 1 < route.length; i++) {
+    const X = segX(route[i], route[i + 1], w.pts[j], w.pts[j + 1]); if (!X) continue;
+    if (out.some(o => Math.hypot(o.p[0] - X.p[0], o.p[1] - X.p[1]) < 15)) continue;
+    const osmBridge = W.bridgesOSM.some(q => Math.hypot(q[0] - X.p[0], q[1] - X.p[1]) < 30), big = w.cls === 'river' || w.cls === 'canal';
+    const sin = Math.abs(X.r[0] * X.s[1] - X.r[1] * X.s[0]) / (Math.hypot(...X.r) * Math.hypot(...X.s) || 1);
+    const half = Math.min(40, (w.spec.w / 2 + w.spec.bank * 0.7 + 2) / Math.max(0.35, sin));
+    const bridge = !w.tunnel && (big || osmBridge);
+    out.push({ p: X.p, spec: w.spec, cls: w.cls, name: w.name, bridge, half });
+  }
+  return out;
+}
+function terHAt(ter, bb, res) {
+  return (x, y) => { const fi = (x - bb.minx) / res, fj = (y - bb.miny) / res, i = Math.floor(fi), j = Math.floor(fj);
+    if (i < 0 || j < 0 || i >= ter.nx - 1 || j >= ter.ny - 1) return null; const k = j * ter.nx + i, N = ter.need; if (!(N[k] && N[k + 1] && N[k + ter.nx] && N[k + ter.nx + 1])) return null;
+    const A = fi - i, Bb = fj - j, H = ter.H; return H[k] * (1 - A) * (1 - Bb) + H[k + 1] * A * (1 - Bb) + H[k + ter.nx] * (1 - A) * Bb + H[k + ter.nx + 1] * A * Bb; };
+}
+// superficie del agua por el fondo del cauce (frena el auto: superficie WATER)
+function waterMeshes(W, ter, bb, res) {
+  const hAt = terHAt(ter, bb, res), out = []; let n = 0;
+  for (const w of W.ww) {
+    if (w.spec.w < 2) continue;
+    const C = Core.resample(w.pts, 3, false); if (C.length < 2) continue;
+    const T = C.map((p, i) => { const a = C[Math.max(0, i - 1)], b = C[Math.min(C.length - 1, i + 1)], L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return [(b[0] - a[0]) / L, (b[1] - a[1]) / L]; });
+    const z = C.map(p => { const h = hAt(p[0], p[1]); return h == null ? NaN : h + 0.3; });
+    const hw = Math.max(0.8, w.spec.w / 2 - 0.3);
+    let m = null, prev = false;
+    for (let i = 0; i < C.length; i++) {
+      if (isNaN(z[i])) { prev = false; continue; }
+      if (!m || m.v.length > 30000) { m = { name: `${8000 + (++n)}WATER`, mat: 'water', v: [], uv: [], f: [] }; out.push(m); prev = false; }
+      const nx = -T[i][1], ny = T[i][0], b = m.v.length;
+      m.v.push([C[i][0] - nx * hw, C[i][1] - ny * hw, z[i]], [C[i][0] + nx * hw, C[i][1] + ny * hw, z[i]]); m.uv.push([0, i * 3 / 8], [hw * 2 / 8, i * 3 / 8]);
+      if (prev) m.f.push([b - 2, b, b + 1], [b - 2, b + 1, b - 1]);
+      prev = true;
+    }
+  }
+  return out.filter(m => m.f.length);
+}
+// puente: tablero de hormigón, guardarraíl con choque a los dos lados, estribos y pila central
+function bridgeMeshes(r, BR, wallCounter) {
+  const conc = { name: 'OBJECTS_BRIDGE', mat: 'bconc', v: [], uv: [], f: [] }, rail = { name: `${wallCounter()}WALL`, mat: 'brail', v: [], uv: [], f: [] }, posts = { name: 'OBJECTS_BRPOSTS', mat: 'brail', v: [], uv: [], f: [] };
+  const quad = (m, A, Bq, Cq, D, uL, vL, two) => { const b = m.v.length; m.v.push(A, Bq, Cq, D); m.uv.push([0, 0], [uL, 0], [uL, vL], [0, vL]); m.f.push([b, b + 1, b + 2], [b, b + 2, b + 3]); if (two) m.f.push([b, b + 2, b + 1], [b, b + 3, b + 2]); };
+  const P = (i, s, dz) => { const nx = -r.T[i][1], ny = r.T[i][0]; return [r.C[i][0] + nx * s, r.C[i][1] + ny * s, r.hs[i] + r.SL[i] * s + dz]; };
+  for (const b of BR) {
+    if (!b.bridge) continue;
+    let ic = 0, bd = Infinity; for (let i = 0; i < r.n; i++) { const d = Math.hypot(r.C[i][0] - b.p[0], r.C[i][1] - b.p[1]); if (d < bd) { bd = d; ic = i; } }
+    let i0 = ic, i1 = ic; while (i0 > 0 && r.dist[ic] - r.dist[i0] < b.half) i0--; while (i1 < r.n - 1 && r.dist[i1] - r.dist[ic] < b.half) i1++;
+    Object.assign(b, { d: r.dist[ic], ic, i0, i1 });
+    const DD = 0.9, bed = b.spec.d + 1.2;
+    for (let i = i0; i < i1; i++) {
+      const hw = r.W[i] / 2, hw2 = r.W[i + 1] / 2, L = r.dist[i + 1] - r.dist[i];
+      for (const sg of [1, -1]) {
+        const a = P(i, sg * hw, 0), bq = P(i + 1, sg * hw2, 0), c = P(i + 1, sg * hw2, -DD), d = P(i, sg * hw, -DD);
+        quad(conc, d, c, bq, a, L / 3, 0.3, true); // lateral del tablero
+        const g0 = P(i, sg * (hw + 0.05), 0.45), g1 = P(i + 1, sg * (hw2 + 0.05), 0.45), g2 = P(i + 1, sg * (hw2 + 0.05), 0.8), g3 = P(i, sg * (hw + 0.05), 0.8);
+        quad(rail, g0, g1, g2, g3, L / 4, 1, true); // guardarraíl
+        const p0 = P(i, sg * (hw + 0.12), -0.2), p1 = P(i, sg * (hw + 0.12), 0.85), tx = r.T[i][0] * 0.06, ty = r.T[i][1] * 0.06;
+        quad(posts, [p0[0] - tx, p0[1] - ty, p0[2]], [p0[0] + tx, p0[1] + ty, p0[2]], [p1[0] + tx, p1[1] + ty, p1[2]], [p1[0] - tx, p1[1] - ty, p1[2]], 0.2, 1, true);
+      }
+      quad(conc, P(i, -hw, -DD), P(i, hw, -DD), P(i + 1, hw2, -DD), P(i + 1, -hw2, -DD), 2, L / 3, true); // cara de abajo
+    }
+    for (const i of [i0, i1]) { const hw = r.W[i] / 2 + 0.6; quad(conc, P(i, -hw, -bed - 1), P(i, hw, -bed - 1), P(i, hw, 0), P(i, -hw, 0), 2, 1, true); } // estribos
+    if (r.dist[i1] - r.dist[i0] > 24) { const hw = r.W[ic] / 2 - 0.5; quad(conc, P(ic, -hw, -bed - 1), P(ic, hw, -bed - 1), P(ic, hw, -DD), P(ic, -hw, -DD), 2, 1, true); } // pila
+  }
+  return [conc, rail, posts].filter(m => m.f.length);
+}
 async function rebuild(keepCam) {
   const B = S.base, o = opt(), t0 = performance.now();
   let meshes = [], res, spawnList, outline, length = 0, info = {};
@@ -2054,7 +2163,11 @@ async function rebuild(keepCam) {
       for (let s = 5; s <= ZPOST; s += 5) post.push([b0[0] + db[0] * s, b0[1] + db[1] * s]);
       return [...pre, ...pts, ...post];
     };
-    res = Core.buildRoute({ pts: useZ ? extend(B.pts) : B.pts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, shoulder: o.res * 1.5 + 1, ...editFns(o, S.lastTotal, B.closed) });
+    const rPts = useZ ? extend(B.pts) : B.pts;
+    S.water = o.water ? collectWaterways(B) : { ww: [], bridgesOSM: [] };
+    S.crossings = o.water ? findCrossings(rPts, S.water) : [];
+    const BRs = S.crossings.filter(b => b.bridge);
+    res = Core.buildRoute({ bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, shoulder: o.res * 1.5 + 1, ...editFns(o, S.lastTotal, B.closed) });
     S.lastTotal = res.total;
     res.zone = useZ ? { pres: ZPRE - 30, start: ZPRE, finish: res.total - ZPOST, stop: res.total - ZPOST + 30 } : null;
     if (useZ) log('Largada y llegada: se tomaron 30 m antes de la largada para la presentación (control horario) y 30 m después de la llegada para el control stop, donde se entrega el carnet y los tiempos. El reloj corre desde la largada hasta la llegada.');
@@ -2090,10 +2203,13 @@ async function rebuild(keepCam) {
       await applyAutoBiome(SV);
     }
   }
+  const CARVE = B.mode === 'route' && S.water && S.water.ww.length ? makeCarve(S.water.ww) : null;
+  if (CARVE) log(`Ríos y arroyos: ${S.water.ww.length} tramos de agua en la zona${S.crossings.length ? ` · el camino cruza ${S.crossings.filter(b => b.bridge).length} puente(s) y ${S.crossings.filter(b => !b.bridge).length} alcantarilla(s)` : ''}.`);
   const ter = Core.buildTerrain({
-    bbox: B.bbox, res: o.res, margin: B.mode === 'route' ? o.margin : Infinity, segs: res.segs, height: B.height, heightS: B.heightS,
+    carve: CARVE, bbox: B.bbox, res: o.res, margin: B.mode === 'route' ? o.margin : Infinity, segs: res.segs, height: B.height, heightS: B.heightS,
     flat: o.res * 1.5, blend: Math.max(12, o.res * 3), depth: 0.15,
     surfAt: (h, slope, x, y) => {
+      if (CARVE && CARVE(x, y) > 0.35) return ['MUD', 'mud']; // cauce y barranca
       const lc = o.veg ? B.landAt(x, y) : 'none';
       if (lc === 'water') return ['WATER', 'water'];
       if (o.snow && h + B.h0 >= o.snowAlt + 40 * Math.max(0, slope - 0.5) && slope < 1.1) return ['POWDER', 'powder'];
@@ -2103,11 +2219,14 @@ async function rebuild(keepCam) {
   }, p => { $('#prog').textContent = `Terreno ${(p * 100).toFixed(0)}%`; });
   meshes.push(...ter.meshes);
   let wallN = 0; const wallCounter = () => ++wallN;
+  if (CARVE) { meshes.push(...waterMeshes(S.water, ter, B.bbox, o.res)); }
+  if (B.mode === 'route' && S.crossings && S.crossings.some(b => b.bridge)) { meshes.push(...bridgeMeshes(res, S.crossings, wallCounter)); res.bridges = S.crossings.filter(b => b.bridge && b.d != null); info.notes = paceNotes(res, info.grip); }
   if (B.mode === 'route' && o.rocks > 0) {
     const r = res;
     const rk = Core.buildRocks({
       r, ter, bbox: B.bbox, res: o.res, wallCounter,
       densityAt: i => {
+        if (res.bridges && res.bridges.some(b => i >= b.i0 - 3 && i <= b.i1 + 3)) return 0;
         let f = Math.max(0, Math.min(1, (Math.abs(r.CS[i]) - 0.05) / 0.15));
         if (r.hs[i] + B.h0 > 1500) f = Math.max(f, 0.5);
         if (o.veg && i % 5 === 0) { const nx = -r.T[i][1], ny = r.T[i][0], off = r.W[i] / 2 + r.EX + 4; r.__rock = B.landAt(r.C[i][0] + nx * off, r.C[i][1] + ny * off) === 'rock' || B.landAt(r.C[i][0] - nx * off, r.C[i][1] - ny * off) === 'rock'; }
@@ -2122,7 +2241,7 @@ async function rebuild(keepCam) {
   }
   let OCC = [];
   if (B.mode === 'route' && o.objects) {
-    try { const ob = await buildObjects(B, o, res, ter, wallCounter); meshes.push(...ob.meshes); OCC = ob.occupied; } catch (e) { log('No se pudieron generar los objetos: ' + e.message, 'err'); }
+    try { const ob = await buildObjects(B, Object.assign({}, o, { CARVE }), res, ter, wallCounter); meshes.push(...ob.meshes); OCC = ob.occupied; } catch (e) { log('No se pudieron generar los objetos: ' + e.message, 'err'); }
   }
   if (o.veg) {
     log('Plantando vegetación…'); await tick();
@@ -2131,7 +2250,7 @@ async function rebuild(keepCam) {
     const tr = Core.buildTrees({
       trunkDist: o.treeHit ? 30 : 0, wallCounter, clear: o.treeClear,
       ter, bbox: B.bbox, res: o.res, segs: res.segs, maxTrees: { 0.5: 20000, 1: 40000, 1.8: 65000 }[o.density] || 40000,
-      spacingAt: (x, y) => { if (OCC.some(q => Math.abs(q.c[0] - x) < q.R && Math.abs(q.c[1] - y) < q.R)) return 0; const sp = SP[B.landAt(x, y)]; return sp ? sp / Math.sqrt(o.density) : 0; },
+      spacingAt: (x, y) => { if (CARVE && CARVE(x, y) > 0.3) return 0; if (OCC.some(q => Math.abs(q.c[0] - x) < q.R && Math.abs(q.c[1] - y) < q.R)) return 0; const sp = SP[B.landAt(x, y)]; return sp ? sp / Math.sqrt(o.density) : 0; },
       kindAt: (x, y, h) => {
         const lc = B.landAt(x, y); if (lc === 'wetland') return 2;
         const alt = h + B.h0, r = frac(x, y);
@@ -3151,6 +3270,7 @@ function paceNotes(r, grip) {
   // saltos y cambios de superficie
   for (const e of S.edits) if (e.kind === 'jump') { const i = Math.min(n - 1, Math.round(e.d / step)); notes.push({ i, d: e.d, txt: 'salto', kind: 'salto' }); }
   for (let i = 1; i < n; i++) if (r.SURF[i] !== r.SURF[i - 1] && SURF[r.SURF[i]].mu < SURF[r.SURF[i - 1]].mu - 0.05) notes.push({ i, d: r.dist[i], txt: 'ojo ' + SURF[r.SURF[i]].name.toLowerCase(), kind: 'sup' });
+  for (const b of r.bridges || []) notes.push({ i: b.ic, d: b.d, txt: 'puente' + (b.cls === 'river' ? ' (río)' : ''), kind: 'puente' });
   notes.sort((a, b) => a.d - b.d);
   // distancias entre notas (redondeadas como en un cuaderno)
   let prevEnd = 0;

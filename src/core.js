@@ -194,9 +194,10 @@ const Core = (() => {
     // banquinas y cunetas a los dos lados
     const DDmax = DLs.map((v, i) => Math.max(v, DRs[i]));
     for (const side of [1, -1]) {
-      const Dd = side > 0 ? DLs : DRs, sideKey = i => Dd[i] > 0.12 ? 'DITCH' : 'VERGE', runs2 = [];
+      const Dd = side > 0 ? DLs : DRs, onBridge = i => o.bridge && o.bridge(C[i][0], C[i][1]), sideKey = i => onBridge(i) ? 'NONE' : Dd[i] > 0.12 ? 'DITCH' : 'VERGE', runs2 = [];
       for (let i = 0; i < segCount; i++) { const k = sideKey(i), last = runs2[runs2.length - 1]; if (last && last.key === k) last.i1 = i; else runs2.push({ key: k, i0: i, i1: i }); }
       for (const run of runs2) {
+        if (run.key === 'NONE') continue; // en los puentes no hay banquina: se ve el río abajo
         const secs = [];
         for (let ii = run.i0; ii <= run.i1 + 1; ii++) {
           const i = ii % n, hw = W[i] / 2, e = surfH(i, side * hw), low = e - 0.15 - DDmax[i] + 0.03;
@@ -315,6 +316,7 @@ const Core = (() => {
           if (best < Fz) h = bH - depth - dd;
           else { let t = (best - Fz) / B; t = t * t * (3 - 2 * t); h = (bH - depth - dd) * (1 - t) + h * t; }
         }
+        if (o.carve) h -= o.carve(x, y);
         H[j * nx + i] = h;
       }
       if (progress && j % 50 === 0) progress(j / ny);
