@@ -248,7 +248,7 @@ async function loadTiles(bounds, maxTiles = 60) {
             const sc = EXT / f.extent;
             for (const ln of f.lines) for (const piece of clipLine(ln.map(([x, y]) => [x * sc, y * sc]), 0, 0, EXT, EXT)) {
               const g = piece.map(([x, y]) => [tx * EXT + x, ty * EXT + y]);
-              lines.push({ g, cls: f.props.class, unpaved: f.props.class === 'track' || f.props.surface === 'unpaved', tunnel: f.props.brunnel === 'tunnel', bridge: f.props.brunnel === 'bridge' });
+              lines.push({ g, cls: f.props.class, unpaved: f.props.class === 'track' || f.props.surface === 'unpaved', paved: f.props.surface === 'paved', tunnel: f.props.brunnel === 'tunnel', bridge: f.props.brunnel === 'bridge' });
             }
           }
           const blds = [], pois = [], wws = [];
@@ -658,6 +658,7 @@ const SURF = {
   ROAD:   { name: 'Asfalto',        mu: 0.99, col: [58, 58, 60],    amp: 14, sin: [0, 0],        damp: 0,    ui: '#6b6f75' },
   GRAVEL: { name: 'Ripio',          mu: 0.80, col: [140, 118, 86],  amp: 30, sin: [0.004, 0.6],  damp: 0.02, ui: '#b08d5f' },
   WET:    { name: 'Mojado',         mu: 0.78, col: [34, 36, 40],    amp: 7,  sin: [0, 0],        damp: 0,    ui: '#3d6fa8' },
+  CLAY:   { name: 'Tierra arcillosa', mu: 0.74, col: [128, 98, 70],  amp: 24, sin: [0.006, 0.7],  damp: 0.03, ui: '#8a6446' },
   LOOSE:  { name: 'Ripio suelto',   mu: 0.70, col: [162, 140, 106], amp: 42, sin: [0.01, 0.5],   damp: 0.05, ui: '#d9b26f' },
   MUD:    { name: 'Barro',          mu: 0.55, col: [86, 64, 42],    amp: 18, sin: [0.012, 0.9],  damp: 0.12, ui: '#6e4b2a' },
   SNOW:   { name: 'Nieve',          mu: 0.50, col: [232, 236, 242], amp: 9,  sin: [0.006, 0.8],  damp: 0.04, ui: '#e8eef6' },
@@ -675,10 +676,10 @@ const MAT2KEY = Object.fromEntries(Object.entries(Core.MAT).map(([k, m]) => [m, 
 const TEXDEF = {
   line: { col: [235, 235, 230], amp: 6 }, forest: { col: [58, 72, 38], amp: 26 }, farmland: { col: [128, 122, 70], amp: 20, rows: true },
   wetland: { col: [70, 84, 52], amp: 22 }, rock: { col: [118, 116, 110], amp: 28 }, sand: { col: [206, 186, 140], amp: 14 },
-  water: { col: [52, 92, 120], amp: 8 }, urban: { col: [112, 116, 96], amp: 22 },
+  water: { col: [52, 92, 120], amp: 8 }, urban: { col: [112, 116, 96], amp: 22 }, ditchside: { col: [88, 82, 58], amp: 20 },
   banner: { col: [200, 200, 200], amp: 0 }, bconc: { col: [154, 152, 144], amp: 0 }, brail: { col: [190, 195, 198], amp: 0 }, bwall: { col: [217, 210, 194], amp: 0 }, broofr: { col: [150, 46, 36], amp: 0 }, broofb: { col: [44, 78, 130], amp: 0 }, broofg: { col: [52, 104, 64], amp: 0 }, broofs: { col: [150, 150, 146], amp: 0 }, fpost: { col: [107, 90, 68], amp: 0 }, fwire: { col: [74, 74, 70], amp: 0 }, fgate: { col: [123, 100, 72], amp: 0 }, ditch: { col: [74, 70, 46], amp: 24 }, verge: { col: [120, 112, 92], amp: 22 }, bark: { col: [84, 62, 44], amp: 20, rows: true }, boulder: { col: [128, 124, 116], amp: 30 },
 };
-const ROAD_KEYS = ['ROAD', 'GRAVEL', 'WET', 'LOOSE', 'MUD', 'SNOW', 'ICE'];
+const ROAD_KEYS = ['ROAD', 'GRAVEL', 'CLAY', 'WET', 'LOOSE', 'MUD', 'SNOW', 'ICE'];
 $('#surfKey').innerHTML = ROAD_KEYS.map(k => `<option value="${k}">${SURF[k].name} (agarre ${Math.round(SURF[k].mu * 100)}%)</option>`).join('');
 
 // ---------- Texturas procedurales ----------
@@ -991,6 +992,31 @@ function makeVergeTex() {
   x.drawImage(m, 0, 0);
   return c;
 }
+// textura del costado con cuneta (u = a lo ancho del perfil): piedras de la berma → talud húmedo → fondo con barro y agua
+// → contratalud con musgo → suelo del bosque. Las capas se funden con bordes suaves; a lo largo (v) se repite sin corte.
+function makeDitchTex() {
+  const N = 512, c = document.createElement('canvas'); c.width = c.height = N; const x = c.getContext('2d');
+  const src = k => PHOTO_CANVAS[k] || TEX[k] || TEX.grass;
+  const band = (img, u0, u1, f, filter) => {
+    const m = document.createElement('canvas'); m.width = m.height = N; const mx = m.getContext('2d');
+    if (filter) mx.filter = filter; mx.drawImage(img, 0, 0, N, N); mx.filter = 'none'; mx.globalCompositeOperation = 'destination-in';
+    const g = mx.createLinearGradient(0, 0, N, 0), cl = v => Math.max(0, Math.min(1, v));
+    g.addColorStop(0, `rgba(0,0,0,${u0 <= 0 ? 1 : 0})`); g.addColorStop(cl(u0 - f), `rgba(0,0,0,${u0 <= 0 ? 1 : 0})`); g.addColorStop(cl(u0 + f), 'rgba(0,0,0,1)');
+    g.addColorStop(cl(u1 - f), 'rgba(0,0,0,1)'); g.addColorStop(cl(u1 + f), `rgba(0,0,0,${u1 >= 1 ? 1 : 0})`); g.addColorStop(1, `rgba(0,0,0,${u1 >= 1 ? 1 : 0})`);
+    mx.fillStyle = g; mx.fillRect(0, 0, N, N); x.drawImage(m, 0, 0);
+  };
+  x.drawImage(TEX.forest || src('forest'), 0, 0, N, N);
+  band(src('ditch'), 0.5, 0.8, 0.07, 'brightness(0.82) saturate(1.1)');             // contratalud: tierra húmeda con matas
+  x.globalAlpha = 0.45; band(TEX.grass, 0.68, 0.9, 0.08, 'brightness(0.75) saturate(0.85)'); x.globalAlpha = 1; // matas de pasto y musgo arriba
+  band(src('ditch'), 0.1, 0.46, 0.05, 'brightness(0.78)');                           // talud interno
+  band(src('mud'), 0.38, 0.62, 0.04, 'brightness(0.62) contrast(1.15)');             // fondo: barro
+  band(src('loose'), -1, 0.16, 0.04, 'brightness(0.95) sepia(0.15)');                // berma: ripio que tiran las ruedas
+  // agua quieta en el fondo (reflejo gris azulado, cortado en charcos)
+  const w = x.createLinearGradient(0, 0, N, 0); w.addColorStop(0.44, 'rgba(70,80,86,0)'); w.addColorStop(0.49, 'rgba(70,80,86,0.55)'); w.addColorStop(0.53, 'rgba(70,80,86,0.55)'); w.addColorStop(0.58, 'rgba(70,80,86,0)');
+  for (let y = 0; y < N; y += 8) { const a = 0.5 + 0.5 * Math.sin(y * 0.031) * Math.sin(y * 0.013 + 1.7); if (a < 0.35) continue; x.globalAlpha = Math.min(1, (a - 0.35) * 1.6); x.fillStyle = w; x.fillRect(0, y, N, 8); }
+  x.globalAlpha = 1;
+  return c;
+}
 function soften(src, k) {
   const c = document.createElement('canvas'); c.width = src.width; c.height = src.height; const x = c.getContext('2d');
   x.filter = `contrast(${Math.round(k * 100)}%) saturate(${Math.round((0.8 + k * 0.2) * 100)}%) blur(0.6px)`; x.drawImage(src, 0, 0); return c;
@@ -1019,7 +1045,7 @@ const photoReady = (async () => {
     if ($('#grassType').value === 'dry') { TEX.grass = TEX_DEFAULT.grass = PHOTO_CANVAS.grass; }
     TEX.tree = TEX_DEFAULT.tree = buildPhotoTreeAtlas();
     TEX.forest = TEX_DEFAULT.forest = tint(PHOTO_CANVAS.forest, 'rgb(70,96,48)', 0.55); // suelo de bosque con musgo (no rojizo)
-    TEX.verge = TEX_DEFAULT.verge = makeVergeTex();
+    TEX.verge = TEX_DEFAULT.verge = makeVergeTex(); TEX.ditchside = TEX_DEFAULT.ditchside = makeDitchTex();
     for (const k of OBJ_MATS) TEX[k] = TEX_DEFAULT[k] = objTex(k);
     if (typeof refreshPreviewTextures === 'function' && S.result) refreshPreviewTextures();
   } catch (e) { console.warn('Texturas de fotos no disponibles', e); }
@@ -1034,7 +1060,7 @@ async function applyAutoBiome(SV) {
   if (pAuto && free('grass')) {
     let g = steppe && PHOTO_CANVAS.grass ? PHOTO_CANVAS.grass : makeGroundTex('grass');
     if (SV.ground) { const [r, gg, b] = SV.ground.map(v => Math.round(Math.min(255, v * 0.95))); g = tint(g, `rgb(${r},${gg},${b})`, steppe ? 0.35 : 0.25); }
-    TEX.grass = TEX_DEFAULT.grass = g; TEX.verge = TEX_DEFAULT.verge = makeVergeTex();
+    TEX.grass = TEX_DEFAULT.grass = g; TEX.verge = TEX_DEFAULT.verge = makeVergeTex(); TEX.ditchside = TEX_DEFAULT.ditchside = makeDitchTex();
   }
   if (PV.mats) { for (const k in PV.mats) { try { PV.mats[k].map && PV.mats[k].map.dispose(); PV.mats[k].dispose(); } catch (e) { } } PV.mats = {}; }
   log(`Zona detectada: ${steppe ? 'estepa (llano, pocos árboles) → ripio gris de estepa y pasto seco' : 'bosque → ripio marrón de bosque y pasto verde'}, con el color del suelo tomado del satélite.`);
@@ -1048,7 +1074,7 @@ async function applyGravelStyle() {
 $('#photoTrees').onchange = () => { TEX.tree = buildPhotoTreeAtlas(); TEX_DEFAULT.tree = TEX.tree; refreshPreviewTextures(); };
 $('#gravelStyle').onchange = async () => { await applyGravelStyle(); refreshPreviewTextures(); };
 $('#season').onchange = () => { TEX.tree = buildPhotoTreeAtlas(); TEX_DEFAULT.tree = TEX.tree; refreshPreviewTextures(); };
-$('#grassType').onchange = () => { TEX.grass = $('#grassType').value === 'dry' && PHOTO_CANVAS.grass ? PHOTO_CANVAS.grass : makeGroundTex('grass'); TEX_DEFAULT.grass = TEX.grass; TEX.verge = TEX_DEFAULT.verge = makeVergeTex(); refreshPreviewTextures(); };
+$('#grassType').onchange = () => { TEX.grass = $('#grassType').value === 'dry' && PHOTO_CANVAS.grass ? PHOTO_CANVAS.grass : makeGroundTex('grass'); TEX_DEFAULT.grass = TEX.grass; TEX.verge = TEX_DEFAULT.verge = makeVergeTex(); TEX.ditchside = TEX_DEFAULT.ditchside = makeDitchTex(); refreshPreviewTextures(); };
 
 // ---------- Texturas propias (fotos) ----------
 const CUSTOM_SLOTS = [
@@ -1099,12 +1125,12 @@ function opt() {
   return {
     name: $('#tname').value.trim() || 'Mi pista', width: +$('#width').value, surface: $('#surface').value,
     lines: $('#lines').checked, margin: +$('#margin').value, res: +$('#res').value, hSmooth: +$('#hsmooth').value,
-    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, bridgeRamp: $('#bridgeRamp') ? $('#bridgeRamp').value : 'steep', autoWidth: !$('#autoWidth') || $('#autoWidth').checked, edgeFix: !$('#edgeFix') || $('#edgeFix').checked, realTex: $('#realTex') ? $('#realTex').value : 'none', roadTex: !$('#roadTex') || $('#roadTex').checked, clay: $('#clay') ? +$('#clay').value : 0.4, gpsAlt: !$('#gpsAlt') || $('#gpsAlt').checked, fences: $('#fences') ? $('#fences').value : 'auto',
+    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, bridgeRamp: $('#bridgeRamp') ? $('#bridgeRamp').value : 'steep', autoWidth: !$('#autoWidth') || $('#autoWidth').checked, edgeFix: !$('#edgeFix') || $('#edgeFix').checked, realTex: $('#realTex') ? $('#realTex').value : 'none', roadTex: !$('#roadTex') || $('#roadTex').checked, clay: $('#clay') ? ($('#clay').value === 'auto' ? 'auto' : +$('#clay').value) : 'auto', gpsAlt: !$('#gpsAlt') || $('#gpsAlt').checked, fences: $('#fences') ? $('#fences').value : 'auto',
     autoBank: Math.max(0, Math.min(20, +$('#autobank').value || 0)),
     snow: $('#snow').checked, snowAlt: +$('#snowAlt').value, snowRoad: $('#snowRoad').checked,
     veg: $('#veg').checked, density: +$('#density').value, treeHit: $('#treeHit').checked,
     treeClear: Math.max(0.3, +$('#treeClear').value || 0.8), forest: $('#forest').value,
-    ditch: $('#ditch') ? $('#ditch').value : 'none', rocks: +$('#rocks').value,
+    ditch: $('#ditch') ? $('#ditch').value : 'none', autoMargin: !!($('#autoMargin') && $('#autoMargin').checked), rocks: +$('#rocks').value,
   };
 }
 const slugify = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'pista';
@@ -1210,7 +1236,8 @@ function editFns(o, total, closed) {
     surfaceAt: (d, h) => {
       for (let i = S.edits.length - 1; i >= 0; i--) { const e = S.edits[i]; if (e.kind === 'surface' && inSec(d, e)) return e.key; }
       if (o.snow && o.snowRoad && h + S.base.h0 >= o.snowAlt) return 'SNOW';
-      return o.surface === 'gravel' ? 'GRAVEL' : 'ROAD';
+      if (o.surface === 'auto' && S.autoSurf) return S.autoSurf(d);
+      return o.surface === 'gravel' || o.surface === 'auto' ? 'GRAVEL' : 'ROAD';
     },
     smoothSecs: S.edits.filter(e => e.kind === 'smooth'),
     // perfiles por puntos de control: reemplazan la altura base (antes de saltos, lomadas, etc.)
@@ -1622,13 +1649,16 @@ function autoWidthProfile(B, pts, o) {
         }
       }
     }
-    samples.push({ d, w, rg, cls, bareL, bareR, wood: SV && SV(x + nx * 12, y + ny * 12) > 0.42 || SV && SV(x - nx * 12, y - ny * 12) > 0.42 });
+    const wl = SV ? SV(x + nx * 12, y + ny * 12) > 0.42 : false, wr = SV ? SV(x - nx * 12, y - ny * 12) > 0.42 : false;
+    samples.push({ d, w, rg, cls, bareL, bareR, wood: wl || wr, wood2: wl && wr });
   }
   // suavizar: mediana de 70 m, acotada al rango del tipo de camino; donde no se pudo medir, el ancho típico del tipo
   const out = samples.map((s, k) => {
     const win = samples.slice(Math.max(0, k - 3), k + 4).map(q => q.w).filter(v => v != null).sort((p, q) => p - q);
     let w = win.length >= 3 ? win[Math.floor(win.length / 2)] : null;
     if (w == null) w = s.cls && ROAD_CLASS[s.cls] ? Math.min(ROAD_CLASS[s.cls].w * 0.85, o.width) : o.width;
+    // dentro del bosque cerrado las copas tapan el camino en la foto: los caminos de ripio ahí son angostos
+    if (s.wood2 && !(win.length >= 3) && !['motorway', 'trunk', 'primary', 'secondary'].includes(s.cls)) w = Math.min(w, 4.6);
     return Math.max(s.rg[0], Math.min(s.rg[1], w));
   });
   for (let p = 0; p < 2; p++) for (let k = 1; k + 1 < out.length; k++) out[k] = (out[k - 1] + out[k] * 2 + out[k + 1]) / 4;
@@ -1645,6 +1675,78 @@ function autoWidthProfile(B, pts, o) {
   fn.bareAvg = (BL.reduce((a, b) => a + b, 0) + BR.reduce((a, b) => a + b, 0)) / (BL.length + BR.length);
   fn.min = Math.min(...out); fn.max = Math.max(...out); fn.avg = out.reduce((a, b) => a + b, 0) / out.length; fn.measured = measured / samples.length;
   return fn;
+}
+// ---------- Piso automático: asfalto, ripio, tierra arcillosa o ripio suelto, tramo por tramo ----------
+// Junta tres pistas: lo que dice el mapa (pavimentado / sin pavimentar / huella), el color del camino en la foto
+// satelital (el asfalto es gris oscuro y parejo; la tierra arcillosa es marrón rojiza; el ripio suelto es claro)
+// y el entorno (en el bosque húmedo el camino tiene más arcilla; en la estepa, ripio más suelto).
+function surfaceProfile(B, pts, o) {
+  const SV = B.satVeg, cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const total = cum[cum.length - 1]; if (total < 20) return null;
+  const bb = B.bbox, P = B.P, [n0, w0] = P.inv(bb.minx, bb.maxy), [s0, e0] = P.inv(bb.maxx, bb.miny), [gx0, gy0] = ll2g(n0, w0), [gx1, gy1] = ll2g(s0, e0), segs = [];
+  for (let tx = Math.floor(gx0 / EXT); tx <= Math.floor(gx1 / EXT); tx++) for (let ty = Math.floor(gy0 / EXT); ty <= Math.floor(gy1 / EXT); ty++) {
+    const c = T.cache.get(tx + '/' + ty); if (!c) continue;
+    for (const ln of c.lines) { const L = ln.g.map(([gx, gy]) => { const [la, lo] = g2ll(gx, gy); return P.fwd(la, lo); }); for (let i = 0; i + 1 < L.length; i++) segs.push([L[i], L[i + 1], ln]); }
+  }
+  const lineAt = (x, y) => { let best = null, bd = 15; for (const [a, b, ln] of segs) { const vx = b[0] - a[0], vy = b[1] - a[1], L2 = vx * vx + vy * vy || 1e-9; let t = ((x - a[0]) * vx + (y - a[1]) * vy) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t; const d = Math.hypot(a[0] + vx * t - x, a[1] + vy * t - y); if (d < bd) { bd = d; best = ln; } } return best; };
+  const STEP = 20, raw = [];
+  for (let d = 0; d <= total; d += STEP) {
+    let i = 0; while (i < cum.length - 2 && cum[i + 1] < d) i++;
+    const a = pts[i], b = pts[i + 1] || a, L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, t = (d - cum[i]) / L, x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t, tx = (b[0] - a[0]) / L, ty = (b[1] - a[1]) / L, nx = -ty, ny = tx;
+    const ln = lineAt(x, y), cls = ln ? ln.cls : null;
+    // color del centro del camino: el punto más claro cerca del eje (el mapa puede estar corrido), promediado a lo largo
+    let rgb = null;
+    if (SV && SV.rgb && SV.lum) {
+      let c0 = 0, bl = -1; for (let s = -3; s <= 3; s += 0.5) { const v = SV.lum(x + nx * s, y + ny * s); if (v != null && v > bl) { bl = v; c0 = s; } }
+      let r = 0, g = 0, bb2 = 0, k = 0;
+      for (let u = -4; u <= 4; u += 1) for (const s of [-0.6, 0, 0.6]) { const q = SV.rgb(x + nx * (c0 + s) + tx * u, y + ny * (c0 + s) + ty * u); if (q) { r += q[0]; g += q[1]; bb2 += q[2]; k++; } }
+      if (k > 10) rgb = [r / k, g / k, bb2 / k];
+    }
+    const forest = SV ? (Math.max(0, SV(x + nx * 15, y + ny * 15)) + Math.max(0, SV(x - nx * 15, y - ny * 15))) / 2 : 0.3;
+    // ¿asfalto?
+    let pav = 0;
+    if (ln && ln.paved) pav += 2.5; if (ln && (ln.unpaved || cls === 'track')) pav -= 3;
+    if (['motorway', 'trunk', 'primary'].includes(cls)) pav += 1.2; else if (cls === 'secondary') pav += 0.4; else if (['minor', 'service'].includes(cls)) pav -= 0.6;
+    let lum = null, warm = 0, chroma = 0, green = false;
+    if (rgb) { const [r, g, b2] = rgb; lum = 0.3 * r + 0.59 * g + 0.11 * b2; chroma = Math.max(r, g, b2) - Math.min(r, g, b2); warm = r - b2; green = g > r + 4 && g > b2 + 4;
+      if (!green) { if (lum < 112 && chroma < 22) pav += 1.6; if (lum > 138 || warm > 24) pav -= 1.6; } }
+    // arcilla: color marrón rojizo y entorno de bosque húmedo; suelto: claro, gris/beige, en la estepa
+    const warmN = rgb && !green ? Math.max(0, Math.min(1, (warm - 10) / 40)) : 0.35, brightN = lum != null && !green ? Math.max(0, Math.min(1, (lum - 130) / 60)) : 0.3;
+    const clay = Math.max(0.05, Math.min(0.85, 0.15 + 0.4 * forest + 0.35 * warmN - 0.3 * brightN));
+    raw.push({ d, pav, clay, lum, forest, cls, sat: !!rgb });
+  }
+  // suavizar (tramos de al menos ~80 m, sin parpadeo de superficie)
+  const med = (k, f) => { const w = raw.slice(Math.max(0, k - 2), k + 3).map(f).sort((p, q) => p - q); return w[Math.floor(w.length / 2)]; };
+  const sm = raw.map((r, k) => ({ d: r.d, pav: med(k, q => q.pav), clay: med(k, q => q.clay), lum: med(k, q => q.lum ?? 128), forest: r.forest }));
+  const keyOf = q => q.pav > 0.5 ? 'ROAD' : q.clay > 0.55 ? 'CLAY' : q.clay < 0.22 && q.lum > 150 ? 'LOOSE' : 'GRAVEL';
+  let keys = sm.map(keyOf);
+  for (let pass = 0; pass < 2; pass++) { // tramos sueltos de menos de 80 m se pegan al vecino
+    let a = 0; while (a < keys.length) { let b = a; while (b + 1 < keys.length && keys[b + 1] === keys[a]) b++;
+      if ((b - a + 1) * STEP < 80 && (a > 0 || b < keys.length - 1)) { const nk = a > 0 ? keys[a - 1] : keys[b + 1]; for (let k = a; k <= b; k++) keys[k] = nk; }
+      a = b + 1; }
+  }
+  const idx = d => Math.max(0, Math.min(sm.length - 1, Math.round(d / STEP)));
+  const fn = d => keys[idx(d)];
+  fn.clay = d => { const f = Math.max(0, Math.min(sm.length - 1, d / STEP)), k = Math.floor(f), u = f - k; return keys[idx(d)] === 'ROAD' ? 0 : sm[k].clay * (1 - u) + sm[Math.min(sm.length - 1, k + 1)].clay * u; };
+  const cnt = {}; keys.forEach(k => cnt[k] = (cnt[k] || 0) + STEP);
+  fn.summary = Object.entries(cnt).sort((p, q) => q[1] - p[1]).map(([k, m]) => `${SURF[k].name} ${(Math.min(m, total) / 1000).toFixed(2)} km`).join(', ');
+  fn.satShare = raw.filter(r => r.sat).length / raw.length;
+  return fn;
+}
+// margen de terreno por tramo: en bosque cerrado a los dos lados basta con ~50 m (los árboles tapan todo); en el campo, el margen elegido
+function marginProfile(B, r, o) {
+  const SV = B.satVeg; if (!SV) return null;
+  const segN = r.closed ? r.n : r.n - 1, raw = new Array(segN);
+  for (let i = 0; i < segN; i++) {
+    if (i % 5) { raw[i] = raw[i - i % 5]; continue; }
+    const nx = -r.T[i][1], ny = r.T[i][0], p = r.C[i], dense = sd => [15, 30, 45].every(dd => SV(p[0] + sd * nx * dd, p[1] + sd * ny * dd) > 0.42);
+    const L = dense(1), R = dense(-1);
+    raw[i] = L && R ? 50 : L || R ? Math.max(80, o.margin * 0.6) : o.margin;
+  }
+  const out = new Array(segN), W = 60; // máximo en una ventana de ±120 m (sin cortes bruscos)
+  for (let i = 0; i < segN; i++) { let m = 0; for (let k = Math.max(0, i - W); k <= Math.min(segN - 1, i + W); k += 5) m = Math.max(m, raw[k]); out[i] = Math.min(o.margin, m); }
+  return out;
 }
 // ---------- Modelos de elevación propios (GeoTIFF): MDE-Ar del IGN, Copernicus, ALOS, LiDAR rasterizado ----------
 // Lector de GeoTIFF: sin compresión, LZW o Deflate; predictor 2/3; enteros o float; tiras o mosaicos;
@@ -1938,7 +2040,7 @@ function buildRoadStrips(B, res, o = {}) {
     for (let d = d0; d <= d1; d += 4) hwMax = Math.max(hwMax, at(d).hw);
     const HW = hwMax + 0.15, cv = document.createElement('canvas'); cv.width = STRIP_W; cv.height = STRIP_H; const cx = cv.getContext('2d'), img = cx.createImageData(STRIP_W, STRIP_H), od = img.data;
     for (let py = 0; py < STRIP_H; py++) {
-      const v = 1 - (py + 0.5) / STRIP_H, d = d0 + v * STRIP_LEN, P = at(Math.min(total, d)), mat = matAt[Math.max(0, Math.min(matAt.length - 1, Math.round(d / 2)))] || 'gravel', D = tdat(mat), E = tdat('loose');
+      const v = 1 - (py + 0.5) / STRIP_H, d = d0 + v * STRIP_LEN, P = at(Math.min(total, d)), mat = matAt[Math.max(0, Math.min(matAt.length - 1, Math.round(d / 2)))] || 'gravel', D = tdat(mat === 'clay' ? 'gravel' : mat), E = tdat('loose'), dirt = mat !== 'asphalt' && mat !== 'snow' && mat !== 'ice' && mat !== 'wet', clayD = !dirt ? 0 : o.clay === 'auto' ? (S.autoSurf ? S.autoSurf.clay(d) : 0.4) : +(o.clay ?? 0.4);
       const [la0, lo0] = B.P.inv(P.x, P.y);
       for (let px = 0; px < STRIP_W; px++) {
         const s = ((px + 0.5) / STRIP_W * 2 - 1) * HW, o = (py * STRIP_W + px) * 4; allPx++;
@@ -1958,16 +2060,16 @@ function buildRoadStrips(B, res, o = {}) {
         }
         // piedras sueltas hacia los bordes (el ripio que tiran las ruedas)
         const edge = Math.max(0, (Math.abs(s) - (P.hw - 0.9)) / 0.9);
-        if (edge > 0 && mat === 'gravel') { const ex = ((Math.floor(s / 5 * E.w) % E.w) + E.w) % E.w, ey = ((Math.floor(d / 5 * E.h) % E.h) + E.h) % E.h, e0 = (ey * E.w + ex) * 4, w = Math.min(1, edge); rr = rr * (1 - w) + E.d[e0] * w; gg = gg * (1 - w) + E.d[e0 + 1] * w; bb = bb * (1 - w) + E.d[e0 + 2] * w; }
+        if (edge > 0 && (mat === 'gravel' || mat === 'clay')) { const ex = ((Math.floor(s / 5 * E.w) % E.w) + E.w) % E.w, ey = ((Math.floor(d / 5 * E.h) % E.h) + E.h) % E.h, e0 = (ey * E.w + ex) * 4, w = Math.min(1, edge); rr = rr * (1 - w) + E.d[e0] * w; gg = gg * (1 - w) + E.d[e0 + 1] * w; bb = bb * (1 - w) + E.d[e0 + 2] * w; }
         // huellas de las ruedas: más lisas y algo más oscuras
         // huellas de las ruedas: tierra arcillosa apisonada, lisa y más oscura, con surcos finos a lo largo
-        const tw = P.hw * 0.42 + Math.sin(d * 0.013 + h1) * 0.15, tr = Math.exp(-((Math.abs(s) - tw) ** 2) / (2 * 0.38 ** 2)) * (0.8 + 0.2 * Math.sin(d * 0.05 + h1));
+        const tw = P.hw * 0.42 + Math.sin(d * 0.013 + h1) * 0.15, tr = (dirt ? 1 : 0.25) * Math.exp(-((Math.abs(s) - tw) ** 2) / (2 * 0.38 ** 2)) * (0.8 + 0.2 * Math.sin(d * 0.05 + h1));
         const groove = 1 - 0.08 * tr * (0.5 + 0.5 * Math.sin(s * 41 + hashU(Math.floor(d / 7), 0, 5) * 6)), mean = (rr + gg + bb) / 3, smooth = tr * 0.55;
         rr = (rr * (1 - smooth) + mean * smooth) * (1 - 0.34 * tr) * groove; gg = (gg * (1 - smooth) + mean * smooth) * (1 - 0.36 * tr) * groove; bb = (bb * (1 - smooth) + mean * smooth) * (1 - 0.38 * tr) * groove;
         // lomo central y bordes con ripio suelto y más claro (lo que las ruedas no pisan)
-        const ridge = Math.exp(-(s * s) / (2 * (P.hw * 0.16) ** 2)) * 0.18; rr *= 1 + ridge; gg *= 1 + ridge; bb *= 1 + ridge * 0.9;
+        const ridge = dirt ? Math.exp(-(s * s) / (2 * (P.hw * 0.16) ** 2)) * 0.18 : 0; rr *= 1 + ridge; gg *= 1 + ridge; bb *= 1 + ridge * 0.9;
         // tono arcilloso (tierra marrón entre el ripio), con manchas de barro seco
-        const clay = (o.clay ?? 0.4) * (0.75 + 0.5 * hashU(Math.floor(s / 1.5), Math.floor(d / 4), 9)), cl = [150, 118, 86], lum = (rr + gg + bb) / 3 / 128;
+        const clay = clayD * (0.75 + 0.5 * hashU(Math.floor(s / 1.5), Math.floor(d / 4), 9)), cl = [150, 118, 86], lum = (rr + gg + bb) / 3 / 128;
         rr = rr * (1 - clay) + cl[0] * lum * clay; gg = gg * (1 - clay) + cl[1] * lum * clay; bb = bb * (1 - clay) + cl[2] * lum * clay;
         // fuera del ancho real del camino (en tramos más angostos) se ve la banquina
         if (Math.abs(s) > P.hw) { rr *= 0.9; gg *= 0.92; bb *= 0.85; }
@@ -2005,7 +2107,7 @@ function normalFromCanvas(cv, strength = 2.2, scale = 1) {
   }
   tx.putImageData(out, 0, 0); return t;
 }
-const NM_MATS = new Set(['gravel', 'loose', 'mud', 'ditch', 'verge', 'snow', 'asphalt']);
+const NM_MATS = new Set(['gravel', 'clay', 'loose', 'mud', 'ditch', 'ditchside', 'verge', 'snow', 'asphalt']);
 const hasNormal = m => NM_MATS.has(m) || (TEX[m] && TEX[m].__normal);
 const NMAP = {}; const normalOf = m => NMAP[m] || (NMAP[m] = normalFromCanvas(TEX[m], m.startsWith('rs_') ? 1.6 : 2.2, m.startsWith('rs_') ? 0.5 : 1));
 async function rebuild(keepCam) {
@@ -2032,6 +2134,12 @@ async function rebuild(keepCam) {
       if (S.autoW) log(`Banquinas: ${S.autoW.bareAvg.toFixed(1)} m de promedio entre el ripio y la vegetación (medidas en el satélite; donde no se puede, según si es bosque o campo).`);
       if (S.autoW) log(`Ancho automático: de ${S.autoW.min.toFixed(1)} a ${S.autoW.max.toFixed(1)} m (promedio ${S.autoW.avg.toFixed(1)} m; ${Math.round(S.autoW.measured * 100)}% medido en el satélite, el resto según el tipo de camino).`);
     }
+    S.autoSurf = null;
+    if (o.surface === 'auto') {
+      if (!B.satVeg) { try { log('Mirando el piso del camino en la foto satelital…'); await tick(); B.satVeg = await satVegMask(B); } catch (e) { B.satVeg = null; } }
+      S.autoSurf = surfaceProfile(B, rPts, o);
+      if (S.autoSurf) log(`Piso automático (mapa${S.autoSurf.satShare > 0.3 ? ' + color en el satélite' : ''} + entorno): ${S.autoSurf.summary}. Agarre según el piso: asfalto 99%, ripio 80%, tierra arcillosa 74%, ripio suelto 70%. Se puede cambiar por tramo en el editor.`);
+    }
     S.water = o.water ? collectWaterways(B) : { ww: [], bridgesOSM: [] };
     S.crossings = o.water ? findCrossings(rPts, S.water) : [];
     const BRs = S.crossings.filter(b => b.bridge);
@@ -2053,7 +2161,7 @@ async function rebuild(keepCam) {
       log(`Altura del camino tomada del GPS (${T0.length.toLocaleString()} puntos, alineada con el satélite ${off >= 0 ? '+' : ''}${off.toFixed(1)} m).`);
     }
     S.roadH = roadH;
-    const routeArgs = { bareAt: S.autoW ? S.autoW.bare : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, shoulder: Math.min(3.5, o.res * 1.5 + 1) };
+    const routeArgs = { bareAt: S.autoW ? S.autoW.bare : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, terrRes: o.res, shoulder: Math.min(3.5, o.res * 1.5 + 1) };
     S.live = { routeArgs, cache: { keyFn: () => JSON.stringify(S.edits.filter(e => e.kind === 'shape')) }, sideArgs: null, sideSegs: [] };
     res = Core.buildRoute({ ...routeArgs, ...editFns(o, S.lastTotal, B.closed), cache: S.live.cache });
     S.lastTotal = res.total;
@@ -2066,7 +2174,7 @@ async function rebuild(keepCam) {
     meshes.push(...res.meshes, ...cattleMeshes(res)); length = res.total; outline = [res.C];
     res.sideJ = [];
     if (S.side.length) {
-      const sw = S.side.map(sr => ({ pts: sr.pts.map(p => B.P.fwd(p[0], p[1])), width: Math.max(3, Math.min((ROAD_CLASS[sr.cls] || { w: 5 }).w, o.width || 6)), key: sr.unpaved || o.surface === 'gravel' ? 'GRAVEL' : 'ROAD' }));
+      const sw = S.side.map(sr => ({ pts: sr.pts.map(p => B.P.fwd(p[0], p[1])), width: Math.max(3, Math.min((ROAD_CLASS[sr.cls] || { w: 5 }).w, o.width || 6)), key: sr.unpaved || o.surface === 'gravel' || (o.surface === 'auto' && !['motorway', 'trunk', 'primary'].includes(sr.cls)) ? 'GRAVEL' : 'ROAD' }));
       S.live.sideArgs = { ways: sw, heightS: B.heightS, maxDist: Math.max(20, o.margin - 10) };
       const sd = Core.buildSideRoads({ ...S.live.sideArgs, routeSegs: res.segs });
       sd.meshes.forEach(m => m.side = true); S.live.sideSegs = sd.segs;
@@ -2105,11 +2213,18 @@ async function rebuild(keepCam) {
       await applyAutoBiome(SV);
     }
   }
+  // terreno más angosto donde el bosque cerrado tapa la vista
+  let segMargin = null;
+  if (B.mode === 'route' && o.autoMargin && res.SP !== undefined) {
+    try { if (!B.satVeg) { await tick(); B.satVeg = await satVegMask(B); } } catch (e) { B.satVeg = null; }
+    segMargin = marginProfile(B, res, o);
+    if (segMargin) { const avg = segMargin.reduce((a, b) => a + b, 0) / segMargin.length; if (avg < o.margin - 5) log(`Terreno automático: ${Math.round(Math.min(...segMargin))}–${Math.round(Math.max(...segMargin))} m a cada lado (promedio ${Math.round(avg)} m). En el bosque cerrado se genera menos campo porque los árboles tapan la vista: pista más liviana.`); }
+  }
   const CARVE = B.mode === 'route' && S.water && S.water.ww.length ? makeCarve(S.water.ww) : null;
   if (CARVE) log(`Ríos y arroyos: ${S.water.ww.length} tramos de agua en la zona${S.crossings.length ? ` · el camino cruza ${S.crossings.filter(b => b.bridge).length} puente(s) y ${S.crossings.filter(b => !b.bridge).length} alcantarilla(s)` : ''}.`);
   const terOpts = {
     lakes: B.mode === 'route' ? obLakes(B) : null,
-    carve: CARVE, edgeFix: o.edgeFix && B.mode === 'route', bbox: B.bbox, res: o.res, margin: B.mode === 'route' ? o.margin : Infinity, segs: res.segs, height: B.height, heightS: B.heightS,
+    carve: CARVE, edgeFix: o.edgeFix && B.mode === 'route', bbox: B.bbox, res: o.res, margin: B.mode === 'route' ? o.margin : Infinity, segMargin, segs: res.segs, height: B.height, heightS: B.heightS,
     flat: o.res * 1.5, blend: Math.max(12, o.res * 3), depth: 0.15,
     surfAt: (h, slope, x, y) => {
       if (CARVE && CARVE(x, y) > 0.35) return ['MUD', 'mud']; // cauce y barranca
@@ -2438,7 +2553,7 @@ function surfacesIni(keys) {
   return `; Superficies de la pista. FRICTION = agarre (1 = asfalto seco). Podés ajustar los valores.\n; DAMPING frena el auto (barro, nieve profunda). SIN_HEIGHT/SIN_LENGTH = irregularidad del suelo.\n\n` +
     list.map((k, i) => {
       const s = SURF[k] || extra[k];
-      return `[SURFACE_${i}]\nKEY=${k}\nFRICTION=${s.mu.toFixed(2)}\nDAMPING=${s.damp}\nWAV=\nWAV_PITCH=0\nFF_EFFECT=NULL\nDIRT_ADDITIVE=${['GRAVEL', 'LOOSE', 'MUD', 'GRASS', 'SAND'].includes(k) ? 1 : 0}\nIS_VALID_TRACK=${s.off ? 0 : 1}\nBLACK_FLAG=0\nSIN_HEIGHT=${s.sin[0]}\nSIN_LENGTH=${s.sin[1]}\nIS_PITLANE=0\nVIBRATION_GAIN=${s.sin[0] ? 0.2 : 0}\nVIBRATION_LENGTH=${s.sin[0] ? 0.5 : 0}\n`;
+      return `[SURFACE_${i}]\nKEY=${k}\nFRICTION=${s.mu.toFixed(2)}\nDAMPING=${s.damp}\nWAV=\nWAV_PITCH=0\nFF_EFFECT=NULL\nDIRT_ADDITIVE=${['GRAVEL', 'CLAY', 'LOOSE', 'MUD', 'GRASS', 'SAND'].includes(k) ? 1 : 0}\nIS_VALID_TRACK=${s.off ? 0 : 1}\nBLACK_FLAG=0\nSIN_HEIGHT=${s.sin[0]}\nSIN_LENGTH=${s.sin[1]}\nIS_PITLANE=0\nVIBRATION_GAIN=${s.sin[0] ? 0.2 : 0}\nVIBRATION_LENGTH=${s.sin[0] ? 0.5 : 0}\n`;
     }).join('\n');
 }
 
@@ -2731,6 +2846,8 @@ async function satVegMask(B) {
   fn.lum = (x, y) => { const [la, lo] = P.inv(x, y), [fx, fy] = tp(la, lo, z), X = (fx - tx0) * 256 - 0.5, Y = (fy - ty0) * 256 - 0.5, i = Math.floor(X), j = Math.floor(Y);
     if (i < 0 || j < 0 || i >= PW - 1 || j >= PH - 1 || !got[Math.floor(j / 256) * TW + Math.floor(i / 256)]) return null; const a = X - i, b = Y - j, L = k => 0.3 * px[k] + 0.59 * px[k + 1] + 0.11 * px[k + 2], k0 = (j * PW + i) * 4;
     return L(k0) * (1 - a) * (1 - b) + L(k0 + 4) * a * (1 - b) + L(k0 + PW * 4) * (1 - a) * b + L(k0 + PW * 4 + 4) * a * b; };
+  fn.rgb = (x, y) => { const [la, lo] = P.inv(x, y), [fx, fy] = tp(la, lo, z), i = Math.floor((fx - tx0) * 256), j = Math.floor((fy - ty0) * 256);
+    if (i < 0 || j < 0 || i >= PW || j >= PH || !got[Math.floor(j / 256) * TW + Math.floor(i / 256)]) return null; const k = (j * PW + i) * 4; return [px[k], px[k + 1], px[k + 2]]; };
   fn.cover = cnt ? sum / cnt : 0; fn.ground = gn > 50 ? [gr / gn, gg / gn, gb / gn] : null;
   return fn;
 }
@@ -3216,7 +3333,7 @@ try {
 
 // ---------- Ayuda: explicación de cada control al pasar el mouse (o tocarlo en el celular) ----------
 const HELP = {
-  clay: 'Piso arcilloso: cuánta tierra marrón apisonada se ve entre el ripio en la textura del camino (Aguas Blancas es bastante arcilloso).',
+  clay: 'Piso arcilloso: cuánta tierra marrón apisonada se ve entre el ripio en la textura del camino. Automático lo decide tramo por tramo según el color del camino en el satélite y si va por bosque húmedo (más arcilla) o estepa (ripio más suelto).',
   roadTex: 'Textura continua del camino: cada 80 m de camino lleva su propia textura que sigue las curvas y el ancho, sin repeticiones visibles. Si cargaste una ortofoto (vuelo de dron) es la foto real del camino; si no, se arma con el ripio, las huellas de las ruedas y piedras sueltas en los bordes (generado). Incluye relieve fino (mapa de normales) que es solo visual: no cambia la física.',
   realTex: 'Texturas reales del terreno: pinta el terreno con el color real del suelo tomado de Sentinel-2 (imagen satelital europea de 10 m por píxel con licencia libre) y le suma el detalle de cada suelo. Donde cargaste una ortofoto propia, usa esa (mucho más detallada). La imagen de Esri del mapa no se puede usar dentro de la pista por su licencia.',
   orthoFile: 'Importar ortofoto: una foto aérea georreferenciada (GeoTIFF RGB), por ejemplo de un vuelo de dron o de un organismo público. Donde cubre, el terreno de la pista toma los colores de esa foto. Verificá su licencia antes de publicar la pista.',
@@ -3248,11 +3365,12 @@ const HELP = {
   gpsAlt: 'Altura del GPS: si cargaste el recorrido con 📍 Importar GPS (video GoPro o GPX con altura), las subidas y bajadas del camino salen del GPS en vez del satélite. En el bosque es mucho más fiel, porque el satélite mide la altura de las copas.',
   autoWidth: 'Ancho automático: mide el ancho real del camino en la foto satelital cada 10 m (el ripio claro contra el pasto o el bosque) y lo acota según el tipo de camino del mapa (huella, camino rural, ruta). Así un tramo angosto de bosque y una ruta ancha de estepa salen distintos. Donde no se puede medir, usa el ancho típico de ese tipo de camino.',
   width: 'Ancho del camino en metros (si el automático está activado, se usa solo donde no se puede medir). Un camino de ripio de tramo suele tener entre 5 y 7 m.',
-  surface: 'Superficie principal del camino (ripio, asfalto, tierra…). Define el agarre en el juego. Después podés cambiar partes en "Editar el camino".',
+  surface: 'Superficie del camino. Automática (recomendada) la decide tramo por tramo: lo que dice el mapa (pavimentado o no), el color del camino en la foto satelital (asfalto gris oscuro, tierra arcillosa marrón rojiza, ripio suelto claro) y el entorno. Cada piso tiene su agarre: asfalto 99%, ripio 80%, tierra arcillosa 74%, ripio suelto 70%. Se puede corregir por tramo en el editor.',
   lines: 'Líneas pintadas: agrega las líneas blancas (solo en asfalto).',
-  margin: 'Margen de terreno: cuántos metros de campo se generan a cada lado del camino. Más margen = más paisaje pero archivo más pesado.',
+  autoMargin: 'Terreno automático: donde el camino va por bosque cerrado a los dos lados se generan solo ~50 m de terreno (los árboles tapan la vista) y en el campo abierto el margen completo. La pista pesa menos y carga más rápido.',
+  margin: 'Margen de terreno: cuántos metros de campo se generan a cada lado del camino (como máximo). Más margen = más paisaje pero archivo más pesado.',
   hsmooth: 'Suavizado de alturas: alisa los saltos de la elevación del satélite para que el camino no tenga escalones falsos.',
-  ditch: 'Cunetas: zanjas a los costados con piso resbaladizo. Por defecto el camino va sin cunetas; Automática pone cuneta a los dos lados, más honda del lado alto de la ladera.',
+  ditch: 'Cunetas: zanja en V con fondo de barro y agua, berma de piedras del lado del camino y contratalud del otro lado, que sube hasta el terreno real (o baja, si el camino va en terraplén). Automática: a los dos lados, más honda del lado del cerro, y sin cuneta donde el terreno cae fuerte.',
   rocks: 'Piedras al costado: cantidad de piedras en la banquina; las grandes tienen choque.',
   autobank: 'Peralte automático: inclina el camino en las curvas hasta ese máximo de grados. 0 = camino plano.',
   veg: 'Vegetación y suelos reales: usa el mapa y la foto satelital para poner bosque, pasto, agua, etc. donde realmente están.',

@@ -138,7 +138,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <label class="b gpsbtn">📐 Importar elevación (GeoTIFF: MDE-Ar del IGN, LiDAR…)<input type="file" id="demFile" accept=".tif,.tiff" multiple hidden></label>
         <details class="texbox"><summary>Fuentes de elevación y precisión</summary><div id="elevInfo" class="mut"></div></details>
         <label class="f">Textura continua del camino <span><input type="checkbox" id="roadTex" checked></span></label>
-        <label class="f">Piso arcilloso <select id="clay"><option value="0.15">Poco (ripio suelto)</option><option value="0.4" selected>Medio</option><option value="0.65">Mucho (tierra/arcilla)</option></select></label>
+        <label class="f">Piso arcilloso <select id="clay"><option value="auto" selected>Automático (por tramo)</option><option value="0.15">Poco (ripio suelto)</option><option value="0.4">Medio</option><option value="0.65">Mucho (tierra/arcilla)</option></select></label>
         <label class="f">Texturas reales del terreno <select id="realTex"><option value="s2_2016" selected>Sentinel-2 2016 (libre, CC BY)</option><option value="s2_2024">Sentinel-2 2024 (no comercial)</option><option value="none">No (texturas generadas)</option></select></label>
         <label class="b gpsbtn">🛰️ Importar ortofoto (GeoTIFF RGB: dron, IGN…)<input type="file" id="orthoFile" accept=".tif,.tiff" multiple hidden></label>
         <details class="texbox"><summary>Fuentes de imágenes y licencias</summary><div id="imgInfo" class="mut"></div></details>
@@ -159,11 +159,12 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <label class="f">Relieve real junto al camino <span><input type="checkbox" id="edgeFix" checked></span></label>
         <label class="f">Ancho automático (satélite) <span><input type="checkbox" id="autoWidth" checked></span></label>
         <label class="f">Ancho fijo / por defecto (m) <input id="width" type="number" value="7" min="3" max="20" step="0.5"></label>
-        <label class="f">Superficie <select id="surface"><option value="asphalt">Asfalto</option><option value="gravel">Tierra / ripio</option></select></label>
+        <label class="f">Superficie <select id="surface"><option value="auto" selected>Automática (mapa + satélite)</option><option value="asphalt">Asfalto</option><option value="gravel">Tierra / ripio</option></select></label>
         <label class="f">Líneas pintadas <span><input type="checkbox" id="lines" checked></span></label>
+        <label class="f">Terreno automático (menos en bosque) <span><input type="checkbox" id="autoMargin" checked></span></label>
         <label class="f">Terreno a cada lado (m) <input id="margin" type="number" value="150" min="20" max="1000" step="10"></label>
         <label class="f">Suavizado de pendiente (m) <input id="hsmooth" type="number" value="40" min="0" max="200" step="5"></label>
-        <label class="f">Cunetas <select id="ditch"><option value="none">Sin cunetas</option><option value="auto" selected>Automática (ambos lados, más honda arriba)</option><option value="both">Ambos lados</option></select></label>
+        <label class="f">Cunetas <select id="ditch"><option value="none">Sin cunetas</option><option value="auto" selected>Automática (según la ladera)</option><option value="both">Ambos lados</option></select></label>
         <label class="f">Piedras al costado <select id="rocks"><option value="0">Ninguna</option><option value="0.6">Pocas</option><option value="1" selected>Según el terreno</option><option value="1.8">Muchas</option></select></label>
         <label class="f">Peralte automático máx. (°) <input id="autobank" type="number" value="0" min="0" max="20" step="1"></label>
       </div>
