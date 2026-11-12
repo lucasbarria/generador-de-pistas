@@ -205,7 +205,7 @@ const Core = (() => {
           const prof = [[hw, e], [hw + DW / 2, e - Dd[i]], [hw + DW, e - 0.04], [hw + DW + SH, low]];
           const ord = side > 0 ? prof : prof.slice().reverse();
           // u = distancia desde el borde del camino (0) hasta el final de la banquina (1)
-          secs.push({ cols: ord.map(([s, h]) => { const [x, y] = pos(i, side * s); return { x, y, h, u: run.key === 'DITCH' ? (s - hw) / 2.5 : (s - hw) / (DW + SH) }; }), d: dist[i] + (ii >= n ? total : 0), step });
+          secs.push({ cols: ord.map(([s, h]) => { const [x, y] = pos(i, side * s); return { x, y, h, u: run.key === 'DITCH' ? (s - hw) / 2.5 : o.bareAt ? Math.min(1, 0.25 * (s - hw) / Math.max(0.3, o.bareAt(dist[i], side))) : (s - hw) / (DW + SH) }; }), d: dist[i] + (ii >= n ? total : 0), step });
         }
         const key = run.key === 'DITCH' ? 'DITCH' : 'GRASS', mat = run.key === 'DITCH' ? 'ditch' : 'verge';
         for (const m of ribbonMeshes(secs, false, key, mat, 7, { next: () => (key === 'GRASS' ? 500 : 0) + cnt(key) })) meshes.push(m);

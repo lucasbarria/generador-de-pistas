@@ -1479,7 +1479,7 @@ function autoWidthProfile(B, pts, o) {
     let i = 0; while (i < cum.length - 2 && cum[i + 1] < d) i++;
     const a = pts[i], b = pts[i + 1] || a, L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, t = (d - cum[i]) / L, x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t, nx = -(b[1] - a[1]) / L, ny = (b[0] - a[0]) / L;
     const cls = clsAt(x, y), rg = RANGE[cls] || [3, 12];
-    let w = null;
+    let w = null, bareL = null, bareR = null;
     if (SV && SV.lum) {
       const prof = []; for (let s = -14; s <= 14.01; s += 0.5) prof.push(SV.lum(x + nx * s, y + ny * s));
       if (!prof.some(v => v == null)) {
@@ -1491,10 +1491,14 @@ function autoWidthProfile(B, pts, o) {
           const T = Lb + (Lc - Lb) * 0.5; let l = c0, r = c0;
           while (l > -13.5 && at(l - 0.5) > T) l -= 0.5; while (r < 13.5 && at(r + 0.5) > T) r += 0.5;
           const m = (r - l + 0.5) * 0.92; if (m >= 2.5 && m <= 14) w = m;
+          // banquina pelada: desde el borde del ripio hasta donde empieza la vegetación (más oscura)
+          const T2 = Lb + (Lc - Lb) * 0.18; let bl = l, br = r;
+          while (bl > -13.5 && at(bl - 0.5) > T2) bl -= 0.5; while (br < 13.5 && at(br + 0.5) > T2) br += 0.5;
+          bareL = Math.min(5, l - bl); bareR = Math.min(5, br - r);
         }
       }
     }
-    samples.push({ d, w, rg, cls });
+    samples.push({ d, w, rg, cls, bareL, bareR, wood: SV && SV(x + nx * 12, y + ny * 12) > 0.42 || SV && SV(x - nx * 12, y - ny * 12) > 0.42 });
   }
   // suavizar: mediana de 70 m, acotada al rango del tipo de camino; donde no se pudo medir, el ancho típico del tipo
   const out = samples.map((s, k) => {
@@ -1505,7 +1509,16 @@ function autoWidthProfile(B, pts, o) {
   });
   for (let p = 0; p < 2; p++) for (let k = 1; k + 1 < out.length; k++) out[k] = (out[k - 1] + out[k] * 2 + out[k + 1]) / 4;
   const measured = samples.filter(s => s.w != null).length;
+  // banquina de cada lado (izquierda = +normal): medida, o según el entorno (bosque angosta, campo/estepa más ancha)
+  const bare = side => { const key = side > 0 ? 'bareR' : 'bareL';
+    const raw = samples.map((s, k) => { const win = samples.slice(Math.max(0, k - 3), k + 4).map(q => q[key]).filter(v => v != null).sort((p, q) => p - q);
+      return win.length >= 3 ? win[Math.floor(win.length / 2)] : (s.wood ? 0.7 : 1.8); });
+    for (let p = 0; p < 2; p++) for (let k = 1; k + 1 < raw.length; k++) raw[k] = (raw[k - 1] + raw[k] * 2 + raw[k + 1]) / 4;
+    return raw.map(v => Math.max(0.3, Math.min(4.5, v))); };
+  const BL = bare(1), BR = bare(-1);
   const fn = d => { const f = Math.max(0, Math.min(out.length - 1, d / 10)), k = Math.floor(f), u = f - k; return out[k] * (1 - u) + (out[Math.min(out.length - 1, k + 1)]) * u; };
+  fn.bare = (d, side) => { const A = side > 0 ? BL : BR, f = Math.max(0, Math.min(A.length - 1, d / 10)), k = Math.floor(f), u = f - k; return A[k] * (1 - u) + A[Math.min(A.length - 1, k + 1)] * u; };
+  fn.bareAvg = (BL.reduce((a, b) => a + b, 0) + BR.reduce((a, b) => a + b, 0)) / (BL.length + BR.length);
   fn.min = Math.min(...out); fn.max = Math.max(...out); fn.avg = out.reduce((a, b) => a + b, 0) / out.length; fn.measured = measured / samples.length;
   return fn;
 }
@@ -1530,6 +1543,7 @@ async function rebuild(keepCam) {
     if (o.autoWidth) {
       if (!B.satVeg) { try { log('Midiendo el ancho del camino en la foto satelital…'); await tick(); B.satVeg = await satVegMask(B); } catch (e) { B.satVeg = null; } }
       S.autoW = autoWidthProfile(B, rPts, o);
+      if (S.autoW) log(`Banquinas: ${S.autoW.bareAvg.toFixed(1)} m de promedio entre el ripio y la vegetación (medidas en el satélite; donde no se puede, según si es bosque o campo).`);
       if (S.autoW) log(`Ancho automático: de ${S.autoW.min.toFixed(1)} a ${S.autoW.max.toFixed(1)} m (promedio ${S.autoW.avg.toFixed(1)} m; ${Math.round(S.autoW.measured * 100)}% medido en el satélite, el resto según el tipo de camino).`);
     }
     S.water = o.water ? collectWaterways(B) : { ww: [], bridgesOSM: [] };
@@ -1552,7 +1566,7 @@ async function rebuild(keepCam) {
         return best == null ? null : sm[best] + off; };
       log(`Altura del camino tomada del GPS (${T0.length.toLocaleString()} puntos, alineada con el satélite ${off >= 0 ? '+' : ''}${off.toFixed(1)} m).`);
     }
-    res = Core.buildRoute({ roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, shoulder: Math.min(3.5, o.res * 1.5 + 1), ...editFns(o, S.lastTotal, B.closed) });
+    res = Core.buildRoute({ bareAt: S.autoW ? S.autoW.bare : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, shoulder: Math.min(3.5, o.res * 1.5 + 1), ...editFns(o, S.lastTotal, B.closed) });
     S.lastTotal = res.total;
     res.zone = useZ ? { pres: ZPRE - 30, start: ZPRE, finish: res.total - ZPOST, stop: res.total - ZPOST + 30 } : null;
     if (useZ) log('Largada y llegada: se tomaron 30 m antes de la largada para la presentación (control horario) y 30 m después de la llegada para el control stop, donde se entrega el carnet y los tiempos. El reloj corre desde la largada hasta la llegada.');
