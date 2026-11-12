@@ -606,10 +606,11 @@ $('#search').onsubmit = async e => {
 // ---------- Caché local (IndexedDB): lo que se descarga una vez queda guardado para todos los proyectos ----------
 const LOCAL = {
   db: null,
-  open() { if (this.db) return this.db; this.db = new Promise((res, rej) => { try { const r = indexedDB.open('generador-pistas', 1); r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains('tiles')) d.createObjectStore('tiles'); if (!d.objectStoreNames.contains('mats')) d.createObjectStore('mats'); }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); } catch (e) { rej(e); } }).catch(() => null); return this.db; },
+  open() { if (this.db) return this.db; this.db = new Promise((res, rej) => { try { const r = indexedDB.open('generador-pistas', 2); r.onupgradeneeded = () => { const d = r.result; for (const n of ['tiles', 'mats', 'refs']) if (!d.objectStoreNames.contains(n)) d.createObjectStore(n); }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); } catch (e) { rej(e); } }).catch(() => null); return this.db; },
   async get(store, k) { const d = await this.open(); if (!d) return null; return new Promise(res => { try { const q = d.transaction(store).objectStore(store).get(k); q.onsuccess = () => res(q.result ?? null); q.onerror = () => res(null); } catch (e) { res(null); } }); },
   async put(store, k, v) { const d = await this.open(); if (!d) return; return new Promise(res => { try { const t = d.transaction(store, 'readwrite'); t.objectStore(store).put(v, k); t.oncomplete = () => res(); t.onerror = () => res(); } catch (e) { res(); } }); },
   async all(store) { const d = await this.open(); if (!d) return []; return new Promise(res => { try { const out = [], c = d.transaction(store).objectStore(store).openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { out.push([cur.key, cur.value]); cur.continue(); } else res(out); }; c.onerror = () => res(out); } catch (e) { res([]); } }); },
+  async del(store, k) { const d = await this.open(); if (!d) return; return new Promise(res => { try { const t = d.transaction(store, 'readwrite'); t.objectStore(store).delete(k); t.oncomplete = () => res(); } catch (e) { res(); } }); },
   async clear(store) { const d = await this.open(); if (!d) return; return new Promise(res => { try { const t = d.transaction(store, 'readwrite'); t.objectStore(store).clear(); t.oncomplete = () => res(); } catch (e) { res(); } }); },
   // descarga con caché: la segunda vez (en cualquier proyecto) sale de la compu, sin volver a pedirla
   async fetchBlob(url, { cache = true } = {}) {
@@ -1122,6 +1123,68 @@ const photoReady = (async () => {
   } catch (e) { console.warn('Texturas de fotos no disponibles', e); }
 })();
 
+// ---------- Referencias: capturas de Street View / Google Earth y fotos propias ----------
+// Solo se usan para mirar, comparar con el 3D y calibrar colores: nunca se incluyen en la pista exportada.
+const REFS = {
+  cal: null, list: [],
+  async load() { this.list = (await LOCAL.all('refs')).map(([k, v]) => v).sort((a, b) => a.added - b.added); return this.list; },
+  // lectura automática de una foto tomada desde el camino: color del piso al sol y a la sombra, banquina, piedras sueltas
+  async analyze(blob) {
+    const bmp = await createImageBitmap(blob), W = 480, H = Math.round(bmp.height * W / bmp.width), c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(bmp, 0, 0, W, H); const d = x.getImageData(0, 0, W, H).data;
+    const px = (x0, y0, x1, y1, f) => { const out = []; for (let yy = Math.floor(y0 * H); yy < y1 * H; yy++) for (let xx = Math.floor(x0 * W); xx < x1 * W; xx++) { const k = (yy * W + xx) * 4, p = [d[k], d[k + 1], d[k + 2]]; if (!f || f(p)) out.push(p); } return out; };
+    const L = p => 0.3 * p[0] + 0.59 * p[1] + 0.11 * p[2], med = A => { if (!A.length) return null; return [0, 1, 2].map(c => { const v = A.map(p => p[c]).sort((a, b) => a - b); return Math.round(v[v.length >> 1]); }); };
+    const road = px(0.25, 0.72, 0.75, 0.97, p => Math.max(...p) - Math.min(...p) < 45 && L(p) > 50 && L(p) < 240);
+    if (road.length < 200) return { ok: false };
+    const ls = road.map(L).sort((a, b) => a - b), cut = ls[Math.floor(ls.length * 0.55)], sun = med(road.filter(p => L(p) >= cut)), shade = med(road.filter(p => L(p) < ls[Math.floor(ls.length * 0.3)]));
+    const sunL = L(sun), stones = road.filter(p => L(p) > sunL + 40).length / road.length;
+    const verge = med([...px(0, 0.5, 0.2, 0.72), ...px(0.8, 0.5, 1, 0.72)].filter(p => p[1] > p[0] + 4 && p[1] > p[2]));
+    const dry = [...px(0, 0.5, 0.2, 0.72), ...px(0.8, 0.5, 1, 0.72)].filter(p => p[0] > p[2] + 30 && Math.abs(p[0] - p[1]) < 25 && L(p) > 110).length / (0.4 * 0.22 * W * H);
+    const forest = px(0, 0.1, 1, 0.45, p => p[1] > p[0] + 4 && p[1] > p[2] + 4).length / (0.35 * W * H);
+    return { ok: true, road: sun, shade, verge, stones: Math.min(0.05, stones * 0.35), dry: Math.min(1, dry), forest: Math.min(1, forest) };
+  },
+  async add(file) {
+    const blob = file, a = await this.analyze(blob), id = 'ref_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const rec = { id, name: file.name, blob, added: Date.now(), ll: null, note: '', use: true, a };
+    await LOCAL.put('refs', id, rec); return rec;
+  },
+  calibrate(on) {
+    const A = this.list.filter(r => r.use && r.a && r.a.ok);
+    if (!on || !A.length) { this.cal = null; return null; }
+    const med = (f) => { const v = A.map(f).filter(Boolean); if (!v.length) return null; return [0, 1, 2].map(c => { const s = v.map(p => p[c]).sort((a, b) => a - b); return s[s.length >> 1]; }); };
+    const num = f => { const v = A.map(f).sort((a, b) => a - b); return v[v.length >> 1]; };
+    // el color medido en la foto está iluminado por el sol; la textura se ilumina en el juego: se baja un 6 %
+    const road = med(r => r.a.road); this.cal = { n: A.length, road: road && road.map(v => Math.round(v * 0.94)), verge: med(r => r.a.verge), stones: num(r => r.a.stones), dry: num(r => r.a.dry) };
+    return this.cal;
+  },
+};
+const sw = c => c ? `<span style="display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;background:rgb(${c.join(',')});border:1px solid #0006"></span>` : '—';
+async function renderRefs() {
+  const el = $('#refList'); if (!el) return; await REFS.load();
+  if (!REFS.list.length) { el.innerHTML = '<div class="mut" style="margin:4px 0">Sin fotos todavía. Sirven capturas de Street View, de Google Earth o fotos tuyas tomadas desde el camino.</div>'; return; }
+  el.innerHTML = REFS.list.map(r => `<div class="refrow" data-id="${r.id}" style="display:flex;gap:8px;align-items:center;margin:6px 0">
+    <img data-thumb="${r.id}" style="width:96px;height:48px;object-fit:cover;border-radius:4px;opacity:${r.use ? 1 : 0.4}">
+    <div style="flex:1;min-width:0;font-size:12px"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+    <div class="mut">${r.a && r.a.ok ? `piso ${sw(r.a.road)} sombra ${sw(r.a.shade)} banquina ${sw(r.a.verge)} · piedras ${Math.round(r.a.stones * 1000) / 10}%` : 'no se reconoció el camino en la foto'}</div>
+    <input data-ll="${r.id}" placeholder="lat, lon (de Google Maps)" value="${r.ll ? r.ll.join(', ') : ''}" style="width:170px;margin-top:2px"> <button class="b" data-go="${r.id}" title="Ver ese punto en el 3D">Ir</button> <button class="b" data-use="${r.id}">${r.use ? 'Usar ✓' : 'No usar'}</button> <button class="b" data-del="${r.id}">✕</button></div></div>`).join('');
+  for (const r of REFS.list) { const im = el.querySelector(`[data-thumb="${r.id}"]`); if (im) im.src = URL.createObjectURL(r.blob); }
+  el.querySelectorAll('[data-ll]').forEach(i => i.onchange = async () => { const r = REFS.list.find(q => q.id === i.dataset.ll), ll = parseLL(i.value); r.ll = ll; await LOCAL.put('refs', r.id, r); });
+  el.querySelectorAll('[data-use]').forEach(b => b.onclick = async () => { const r = REFS.list.find(q => q.id === b.dataset.use); r.use = !r.use; await LOCAL.put('refs', r.id, r); renderRefs(); });
+  el.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { await LOCAL.del('refs', b.dataset.del); renderRefs(); });
+  el.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { const r = REFS.list.find(q => q.id === b.dataset.go), R = S.result;
+    if (!r.ll) { log('Pegá las coordenadas de la foto (clic derecho en Google Maps → copiar coordenadas).', 'err'); return; }
+    if (!R || !R.res || !R.P) { log('Generá la pista primero para ir a ese punto en el 3D.', 'err'); return; }
+    const [px, py] = R.P.fwd(r.ll[0], r.ll[1]); let bi = 0, bd = Infinity; R.res.C.forEach((c, i) => { const dd = Math.hypot(c[0] - px, c[1] - py); if (dd < bd) { bd = dd; bi = i; } });
+    if (bd > 150) { log(`La foto está a ${Math.round(bd)} m del recorrido: revisá las coordenadas.`, 'err'); return; }
+    const k = $('#navKm'); if (k) { k.value = Math.round(R.res.dist[bi] / R.res.total * 1000); k.dispatchEvent(new Event('input', { bubbles: true })); }
+    log(`Foto "${r.name}": km ${(R.res.dist[bi] / 1000).toFixed(2)} del tramo, a ${Math.round(bd)} m del eje. Compará la vista "a ras del piso" con la foto.`, 'ok'); });
+  const c = REFS.calibrate($('#refCal') ? $('#refCal').checked : true);
+  if (c) el.insertAdjacentHTML('beforeend', `<div class="mut" style="margin:4px 0">Calibración con ${c.n} foto(s): piso ${sw(c.road)} · banquina ${sw(c.verge)} · piedras sueltas ${Math.round(c.stones * 1000) / 10}% · pasto seco ${Math.round(c.dry * 100)}%. Se aplica al generar.</div>`);
+}
+if ($('#refFile')) $('#refFile').onchange = async ev => { for (const f of ev.target.files) { try { const r = await REFS.add(f); log(`Referencia "${f.name}": ${r.a.ok ? 'camino reconocido, colores medidos.' : 'no se reconoció el camino (sirve igual para comparar).'}`, r.a.ok ? 'ok' : ''); } catch (e) { log('No se pudo leer ' + f.name, 'err'); } } ev.target.value = ''; renderRefs(); };
+if ($('#refCal')) $('#refCal').onchange = () => renderRefs();
+renderRefs();
+
 // ---------- Biblioteca de materiales libres (CC0), guardada en la compu y reutilizada en todos los proyectos ----------
 // Cada material guarda su textura, su mapa de normales, la escala real (m) que cubre la foto, la licencia y de dónde vino.
 const MATLIB = {
@@ -1206,8 +1269,9 @@ async function renderLibInfo() {
 }
 // texturas automáticas según la zona: bosque (Aguas Blancas) o estepa (norte, Río Grande), y pasto teñido con el color real del suelo
 async function applyAutoBiome(SV) {
+  const GROUND = REFS.cal && REFS.cal.verge ? REFS.cal.verge : SV.ground; // las fotos del lugar mandan sobre el satélite
   if (MATLIB.active) { // con la biblioteca libre: solo se tiñe el pasto con el color real del suelo
-    if (SV.ground && TEX.grass) { const [r, gg, b] = SV.ground.map(v => Math.round(Math.min(255, v * 0.95))); TEX.grass = tint(TEX_DEFAULT.grass, `rgb(${r},${gg},${b})`, 0.25); TEX.verge = makeVergeTex(); TEX.ditchside = makeDitchTex(); }
+    if (GROUND && TEX.grass) { const [r, gg, b] = GROUND.map(v => Math.round(Math.min(255, v * 0.95))); TEX.grass = tint(TEX_DEFAULT.grass, `rgb(${r},${gg},${b})`, 0.25); TEX.verge = makeVergeTex(); TEX.ditchside = makeDitchTex(); }
     if (PV.mats) { for (const k in PV.mats) { try { PV.mats[k].map && PV.mats[k].map.dispose(); PV.mats[k].dispose(); } catch (e) { } } PV.mats = {}; }
     log('Materiales: biblioteca libre (Poly Haven, CC0), con el pasto teñido del color real del suelo.'); return;
   }
@@ -1217,7 +1281,7 @@ async function applyAutoBiome(SV) {
   if (gAuto && free('gravel')) TEX.gravel = TEX_DEFAULT.gravel = (steppe ? PHOTO_CANVAS.steppe : PHOTO_CANVAS.gravel) || TEX.gravel;
   if (pAuto && free('grass')) {
     let g = steppe && PHOTO_CANVAS.grass ? PHOTO_CANVAS.grass : makeGroundTex('grass');
-    if (SV.ground) { const [r, gg, b] = SV.ground.map(v => Math.round(Math.min(255, v * 0.95))); g = tint(g, `rgb(${r},${gg},${b})`, steppe ? 0.35 : 0.25); }
+    if (GROUND) { const [r, gg, b] = GROUND.map(v => Math.round(Math.min(255, v * 0.95))); g = tint(g, `rgb(${r},${gg},${b})`, steppe ? 0.35 : 0.25); }
     TEX.grass = TEX_DEFAULT.grass = g; TEX.verge = TEX_DEFAULT.verge = makeVergeTex(); TEX.ditchside = TEX_DEFAULT.ditchside = makeDitchTex();
   }
   if (PV.mats) { for (const k in PV.mats) { try { PV.mats[k].map && PV.mats[k].map.dispose(); PV.mats[k].dispose(); } catch (e) { } } PV.mats = {}; }
@@ -1305,6 +1369,7 @@ function dataKey(o) {
 async function generate() {
   logEl().innerHTML = ''; busy(true);
   try { await photoReady; await MATLIB.apply(); renderLibInfo(); } catch (e) { console.warn('biblioteca', e); }
+  try { await REFS.load(); const c = REFS.calibrate($('#refCal') ? $('#refCal').checked : true); if (c && c.verge && TEX.grass) { TEX.grass = tint(TEX_DEFAULT.grass, `rgb(${c.verge.join(',')})`, 0.3); TEX.verge = makeVergeTex(); TEX.ditchside = makeDitchTex(); } if (c) log(`Referencias: ${c.n} foto(s) del lugar calibran el color del piso, la banquina y las piedras sueltas (las fotos no se incluyen en la pista).`); } catch (e) { }
   const o = opt(), key = dataKey(o);
   if (!S.base || S.base.key !== key) await fetchBase(o, key);
   else log('Mismo recorrido: reutilizo la elevación descargada.');
@@ -2280,8 +2345,11 @@ function buildRoadStrips(B, res, o = {}) {
         // lomo central y bordes con ripio suelto y más claro (lo que las ruedas no pisan)
         const ridge = dirt ? Math.exp(-(s * s) / (2 * (P.hw * 0.16) ** 2)) * 0.18 : 0; rr *= 1 + ridge; gg *= 1 + ridge; bb *= 1 + ridge * 0.9;
         // tono arcilloso (tierra marrón entre el ripio), con manchas de barro seco
-        const clay = clayD * (0.75 + 0.5 * hashU(Math.floor(s / 1.5), Math.floor(d / 4), 9)), cl = [168, 152, 132], lum = (rr + gg + bb) / 3 / 150; // beige grisáceo de la tierra compactada (medido en fotos de Aguas Blancas)
+        const clay = clayD * (0.75 + 0.5 * hashU(Math.floor(s / 1.5), Math.floor(d / 4), 9)), cl = (REFS.cal && REFS.cal.road) || [165, 160, 150], lum = (rr + gg + bb) / 3 / 150; // beige grisáceo de la tierra compactada (medido en fotos de Aguas Blancas)
         rr = rr * (1 - clay) + cl[0] * lum * clay; gg = gg * (1 - clay) + cl[1] * lum * clay; bb = bb * (1 - clay) + cl[2] * lum * clay;
+        // piedras sueltas claras (3–8 cm), con la densidad medida en las fotos de referencia
+        if (dirt) { const st = (REFS.cal && REFS.cal.stones) ?? 0.012, cx = Math.floor(s / 0.06), cy = Math.floor(d / 0.06);
+          if (hashU(cx, cy, 31) < st * (0.6 + 0.8 * Math.min(1, Math.abs(s) / P.hw))) { const b = 1.25 + 0.25 * hashU(cx, cy, 32); rr = Math.min(255, rr * b); gg = Math.min(255, gg * b); bb = Math.min(255, bb * b * 1.02); } }
         // fuera del ancho real del camino (en tramos más angostos) se ve la banquina
         if (Math.abs(s) > P.hw) { rr *= 0.9; gg *= 0.92; bb *= 0.85; }
         od[o] = rr; od[o + 1] = gg; od[o + 2] = bb; od[o + 3] = 255;
@@ -3562,6 +3630,8 @@ const HELP = {
   roadTex: 'Textura continua del camino: cada 80 m de camino lleva su propia textura que sigue las curvas y el ancho, sin repeticiones visibles. Si cargaste una ortofoto (vuelo de dron) es la foto real del camino; si no, se arma con el ripio, las huellas de las ruedas y piedras sueltas en los bordes (generado). Incluye relieve fino (mapa de normales) que es solo visual: no cambia la física.',
   demSrc: 'Elevación base: Copernicus GLO-30 es el modelo de elevación libre más preciso con cobertura mundial (30 m por píxel, radar 2011–2015). Se descarga gratis del catálogo abierto de HOT y queda guardado en la compu. Donde no hay dato, se completa con Terrarium (SRTM y otras). Los dos son modelos de 30 m: no reproducen cunetas ni baches.',
   freeImg: 'Imágenes libres del recorrido: busca sola en OpenAerialMap y en los datos abiertos de Maxar imágenes de drones o satélites con licencia libre (de 3 cm a 1 m por píxel). Si cubren el camino, se usan para la textura del camino y sus costados, con su atribución en LICENCIAS_DATOS.txt. Si no hay (lo más común en zonas rurales), sigue con Sentinel-2. Costo: cero.',
+  refFile: 'Fotos de referencia: capturas de Street View o Google Earth, o fotos tuyas tomadas desde el camino. La app mide el color del piso al sol y a la sombra, la banquina y las piedras sueltas, y con eso calibra las texturas generadas. Pegá las coordenadas de cada foto (clic derecho en Google Maps) para ir a ese punto en el 3D y comparar. Las fotos nunca se incluyen en la pista.',
+  refCal: 'Calibrar colores: usa la mediana de las fotos marcadas "Usar" para el color del piso, la banquina y la cantidad de piedras sueltas.',
   matSrc: 'Materiales del suelo: la biblioteca libre usa fotos de materiales reales de Poly Haven (licencia CC0: uso libre, también comercial), con su escala real en metros. Se descarga una sola vez y sirve para todos los caminos del mundo. "Fotos de la app" usa las texturas tomadas en Tierra del Fuego.',
   libDl: 'Baja una sola vez unos 20 materiales (tierra compactada, ripio fino y grueso, grava, barro, arena, asfalto, pasto, suelo de bosque, hojarasca, roca, turba, nieve) y los guarda en esta compu. Los próximos proyectos no vuelven a descargarlos.',
   libExp: 'Guarda toda la biblioteca en un .zip para pasársela a otra persona o a otra compu (por ejemplo, a Nicolás).',
