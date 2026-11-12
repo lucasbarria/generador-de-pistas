@@ -83,6 +83,7 @@ const Core = (() => {
         const ii = i % n, c = sections[ii].cols[k];
         const vv = sections[ii].d / vScale + (i >= n ? sections[n - 1].d / vScale + sections[n - 1].step / vScale - sections[0].d / vScale : 0);
         m.v.push([c.x, c.y, c.h]); m.uv.push([c.u, vv]);
+        if (c.i !== undefined) { (m.ri || (m.ri = [])).push(c.i); (m.rs || (m.rs = [])).push(c.sc); }
         idx.set(key, m.v.length - 1); return m.v.length - 1;
       };
       for (let i = s0; i < s1; i++) {
@@ -109,19 +110,24 @@ const Core = (() => {
   //    widthAt(d), bankAt(d,k)->grados (con signo de la curva aplicado afuera), offsetAt(d), smoothSecs[{d0,d1}], surfaceAt(d,hLocal)->KEY
   function buildRoute(o) {
     const step = 2, closed = !!o.closed;
-    let C = resample(o.pts, step, closed);
+    // geometría en planta (no cambia al editar alturas, peralte o ancho): se puede reutilizar entre ediciones en vivo
+    const geoKey = o.cache ? o.cache.keyFn() : null;
+    let C, T, dist, total, K, raw, CS, n;
+    if (o.cache && o.cache.geo && o.cache.geo.key === geoKey) ({ C, T, dist, total, K, raw, CS, n } = o.cache.geo);
+    else {
+    C = resample(o.pts, step, closed);
     C = smoothPts(C, 3, closed, 2);
     if (o.shapeAt) { // ajustes de forma hechos a mano (arrastrando en 3D)
       let d = 0;
       C = C.map((p, i) => { if (i) d += Math.hypot(p[0] - C[i - 1][0], p[1] - C[i - 1][1]); const [dx, dy] = o.shapeAt(d); return [p[0] + dx, p[1] + dy]; });
     }
     C = resample(C, step, closed);
-    const n = C.length;
-    const T = tangents(C, closed);
-    const dist = [0]; for (let i = 1; i < n; i++) dist.push(dist[i - 1] + Math.hypot(C[i][0] - C[i - 1][0], C[i][1] - C[i - 1][1]));
-    const total = dist[n - 1] + (closed ? Math.hypot(C[0][0] - C[n - 1][0], C[0][1] - C[n - 1][1]) : 0);
+    n = C.length;
+    T = tangents(C, closed);
+    dist = [0]; for (let i = 1; i < n; i++) dist.push(dist[i - 1] + Math.hypot(C[i][0] - C[i - 1][0], C[i][1] - C[i - 1][1]));
+    total = dist[n - 1] + (closed ? Math.hypot(C[0][0] - C[n - 1][0], C[0][1] - C[n - 1][1]) : 0);
     // curvatura (1/m, positiva = gira a la izquierda)
-    let K = [];
+    K = [];
     for (let i = 0; i < n; i++) {
       let a = i - 1, b = i + 1;
       if (closed) { a = (a + n) % n; b = b % n; } else { a = Math.max(0, a); b = Math.min(n - 1, b); }
@@ -130,7 +136,15 @@ const Core = (() => {
     }
     K = smooth1D(smooth1D(K, 3, closed), 3, closed);
     // alturas
-    const raw = C.map(p => { const g = o.roadH ? o.roadH(p[0], p[1]) : null; return g != null ? g : o.height(p[0], p[1]); }); // altura del GPS si la hay
+    raw = C.map(p => { const g = o.roadH ? o.roadH(p[0], p[1]) : null; return g != null ? g : o.height(p[0], p[1]); }); // altura del GPS si la hay
+    // pendiente lateral del terreno real (positiva = el lado izquierdo es más alto): detecta laderas de montaña
+    CS = C.map((p, i) => {
+      const nx = -T[i][1], ny = T[i][0], a = o.height(p[0] + nx * 15, p[1] + ny * 15), b = o.height(p[0] - nx * 15, p[1] - ny * 15);
+      return (a - b) / 30;
+    });
+    CS = smooth1D(smooth1D(CS, 8, closed), 8, closed);
+    if (o.cache) o.cache.geo = { key: geoKey, C, T, dist, total, K, raw, CS, n };
+    }
     let hs = raw; const r = Math.max(1, Math.round((o.hSmooth || 0) / step / 2));
     for (let p = 0; p < 3; p++) hs = smooth1D(hs, r, closed, false);
     if (o.smoothSecs && o.smoothSecs.length) {
@@ -152,17 +166,21 @@ const Core = (() => {
     W = smooth1D(smooth1D(W, 4, closed), 4, closed);
     let SL = dist.map((d, i) => {
       const deg = o.bankAt ? o.bankAt(d, K[i]) : 0;
+      if (typeof deg === 'object') return Math.tan(deg.abs * D2R_); // inclinación fija (+ = lado izquierdo más alto), también en rectas
       const side = Math.max(-1, Math.min(1, K[i] * 150));
       return -Math.tan(deg * D2R_) * side;
     });
     SL = smooth1D(smooth1D(SL, 4, closed), 4, closed);
     const SURF = dist.map((d, i) => o.surfaceAt ? o.surfaceAt(d, hs[i]) : 'ROAD');
-    // pendiente lateral del terreno real (positiva = el lado izquierdo es más alto): detecta laderas de montaña
-    let CS = C.map((p, i) => {
-      const nx = -T[i][1], ny = T[i][0], a = o.height(p[0] + nx * 15, p[1] + ny * 15), b = o.height(p[0] - nx * 15, p[1] - ny * 15);
-      return (a - b) / 30;
-    });
-    CS = smooth1D(smooth1D(CS, 8, closed), 8, closed);
+    const segCount = closed ? n : n - 1;
+    const routeSegs = () => {
+      const segs = [];
+      for (let i = 0; i < segCount; i++) {
+        const j = (i + 1) % n;
+        segs.push([C[i][0], C[i][1], C[j][0], C[j][1], hs[i], hs[j], W[i] / 2, SL[i], SL[j], EX, Math.max(DLs[i], DRs[i], DLs[j], DRs[j]), CS[i]]);
+      }
+      return segs;
+    };
     // cunetas: 'auto' = del lado de arriba de la ladera, 'both' = ambos lados, 'none'
     const DW = 2.0, DD = 0.6, SH = o.shoulder || 6, mode = o.ditch || 'none';
     // 'auto': cuneta a ambos lados (como los caminos de ripio del bosque), más honda del lado alto de la ladera
@@ -171,6 +189,8 @@ const Core = (() => {
     let DRs = CS.map(cs => mode === 'both' ? DD : mode === 'auto' ? autoD(-cs) : 0);
     DLs = smooth1D(DLs, 5, closed); DRs = smooth1D(DRs, 5, closed);
     const EX = DW + SH;
+    // solo el perfil (alturas, peralte, ancho): para la edición en vivo, sin armar las mallas
+    if (o.profileOnly) return { C, T, hs, raw, dist, total, n, K, W, SL, SURF, closed, CS, DL: DLs, DR: DRs, EX, segs: routeSegs() };
 
     const crown = 0.02;
     const surfH = (i, s) => hs[i] + crown * (W[i] / 2 - Math.abs(s)) + SL[i] * s;
@@ -178,10 +198,10 @@ const Core = (() => {
     const pos = (i, s) => { const nx = -T[i][1], ny = T[i][0], k = K[i]; if (s * k > 0) { const lim = 0.85 / Math.abs(k); if (Math.abs(s) > lim) s = Math.sign(s) * lim; } return [C[i][0] + nx * s, C[i][1] + ny * s]; };
     const sec = (i, j, dOff) => {
       const hw = W[i] / 2;
-      return { cols: [-hw, 0, hw].map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s), u: (s + hw) / W[i] }; }), d: dist[i] + dOff, step };
+      return { cols: [-hw, 0, hw].map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s), u: (s + hw) / W[i], i, sc: s }; }), d: dist[i] + dOff, step };
     };
     // tramos consecutivos con la misma superficie
-    const segCount = closed ? n : n - 1, runs = [];
+    const runs = [];
     for (let i = 0; i < segCount; i++) {
       const key = SURF[i], last = runs[runs.length - 1];
       if (last && last.key === key) last.i1 = i; else runs.push({ key, i0: i, i1: i });
@@ -205,7 +225,7 @@ const Core = (() => {
           const prof = [[hw, e], [hw + DW / 2, e - Dd[i]], [hw + DW, e - 0.04], [hw + DW + SH, low]];
           const ord = side > 0 ? prof : prof.slice().reverse();
           // u = distancia desde el borde del camino (0) hasta el final de la banquina (1)
-          secs.push({ cols: ord.map(([s, h]) => { const [x, y] = pos(i, side * s); return { x, y, h, u: run.key === 'DITCH' ? (s - hw) / 2.5 : (s - hw) / (DW + SH) }; }), d: dist[i] + (ii >= n ? total : 0), step });
+          secs.push({ cols: ord.map(([s, h]) => { const [x, y] = pos(i, side * s); return { x, y, h, u: run.key === 'DITCH' ? (s - hw) / 2.5 : (s - hw) / (DW + SH), i, sc: side * hw }; }), d: dist[i] + (ii >= n ? total : 0), step });
         }
         const key = run.key === 'DITCH' ? 'DITCH' : 'GRASS', mat = run.key === 'DITCH' ? 'ditch' : 'verge';
         for (const m of ribbonMeshes(secs, false, key, mat, 7, { next: () => (key === 'GRASS' ? 500 : 0) + cnt(key) })) meshes.push(m);
@@ -217,7 +237,7 @@ const Core = (() => {
         const secs = [];
         for (let i = 0; i < n; i++) {
           const hw = W[i] / 2, off = side * (hw - 0.3);
-          const cols = [off - lw, off + lw].map((s, k) => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s) + lift, u: k }; });
+          const cols = [off - lw, off + lw].map((s, k) => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s) + lift, u: k, i, sc: s }; });
           const skip = !painted(SURF[i]) || (dashed && ((dist[i] % 12) > 4 || W[i] < 5.5));
           secs.push({ cols, d: dist[i], step, skip });
         }
@@ -227,11 +247,8 @@ const Core = (() => {
       for (const [side, dashed] of [[-1, false], [1, false], [0, true]])
         for (const m of ribbonMeshes(mk(side, dashed), closed, 'LINE', 'line', 1, lc)) { m.name = 'LINES_' + m.name.replace(/LINE$/, ''); meshes.push(m); }
     }
-    const segs = [];
-    for (let i = 0; i < segCount; i++) {
-      const j = (i + 1) % n;
-      segs.push([C[i][0], C[i][1], C[j][0], C[j][1], hs[i], hs[j], W[i] / 2, SL[i], SL[j], EX, Math.max(DDmax[i], DDmax[j]), CS[i]]);
-    }
+    const segs = routeSegs();
+    for (const m of meshes) m.route = true;
     return { meshes, segs, C, T, hs, raw, dist, total, n, K, W, SL, SURF, closed, CS, DL: DLs, DR: DRs, EX };
   }
 
@@ -331,9 +348,9 @@ const Core = (() => {
   // ---------- Terreno ----------
   // o.surfAt(hLocal, pendiente, x, y) -> [CLAVE_FISICA, material]
   const DEF_SURF = ['GRASS', 'grass'];
-  function buildTerrain(o, progress) {
-    const { bbox, res } = o;
-    const nx = Math.floor((bbox.maxx - bbox.minx) / res) + 1, ny = Math.floor((bbox.maxy - bbox.miny) / res) + 1;
+  // índice de segmentos del camino y parámetros para calcular la altura del terreno en cualquier punto
+  function terrainCtx(o) {
+    const { bbox } = o;
     const cs = 40, hx = Math.ceil((bbox.maxx - bbox.minx) / cs) + 1, hy = Math.ceil((bbox.maxy - bbox.miny) / cs) + 1;
     const cells = new Array(hx * hy);
     let maxHW = 0, maxEX = 0;
@@ -344,6 +361,64 @@ const Core = (() => {
       for (let cy = Math.max(0, y0); cy <= Math.min(hy - 1, y1); cy++)
         for (let cx = Math.max(0, x0); cx <= Math.min(hx - 1, x1); cx++) { const k = cy * hx + cx; (cells[k] || (cells[k] = [])).push(si); }
     });
+    const R1 = maxHW + Math.max(Math.max(o.flat, maxEX) + o.blend, o.edgeFix ? 55 : 0);
+    return { o, cs, hx, hy, cells, R1, rr1: Math.ceil(R1 / cs) };
+  }
+  // altura del terreno en (x, y): el natural, aplanado y fundido bajo el camino
+  function terrainPointH(ctx, x, y) {
+    const { o, cs, hx, hy, cells, rr1 } = ctx, bbox = o.bbox, F = o.flat, B = o.blend, depth = o.depth;
+    const cx = Math.floor((x - bbox.minx) / cs), cy = Math.floor((y - bbox.miny) / cs);
+    let h = o.height(x, y); const hNat = h;
+    let best = Infinity, bS = null, bT = 0, bLat = 0;
+    for (let dy = -rr1; dy <= rr1; dy++) for (let dx = -rr1; dx <= rr1; dx++) {
+      const X = cx + dx, Y = cy + dy; if (X < 0 || Y < 0 || X >= hx || Y >= hy) continue;
+      const list = cells[Y * hx + X]; if (!list) continue;
+      for (const si of list) {
+        const s = o.segs[si], vx = s[2] - s[0], vy = s[3] - s[1], L2 = vx * vx + vy * vy || 1e-9;
+        let t = ((x - s[0]) * vx + (y - s[1]) * vy) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const px = s[0] + vx * t - x, py = s[1] + vy * t - y, e = Math.sqrt(px * px + py * py) - s[6];
+        if (e < best) { best = e; bS = s; bT = t; bLat = (vx * (y - s[1]) - vy * (x - s[0])) / Math.sqrt(L2); }
+      }
+    }
+    const Fz = bS ? Math.max(F, bS[9] || 0) : F, dd = bS ? (bS[10] || 0) : 0;
+    // relieve junto al camino: la elevación del satélite incluye la altura de las copas de los árboles y arma
+    // paredones falsos al lado del camino. Cerca del camino el terreno sigue el plano de la ladera real
+    // (pendiente lateral medida a 15 m de cada lado) y solo se aparta de a poco; desde 30 m vuelve al natural.
+    if (o.edgeFix && bS && !isNaN(bS[4]) && best < 55) {
+      const target = bS[4] + (bS[5] - bS[4]) * bT + (bS[11] || 0) * bLat, allow = 0.4 + 0.08 * Math.max(0, best - Fz);
+      const hc = target + Math.max(-allow, Math.min(allow, h - target));
+      if (best <= 30) h = hc; else { let w = (best - 30) / 25; w = w * w * (3 - 2 * w); h = hc * (1 - w) + h * w; }
+    }
+    if (bS && best < Fz + B) {
+      let bH;
+      if (isNaN(bS[4])) bH = o.heightS(x, y);
+      else {
+        const sl = bS[7] + (bS[8] - bS[7]) * bT, lat = Math.max(-bS[6], Math.min(bS[6], bLat));
+        bH = bS[4] + (bS[5] - bS[4]) * bT + sl * lat;
+      }
+      if (best < Fz) h = bH - depth - dd;
+      else { let t = (best - Fz) / B; t = t * t * (3 - 2 * t); h = (bH - depth - dd) * (1 - t) + h * t; }
+    }
+    if (o.carve) { const cv = o.carve(x, y); if (cv > 0) h = Math.min(h, hNat - 0.15) - cv; } // el cauce sigue su nivel natural aunque el camino suba al puente
+    return h;
+  }
+  // recalcula el terreno solo dentro de un rectángulo (edición en vivo). Devuelve los puntos de la grilla que cambiaron.
+  function patchTerrain(ter, o, rect) {
+    const ctx = terrainCtx(o), { bbox, res } = o, { nx, ny, H, need } = ter, changed = [];
+    const i0 = Math.max(0, Math.floor((rect.minx - bbox.minx) / res)), i1 = Math.min(nx - 1, Math.ceil((rect.maxx - bbox.minx) / res));
+    const j0 = Math.max(0, Math.floor((rect.miny - bbox.miny) / res)), j1 = Math.min(ny - 1, Math.ceil((rect.maxy - bbox.miny) / res));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const k = j * nx + i; if (!need[k]) continue;
+      const h = terrainPointH(ctx, bbox.minx + i * res, bbox.miny + j * res);
+      if (Math.abs(h - H[k]) > 1e-4) { changed.push(k, H[k]); H[k] = h; }
+    }
+    return { changed, i0, i1, j0, j1 };
+  }
+
+  function buildTerrain(o, progress) {
+    const { bbox, res } = o;
+    const nx = Math.floor((bbox.maxx - bbox.minx) / res) + 1, ny = Math.floor((bbox.maxy - bbox.miny) / res) + 1;
+    const ctx = terrainCtx(o), { cs, hx, hy, cells } = ctx;
     let near = null;
     if (isFinite(o.margin)) {
       near = new Uint8Array(hx * hy); const rr = Math.ceil(o.margin / cs);
@@ -353,8 +428,6 @@ const Core = (() => {
         }
       }
     }
-    const F = o.flat, B = o.blend, depth = o.depth;
-    const R1 = maxHW + Math.max(Math.max(F, maxEX) + B, o.edgeFix ? 55 : 0), rr1 = Math.ceil(R1 / cs);
     const H = new Float32Array(nx * ny), need = new Uint8Array(nx * ny);
     for (let j = 0; j < ny; j++) {
       const y = bbox.miny + j * res;
@@ -362,39 +435,7 @@ const Core = (() => {
         const x = bbox.minx + i * res, cx = Math.floor((x - bbox.minx) / cs), cy = Math.floor((y - bbox.miny) / cs);
         if (near && !near[cy * hx + cx]) continue;
         need[j * nx + i] = 1;
-        let h = o.height(x, y); const hNat = h;
-        let best = Infinity, bS = null, bT = 0, bLat = 0;
-        for (let dy = -rr1; dy <= rr1; dy++) for (let dx = -rr1; dx <= rr1; dx++) {
-          const X = cx + dx, Y = cy + dy; if (X < 0 || Y < 0 || X >= hx || Y >= hy) continue;
-          const list = cells[Y * hx + X]; if (!list) continue;
-          for (const si of list) {
-            const s = o.segs[si], vx = s[2] - s[0], vy = s[3] - s[1], L2 = vx * vx + vy * vy || 1e-9;
-            let t = ((x - s[0]) * vx + (y - s[1]) * vy) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t;
-            const px = s[0] + vx * t - x, py = s[1] + vy * t - y, e = Math.sqrt(px * px + py * py) - s[6];
-            if (e < best) { best = e; bS = s; bT = t; bLat = (vx * (y - s[1]) - vy * (x - s[0])) / Math.sqrt(L2); }
-          }
-        }
-        const Fz = bS ? Math.max(F, bS[9] || 0) : F, dd = bS ? (bS[10] || 0) : 0;
-        // relieve junto al camino: la elevación del satélite incluye la altura de las copas de los árboles y arma
-        // paredones falsos al lado del camino. Cerca del camino el terreno sigue el plano de la ladera real
-        // (pendiente lateral medida a 15 m de cada lado) y solo se aparta de a poco; desde 30 m vuelve al natural.
-        if (o.edgeFix && bS && !isNaN(bS[4]) && best < 55) {
-          const target = bS[4] + (bS[5] - bS[4]) * bT + (bS[11] || 0) * bLat, allow = 0.4 + 0.08 * Math.max(0, best - Fz);
-          const hc = target + Math.max(-allow, Math.min(allow, h - target));
-          if (best <= 30) h = hc; else { let w = (best - 30) / 25; w = w * w * (3 - 2 * w); h = hc * (1 - w) + h * w; }
-        }
-        if (bS && best < Fz + B) {
-          let bH;
-          if (isNaN(bS[4])) bH = o.heightS(x, y);
-          else {
-            const sl = bS[7] + (bS[8] - bS[7]) * bT, lat = Math.max(-bS[6], Math.min(bS[6], bLat));
-            bH = bS[4] + (bS[5] - bS[4]) * bT + sl * lat;
-          }
-          if (best < Fz) h = bH - depth - dd;
-          else { let t = (best - Fz) / B; t = t * t * (3 - 2 * t); h = (bH - depth - dd) * (1 - t) + h * t; }
-        }
-        if (o.carve) { const cv = o.carve(x, y); if (cv > 0) h = Math.min(h, hNat - 0.15) - cv; } // el cauce sigue su nivel natural aunque el camino suba al puente
-        H[j * nx + i] = h;
+        H[j * nx + i] = terrainPointH(ctx, x, y);
       }
       if (progress && j % 50 === 0) progress(j / ny);
     }
@@ -405,7 +446,7 @@ const Core = (() => {
       const vid = (P, i, j) => {
         const k = j * nx + i; if (P.map.has(k)) return P.map.get(k);
         const x = bbox.minx + i * res, y = bbox.miny + j * res;
-        P.m.v.push([x, y, H[k]]); P.m.uv.push([x / 5, y / 5]); P.map.set(k, P.m.v.length - 1); return P.m.v.length - 1;
+        P.m.v.push([x, y, H[k]]); P.m.uv.push([x / 5, y / 5]); (P.m.gk || (P.m.gk = [])).push(k); P.map.set(k, P.m.v.length - 1); return P.m.v.length - 1;
       };
       for (let j = cj; j < Math.min(ny - 1, cj + CH); j++) for (let i = ci; i < Math.min(nx - 1, ci + CH); i++) {
         const k00 = j * nx + i, k10 = k00 + 1, k01 = k00 + nx, k11 = k01 + 1;
@@ -485,7 +526,7 @@ const Core = (() => {
       let wm = null;
       for (const [x, y, h, kind, ra] of list) {
         if (kind === 2 || rd(x, y, o.trunkDist + 1) > o.trunkDist) continue;
-        if (!wm || wm.v.length > 50000) { wm = newMesh(`${o.wallCounter()}WALL`, 'bark'); walls.push(wm); }
+        if (!wm || wm.v.length > 50000) { wm = newMesh(`${o.wallCounter()}WALL`, 'bark'); wm.block = 18; walls.push(wm); }
         const r = kind === 0 ? 0.14 + ra * 0.1 : 0.12 + ra * 0.12, top = 2.8, b = wm.v.length, N = 8;
         for (let k = 0; k <= N; k++) { const a = k / N * Math.PI * 2; wm.v.push([x + Math.cos(a) * r, y + Math.sin(a) * r, h - 0.5], [x + Math.cos(a) * r * 0.8, y + Math.sin(a) * r * 0.8, h + top]); wm.uv.push([k / N, 0], [k / N, 2]); }
         for (let k = 0; k < N; k++) { const a0 = b + k * 2, a1 = b + k * 2 + 2; wm.f.push([a0, a1, a1 + 1], [a0, a1 + 1, a0 + 1]); }
@@ -494,7 +535,7 @@ const Core = (() => {
     const meshes = [...walls], PER = 3000;
     let m = null, n = 0;
     for (const [x, y, h, kind, ra, rb, , edgeB] of list) {
-      if (!m || n >= PER) { m = newMesh('TREES_' + (meshes.length - walls.length), 'tree'); meshes.push(m); n = 0; }
+      if (!m || n >= PER) { m = newMesh('TREES_' + (meshes.length - walls.length), 'tree'); m.block = 16; meshes.push(m); n = 0; }
       const Ht = kind === 2 ? (edgeB ? 2.2 + ra * 2.4 : 1.2 + ra * 1.5) : kind === 0 ? 7 + ra * 9 : 6 + ra * 7, W = kind === 0 ? Ht * 0.68 : kind === 1 ? Ht * 0.85 : Ht * 1.3;
       const slot = kind === 1 ? (ra > 0.5 ? 3 : 1) : kind, u0 = slot / 4, u1 = (slot + 1) / 4, ang = rb * Math.PI, z0 = h - 0.3;
       for (const a of [ang, ang + Math.PI / 2]) {
@@ -533,7 +574,7 @@ const Core = (() => {
     let count = 0, big = 0;
     const meshFor = (isWall) => {
       const g = isWall ? groups.wall : groups.vis; let m = g[g.length - 1];
-      if (!m || m.v.length > 50000) { m = newMesh(isWall ? `${o.wallCounter()}WALL` : 'ROCKS_' + g.length, 'boulder'); g.push(m); }
+      if (!m || m.v.length > 50000) { m = newMesh(isWall ? `${o.wallCounter()}WALL` : 'ROCKS_' + g.length, 'boulder'); m.block = 12; g.push(m); }
       return m;
     };
     for (let i = 0; i < r.n; i++) for (const side of [1, -1]) {
@@ -586,6 +627,6 @@ const Core = (() => {
     return mats.map(([name, tex, kd]) => `newmtl ${name}\nKa 1 1 1\nKd ${kd}\nKs 0 0 0\nd 1\nillum 1\nmap_Kd ${tex}\n`).join('\n');
   }
 
-  return { MAT, buildTrees, buildRocks, roadDistFn, makeProj, resample, smooth1D, buildRoute, buildArea, buildSideRoads, buildTerrain, toOBJ, toMTL, computeNormals };
+  return { MAT, buildTrees, buildRocks, roadDistFn, patchTerrain, terrainHeightFn, makeProj, resample, smooth1D, buildRoute, buildArea, buildSideRoads, buildTerrain, toOBJ, toMTL, computeNormals };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

@@ -46,8 +46,21 @@ input[type=checkbox]{width:auto}
 #vbar{position:absolute;top:12px;left:12px;z-index:2;display:flex;gap:8px}
 #vbar button.on{background:#ffd200;color:#111;border-color:#ffd200}
 .vsel{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:4px 8px;font-size:13px;display:flex;align-items:center;gap:6px}.vsel select{width:auto;padding:3px 4px}
-#vhint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:2;background:#000c;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px}
+#vhint{position:absolute;bottom:176px;left:50%;transform:translateX(-50%);z-index:2;background:#000c;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px}
 #vbar button{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:8px 12px;cursor:pointer;font-weight:600}
+#vpanel{position:absolute;top:58px;right:12px;bottom:12px;width:300px;z-index:3;background:#121519ee;color:#e6e9ec;border:1px solid #fff2;border-radius:10px;padding:10px 12px;overflow:auto;font-size:12.5px}
+#vpanel .vp-h{font-size:14px;color:#00c8ff;margin-bottom:6px}
+#vpanel .vr{display:flex;justify-content:space-between;gap:8px;padding:2px 0;border-bottom:1px solid #fff1}#vpanel .vr span:first-child{color:#8b939c}
+#vpanel .nbh{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;text-align:right}
+#vpTools{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:10px 0}#vpTools .b{padding:6px 4px;font-size:12px}#vpTools .b.on{background:#ffd200;color:#111;border-color:#ffd200}
+#vpanel .vp-t{color:#8b939c;margin:8px 0 4px}#vpanel .vp-e{display:flex;justify-content:space-between;align-items:center;margin:6px 0}
+#vpanel .vp-p{display:flex;justify-content:space-between;align-items:center;gap:6px;margin:4px 0}#vpanel .vp-p span{display:flex;align-items:center;gap:4px}#vpanel .vp-p input{width:84px;padding:4px 6px}
+#vpanel .b.sm{padding:4px 8px;font-size:12px}#vpanel .vp-surf{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:8px}#vpanel .vp-surf select{padding:4px}
+#vpanel .vp-n{padding:4px 6px;border-radius:5px;cursor:pointer}#vpanel .vp-n:hover,#vpanel .vp-n.on{background:#ffffff14}
+#vpanel .vp-help{color:#8b939c;font-size:11.5px;margin-top:10px;line-height:1.5}
+#vprof{position:absolute;left:12px;width:calc(100% - 338px);bottom:12px;height:150px;z-index:3;background:#0f1114ee;border:1px solid #fff2;border-radius:10px;cursor:crosshair;touch-action:none}
+.edit.on{background:#ff7ad91a}.edit{cursor:pointer}
+@media(max-width:900px){#vpanel{top:auto;height:42%;width:auto;left:12px;bottom:174px}#vprof{width:calc(100% - 24px)}}
 #profile{width:100%;height:170px;display:block;background:#0f1114;border-radius:8px;cursor:crosshair;touch-action:none}
 #hoverInfo{min-height:34px;margin-top:6px}
 #selInfo{color:#00c8ff;font-size:13px;margin:4px 0}
@@ -75,10 +88,19 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
     <div id="map"></div>
     <form id="search"><input id="q" placeholder="Buscar lugar o coordenadas (ej. Paso de Jama)"><button>Ir</button></form>
     <div id="viewer"><div id="viewer3d"></div>
-      <div id="vbar"><button id="closeViewer">← Volver al mapa</button><button id="drive">▶ Recorrer</button><button id="editCurves">✋ Ajustar curvas</button>
-        <label class="vsel">Alcance <select id="dragR"><option value="15">15 m</option><option value="30">30 m</option><option value="50" selected>50 m</option><option value="100">100 m</option><option value="200">200 m</option></select></label>
+      <div id="vbar"><button id="closeViewer">← Volver al mapa</button><button id="drive">▶ Recorrer</button><button id="editCurves" title="Mostrar u ocultar el editor directo">✏️ Editor</button>
+        <label class="vsel" id="dragRw">Alcance <select id="dragR"><option value="15">15 m</option><option value="30">30 m</option><option value="50" selected>50 m</option><option value="100">100 m</option><option value="200">200 m</option></select></label>
         <button id="satBtn">🛰 Satélite</button></div>
-      <div id="vhint" style="display:none">Arrastrá un punto amarillo para mover la curva. Rueda/arrastre normal = mover la cámara.</div>
+      <div id="vhint" style="display:none"></div>
+      <div id="vpanel" style="display:none">
+        <div class="vp-h"><b id="vpSel">Hacé clic sobre el camino</b></div>
+        <div id="vpData"></div>
+        <div id="vpTools"></div>
+        <div id="vpParams"></div>
+        <div id="vpNear"></div>
+        <div class="vp-help">Clic: elegir punto · Shift+clic: tramo · Arrastrar (izq. o rueda apretada): mover · Derecho o Ctrl+arrastrar: girar · Rueda: zoom al cursor · Doble clic: centrar · WASD/flechas: recorrer · Q/E girar · Supr: borrar cambio · Ctrl+Z / Ctrl+Y: deshacer / rehacer · Esc: soltar selección</div>
+      </div>
+      <canvas id="vprof" style="display:none"></canvas>
     </div>
   </div>
   <aside>

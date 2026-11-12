@@ -16,6 +16,7 @@ Recreá cualquier camino real desde el mapa y exportalo a **Assetto Corsa** (`.k
 El código está en `src/`:
 - `src/core.js` — geometría: camino, terreno, árboles, piedras.
 - `src/app.js` — mapa, datos, texturas, objetos, exportación `.kn5`.
+- `src/editor3d.js` — edición directa en la vista 3D: selección, manijas, actualización en vivo y perfil sincronizado.
 - `src/template.html` — la página y los controles.
 
 Después de cambiar algo en `src/`, corré `python3 build.py` para regenerar `index.html` y subí los dos.

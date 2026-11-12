@@ -46,8 +46,21 @@ input[type=checkbox]{width:auto}
 #vbar{position:absolute;top:12px;left:12px;z-index:2;display:flex;gap:8px}
 #vbar button.on{background:#ffd200;color:#111;border-color:#ffd200}
 .vsel{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:4px 8px;font-size:13px;display:flex;align-items:center;gap:6px}.vsel select{width:auto;padding:3px 4px}
-#vhint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:2;background:#000c;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px}
+#vhint{position:absolute;bottom:176px;left:50%;transform:translateX(-50%);z-index:2;background:#000c;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px}
 #vbar button{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:8px 12px;cursor:pointer;font-weight:600}
+#vpanel{position:absolute;top:58px;right:12px;bottom:12px;width:300px;z-index:3;background:#121519ee;color:#e6e9ec;border:1px solid #fff2;border-radius:10px;padding:10px 12px;overflow:auto;font-size:12.5px}
+#vpanel .vp-h{font-size:14px;color:#00c8ff;margin-bottom:6px}
+#vpanel .vr{display:flex;justify-content:space-between;gap:8px;padding:2px 0;border-bottom:1px solid #fff1}#vpanel .vr span:first-child{color:#8b939c}
+#vpanel .nbh{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;text-align:right}
+#vpTools{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:10px 0}#vpTools .b{padding:6px 4px;font-size:12px}#vpTools .b.on{background:#ffd200;color:#111;border-color:#ffd200}
+#vpanel .vp-t{color:#8b939c;margin:8px 0 4px}#vpanel .vp-e{display:flex;justify-content:space-between;align-items:center;margin:6px 0}
+#vpanel .vp-p{display:flex;justify-content:space-between;align-items:center;gap:6px;margin:4px 0}#vpanel .vp-p span{display:flex;align-items:center;gap:4px}#vpanel .vp-p input{width:84px;padding:4px 6px}
+#vpanel .b.sm{padding:4px 8px;font-size:12px}#vpanel .vp-surf{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:8px}#vpanel .vp-surf select{padding:4px}
+#vpanel .vp-n{padding:4px 6px;border-radius:5px;cursor:pointer}#vpanel .vp-n:hover,#vpanel .vp-n.on{background:#ffffff14}
+#vpanel .vp-help{color:#8b939c;font-size:11.5px;margin-top:10px;line-height:1.5}
+#vprof{position:absolute;left:12px;width:calc(100% - 338px);bottom:12px;height:150px;z-index:3;background:#0f1114ee;border:1px solid #fff2;border-radius:10px;cursor:crosshair;touch-action:none}
+.edit.on{background:#ff7ad91a}.edit{cursor:pointer}
+@media(max-width:900px){#vpanel{top:auto;height:42%;width:auto;left:12px;bottom:174px}#vprof{width:calc(100% - 24px)}}
 #profile{width:100%;height:170px;display:block;background:#0f1114;border-radius:8px;cursor:crosshair;touch-action:none}
 #hoverInfo{min-height:34px;margin-top:6px}
 #selInfo{color:#00c8ff;font-size:13px;margin:4px 0}
@@ -75,10 +88,19 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
     <div id="map"></div>
     <form id="search"><input id="q" placeholder="Buscar lugar o coordenadas (ej. Paso de Jama)"><button>Ir</button></form>
     <div id="viewer"><div id="viewer3d"></div>
-      <div id="vbar"><button id="closeViewer">← Volver al mapa</button><button id="drive">▶ Recorrer</button><button id="editCurves">✋ Ajustar curvas</button>
-        <label class="vsel">Alcance <select id="dragR"><option value="15">15 m</option><option value="30">30 m</option><option value="50" selected>50 m</option><option value="100">100 m</option><option value="200">200 m</option></select></label>
+      <div id="vbar"><button id="closeViewer">← Volver al mapa</button><button id="drive">▶ Recorrer</button><button id="editCurves" title="Mostrar u ocultar el editor directo">✏️ Editor</button>
+        <label class="vsel" id="dragRw">Alcance <select id="dragR"><option value="15">15 m</option><option value="30">30 m</option><option value="50" selected>50 m</option><option value="100">100 m</option><option value="200">200 m</option></select></label>
         <button id="satBtn">🛰 Satélite</button></div>
-      <div id="vhint" style="display:none">Arrastrá un punto amarillo para mover la curva. Rueda/arrastre normal = mover la cámara.</div>
+      <div id="vhint" style="display:none"></div>
+      <div id="vpanel" style="display:none">
+        <div class="vp-h"><b id="vpSel">Hacé clic sobre el camino</b></div>
+        <div id="vpData"></div>
+        <div id="vpTools"></div>
+        <div id="vpParams"></div>
+        <div id="vpNear"></div>
+        <div class="vp-help">Clic: elegir punto · Shift+clic: tramo · Arrastrar (izq. o rueda apretada): mover · Derecho o Ctrl+arrastrar: girar · Rueda: zoom al cursor · Doble clic: centrar · WASD/flechas: recorrer · Q/E girar · Supr: borrar cambio · Ctrl+Z / Ctrl+Y: deshacer / rehacer · Esc: soltar selección</div>
+      </div>
+      <canvas id="vprof" style="display:none"></canvas>
     </div>
   </div>
   <aside>
@@ -271,6 +293,7 @@ const Core = (() => {
         const ii = i % n, c = sections[ii].cols[k];
         const vv = sections[ii].d / vScale + (i >= n ? sections[n - 1].d / vScale + sections[n - 1].step / vScale - sections[0].d / vScale : 0);
         m.v.push([c.x, c.y, c.h]); m.uv.push([c.u, vv]);
+        if (c.i !== undefined) { (m.ri || (m.ri = [])).push(c.i); (m.rs || (m.rs = [])).push(c.sc); }
         idx.set(key, m.v.length - 1); return m.v.length - 1;
       };
       for (let i = s0; i < s1; i++) {
@@ -297,19 +320,24 @@ const Core = (() => {
   //    widthAt(d), bankAt(d,k)->grados (con signo de la curva aplicado afuera), offsetAt(d), smoothSecs[{d0,d1}], surfaceAt(d,hLocal)->KEY
   function buildRoute(o) {
     const step = 2, closed = !!o.closed;
-    let C = resample(o.pts, step, closed);
+    // geometría en planta (no cambia al editar alturas, peralte o ancho): se puede reutilizar entre ediciones en vivo
+    const geoKey = o.cache ? o.cache.keyFn() : null;
+    let C, T, dist, total, K, raw, CS, n;
+    if (o.cache && o.cache.geo && o.cache.geo.key === geoKey) ({ C, T, dist, total, K, raw, CS, n } = o.cache.geo);
+    else {
+    C = resample(o.pts, step, closed);
     C = smoothPts(C, 3, closed, 2);
     if (o.shapeAt) { // ajustes de forma hechos a mano (arrastrando en 3D)
       let d = 0;
       C = C.map((p, i) => { if (i) d += Math.hypot(p[0] - C[i - 1][0], p[1] - C[i - 1][1]); const [dx, dy] = o.shapeAt(d); return [p[0] + dx, p[1] + dy]; });
     }
     C = resample(C, step, closed);
-    const n = C.length;
-    const T = tangents(C, closed);
-    const dist = [0]; for (let i = 1; i < n; i++) dist.push(dist[i - 1] + Math.hypot(C[i][0] - C[i - 1][0], C[i][1] - C[i - 1][1]));
-    const total = dist[n - 1] + (closed ? Math.hypot(C[0][0] - C[n - 1][0], C[0][1] - C[n - 1][1]) : 0);
+    n = C.length;
+    T = tangents(C, closed);
+    dist = [0]; for (let i = 1; i < n; i++) dist.push(dist[i - 1] + Math.hypot(C[i][0] - C[i - 1][0], C[i][1] - C[i - 1][1]));
+    total = dist[n - 1] + (closed ? Math.hypot(C[0][0] - C[n - 1][0], C[0][1] - C[n - 1][1]) : 0);
     // curvatura (1/m, positiva = gira a la izquierda)
-    let K = [];
+    K = [];
     for (let i = 0; i < n; i++) {
       let a = i - 1, b = i + 1;
       if (closed) { a = (a + n) % n; b = b % n; } else { a = Math.max(0, a); b = Math.min(n - 1, b); }
@@ -318,7 +346,15 @@ const Core = (() => {
     }
     K = smooth1D(smooth1D(K, 3, closed), 3, closed);
     // alturas
-    const raw = C.map(p => { const g = o.roadH ? o.roadH(p[0], p[1]) : null; return g != null ? g : o.height(p[0], p[1]); }); // altura del GPS si la hay
+    raw = C.map(p => { const g = o.roadH ? o.roadH(p[0], p[1]) : null; return g != null ? g : o.height(p[0], p[1]); }); // altura del GPS si la hay
+    // pendiente lateral del terreno real (positiva = el lado izquierdo es más alto): detecta laderas de montaña
+    CS = C.map((p, i) => {
+      const nx = -T[i][1], ny = T[i][0], a = o.height(p[0] + nx * 15, p[1] + ny * 15), b = o.height(p[0] - nx * 15, p[1] - ny * 15);
+      return (a - b) / 30;
+    });
+    CS = smooth1D(smooth1D(CS, 8, closed), 8, closed);
+    if (o.cache) o.cache.geo = { key: geoKey, C, T, dist, total, K, raw, CS, n };
+    }
     let hs = raw; const r = Math.max(1, Math.round((o.hSmooth || 0) / step / 2));
     for (let p = 0; p < 3; p++) hs = smooth1D(hs, r, closed, false);
     if (o.smoothSecs && o.smoothSecs.length) {
@@ -340,17 +376,21 @@ const Core = (() => {
     W = smooth1D(smooth1D(W, 4, closed), 4, closed);
     let SL = dist.map((d, i) => {
       const deg = o.bankAt ? o.bankAt(d, K[i]) : 0;
+      if (typeof deg === 'object') return Math.tan(deg.abs * D2R_); // inclinación fija (+ = lado izquierdo más alto), también en rectas
       const side = Math.max(-1, Math.min(1, K[i] * 150));
       return -Math.tan(deg * D2R_) * side;
     });
     SL = smooth1D(smooth1D(SL, 4, closed), 4, closed);
     const SURF = dist.map((d, i) => o.surfaceAt ? o.surfaceAt(d, hs[i]) : 'ROAD');
-    // pendiente lateral del terreno real (positiva = el lado izquierdo es más alto): detecta laderas de montaña
-    let CS = C.map((p, i) => {
-      const nx = -T[i][1], ny = T[i][0], a = o.height(p[0] + nx * 15, p[1] + ny * 15), b = o.height(p[0] - nx * 15, p[1] - ny * 15);
-      return (a - b) / 30;
-    });
-    CS = smooth1D(smooth1D(CS, 8, closed), 8, closed);
+    const segCount = closed ? n : n - 1;
+    const routeSegs = () => {
+      const segs = [];
+      for (let i = 0; i < segCount; i++) {
+        const j = (i + 1) % n;
+        segs.push([C[i][0], C[i][1], C[j][0], C[j][1], hs[i], hs[j], W[i] / 2, SL[i], SL[j], EX, Math.max(DLs[i], DRs[i], DLs[j], DRs[j]), CS[i]]);
+      }
+      return segs;
+    };
     // cunetas: 'auto' = del lado de arriba de la ladera, 'both' = ambos lados, 'none'
     const DW = 2.0, DD = 0.6, SH = o.shoulder || 6, mode = o.ditch || 'none';
     // 'auto': cuneta a ambos lados (como los caminos de ripio del bosque), más honda del lado alto de la ladera
@@ -359,6 +399,8 @@ const Core = (() => {
     let DRs = CS.map(cs => mode === 'both' ? DD : mode === 'auto' ? autoD(-cs) : 0);
     DLs = smooth1D(DLs, 5, closed); DRs = smooth1D(DRs, 5, closed);
     const EX = DW + SH;
+    // solo el perfil (alturas, peralte, ancho): para la edición en vivo, sin armar las mallas
+    if (o.profileOnly) return { C, T, hs, raw, dist, total, n, K, W, SL, SURF, closed, CS, DL: DLs, DR: DRs, EX, segs: routeSegs() };
 
     const crown = 0.02;
     const surfH = (i, s) => hs[i] + crown * (W[i] / 2 - Math.abs(s)) + SL[i] * s;
@@ -366,10 +408,10 @@ const Core = (() => {
     const pos = (i, s) => { const nx = -T[i][1], ny = T[i][0], k = K[i]; if (s * k > 0) { const lim = 0.85 / Math.abs(k); if (Math.abs(s) > lim) s = Math.sign(s) * lim; } return [C[i][0] + nx * s, C[i][1] + ny * s]; };
     const sec = (i, j, dOff) => {
       const hw = W[i] / 2;
-      return { cols: [-hw, 0, hw].map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s), u: (s + hw) / W[i] }; }), d: dist[i] + dOff, step };
+      return { cols: [-hw, 0, hw].map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s), u: (s + hw) / W[i], i, sc: s }; }), d: dist[i] + dOff, step };
     };
     // tramos consecutivos con la misma superficie
-    const segCount = closed ? n : n - 1, runs = [];
+    const runs = [];
     for (let i = 0; i < segCount; i++) {
       const key = SURF[i], last = runs[runs.length - 1];
       if (last && last.key === key) last.i1 = i; else runs.push({ key, i0: i, i1: i });
@@ -393,7 +435,7 @@ const Core = (() => {
           const prof = [[hw, e], [hw + DW / 2, e - Dd[i]], [hw + DW, e - 0.04], [hw + DW + SH, low]];
           const ord = side > 0 ? prof : prof.slice().reverse();
           // u = distancia desde el borde del camino (0) hasta el final de la banquina (1)
-          secs.push({ cols: ord.map(([s, h]) => { const [x, y] = pos(i, side * s); return { x, y, h, u: run.key === 'DITCH' ? (s - hw) / 2.5 : (s - hw) / (DW + SH) }; }), d: dist[i] + (ii >= n ? total : 0), step });
+          secs.push({ cols: ord.map(([s, h]) => { const [x, y] = pos(i, side * s); return { x, y, h, u: run.key === 'DITCH' ? (s - hw) / 2.5 : (s - hw) / (DW + SH), i, sc: side * hw }; }), d: dist[i] + (ii >= n ? total : 0), step });
         }
         const key = run.key === 'DITCH' ? 'DITCH' : 'GRASS', mat = run.key === 'DITCH' ? 'ditch' : 'verge';
         for (const m of ribbonMeshes(secs, false, key, mat, 7, { next: () => (key === 'GRASS' ? 500 : 0) + cnt(key) })) meshes.push(m);
@@ -405,7 +447,7 @@ const Core = (() => {
         const secs = [];
         for (let i = 0; i < n; i++) {
           const hw = W[i] / 2, off = side * (hw - 0.3);
-          const cols = [off - lw, off + lw].map((s, k) => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s) + lift, u: k }; });
+          const cols = [off - lw, off + lw].map((s, k) => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s) + lift, u: k, i, sc: s }; });
           const skip = !painted(SURF[i]) || (dashed && ((dist[i] % 12) > 4 || W[i] < 5.5));
           secs.push({ cols, d: dist[i], step, skip });
         }
@@ -415,11 +457,8 @@ const Core = (() => {
       for (const [side, dashed] of [[-1, false], [1, false], [0, true]])
         for (const m of ribbonMeshes(mk(side, dashed), closed, 'LINE', 'line', 1, lc)) { m.name = 'LINES_' + m.name.replace(/LINE$/, ''); meshes.push(m); }
     }
-    const segs = [];
-    for (let i = 0; i < segCount; i++) {
-      const j = (i + 1) % n;
-      segs.push([C[i][0], C[i][1], C[j][0], C[j][1], hs[i], hs[j], W[i] / 2, SL[i], SL[j], EX, Math.max(DDmax[i], DDmax[j]), CS[i]]);
-    }
+    const segs = routeSegs();
+    for (const m of meshes) m.route = true;
     return { meshes, segs, C, T, hs, raw, dist, total, n, K, W, SL, SURF, closed, CS, DL: DLs, DR: DRs, EX };
   }
 
@@ -519,9 +558,9 @@ const Core = (() => {
   // ---------- Terreno ----------
   // o.surfAt(hLocal, pendiente, x, y) -> [CLAVE_FISICA, material]
   const DEF_SURF = ['GRASS', 'grass'];
-  function buildTerrain(o, progress) {
-    const { bbox, res } = o;
-    const nx = Math.floor((bbox.maxx - bbox.minx) / res) + 1, ny = Math.floor((bbox.maxy - bbox.miny) / res) + 1;
+  // índice de segmentos del camino y parámetros para calcular la altura del terreno en cualquier punto
+  function terrainCtx(o) {
+    const { bbox } = o;
     const cs = 40, hx = Math.ceil((bbox.maxx - bbox.minx) / cs) + 1, hy = Math.ceil((bbox.maxy - bbox.miny) / cs) + 1;
     const cells = new Array(hx * hy);
     let maxHW = 0, maxEX = 0;
@@ -532,6 +571,64 @@ const Core = (() => {
       for (let cy = Math.max(0, y0); cy <= Math.min(hy - 1, y1); cy++)
         for (let cx = Math.max(0, x0); cx <= Math.min(hx - 1, x1); cx++) { const k = cy * hx + cx; (cells[k] || (cells[k] = [])).push(si); }
     });
+    const R1 = maxHW + Math.max(Math.max(o.flat, maxEX) + o.blend, o.edgeFix ? 55 : 0);
+    return { o, cs, hx, hy, cells, R1, rr1: Math.ceil(R1 / cs) };
+  }
+  // altura del terreno en (x, y): el natural, aplanado y fundido bajo el camino
+  function terrainPointH(ctx, x, y) {
+    const { o, cs, hx, hy, cells, rr1 } = ctx, bbox = o.bbox, F = o.flat, B = o.blend, depth = o.depth;
+    const cx = Math.floor((x - bbox.minx) / cs), cy = Math.floor((y - bbox.miny) / cs);
+    let h = o.height(x, y); const hNat = h;
+    let best = Infinity, bS = null, bT = 0, bLat = 0;
+    for (let dy = -rr1; dy <= rr1; dy++) for (let dx = -rr1; dx <= rr1; dx++) {
+      const X = cx + dx, Y = cy + dy; if (X < 0 || Y < 0 || X >= hx || Y >= hy) continue;
+      const list = cells[Y * hx + X]; if (!list) continue;
+      for (const si of list) {
+        const s = o.segs[si], vx = s[2] - s[0], vy = s[3] - s[1], L2 = vx * vx + vy * vy || 1e-9;
+        let t = ((x - s[0]) * vx + (y - s[1]) * vy) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const px = s[0] + vx * t - x, py = s[1] + vy * t - y, e = Math.sqrt(px * px + py * py) - s[6];
+        if (e < best) { best = e; bS = s; bT = t; bLat = (vx * (y - s[1]) - vy * (x - s[0])) / Math.sqrt(L2); }
+      }
+    }
+    const Fz = bS ? Math.max(F, bS[9] || 0) : F, dd = bS ? (bS[10] || 0) : 0;
+    // relieve junto al camino: la elevación del satélite incluye la altura de las copas de los árboles y arma
+    // paredones falsos al lado del camino. Cerca del camino el terreno sigue el plano de la ladera real
+    // (pendiente lateral medida a 15 m de cada lado) y solo se aparta de a poco; desde 30 m vuelve al natural.
+    if (o.edgeFix && bS && !isNaN(bS[4]) && best < 55) {
+      const target = bS[4] + (bS[5] - bS[4]) * bT + (bS[11] || 0) * bLat, allow = 0.4 + 0.08 * Math.max(0, best - Fz);
+      const hc = target + Math.max(-allow, Math.min(allow, h - target));
+      if (best <= 30) h = hc; else { let w = (best - 30) / 25; w = w * w * (3 - 2 * w); h = hc * (1 - w) + h * w; }
+    }
+    if (bS && best < Fz + B) {
+      let bH;
+      if (isNaN(bS[4])) bH = o.heightS(x, y);
+      else {
+        const sl = bS[7] + (bS[8] - bS[7]) * bT, lat = Math.max(-bS[6], Math.min(bS[6], bLat));
+        bH = bS[4] + (bS[5] - bS[4]) * bT + sl * lat;
+      }
+      if (best < Fz) h = bH - depth - dd;
+      else { let t = (best - Fz) / B; t = t * t * (3 - 2 * t); h = (bH - depth - dd) * (1 - t) + h * t; }
+    }
+    if (o.carve) { const cv = o.carve(x, y); if (cv > 0) h = Math.min(h, hNat - 0.15) - cv; } // el cauce sigue su nivel natural aunque el camino suba al puente
+    return h;
+  }
+  // recalcula el terreno solo dentro de un rectángulo (edición en vivo). Devuelve los puntos de la grilla que cambiaron.
+  function patchTerrain(ter, o, rect) {
+    const ctx = terrainCtx(o), { bbox, res } = o, { nx, ny, H, need } = ter, changed = [];
+    const i0 = Math.max(0, Math.floor((rect.minx - bbox.minx) / res)), i1 = Math.min(nx - 1, Math.ceil((rect.maxx - bbox.minx) / res));
+    const j0 = Math.max(0, Math.floor((rect.miny - bbox.miny) / res)), j1 = Math.min(ny - 1, Math.ceil((rect.maxy - bbox.miny) / res));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const k = j * nx + i; if (!need[k]) continue;
+      const h = terrainPointH(ctx, bbox.minx + i * res, bbox.miny + j * res);
+      if (Math.abs(h - H[k]) > 1e-4) { changed.push(k, H[k]); H[k] = h; }
+    }
+    return { changed, i0, i1, j0, j1 };
+  }
+
+  function buildTerrain(o, progress) {
+    const { bbox, res } = o;
+    const nx = Math.floor((bbox.maxx - bbox.minx) / res) + 1, ny = Math.floor((bbox.maxy - bbox.miny) / res) + 1;
+    const ctx = terrainCtx(o), { cs, hx, hy, cells } = ctx;
     let near = null;
     if (isFinite(o.margin)) {
       near = new Uint8Array(hx * hy); const rr = Math.ceil(o.margin / cs);
@@ -541,8 +638,6 @@ const Core = (() => {
         }
       }
     }
-    const F = o.flat, B = o.blend, depth = o.depth;
-    const R1 = maxHW + Math.max(Math.max(F, maxEX) + B, o.edgeFix ? 55 : 0), rr1 = Math.ceil(R1 / cs);
     const H = new Float32Array(nx * ny), need = new Uint8Array(nx * ny);
     for (let j = 0; j < ny; j++) {
       const y = bbox.miny + j * res;
@@ -550,39 +645,7 @@ const Core = (() => {
         const x = bbox.minx + i * res, cx = Math.floor((x - bbox.minx) / cs), cy = Math.floor((y - bbox.miny) / cs);
         if (near && !near[cy * hx + cx]) continue;
         need[j * nx + i] = 1;
-        let h = o.height(x, y); const hNat = h;
-        let best = Infinity, bS = null, bT = 0, bLat = 0;
-        for (let dy = -rr1; dy <= rr1; dy++) for (let dx = -rr1; dx <= rr1; dx++) {
-          const X = cx + dx, Y = cy + dy; if (X < 0 || Y < 0 || X >= hx || Y >= hy) continue;
-          const list = cells[Y * hx + X]; if (!list) continue;
-          for (const si of list) {
-            const s = o.segs[si], vx = s[2] - s[0], vy = s[3] - s[1], L2 = vx * vx + vy * vy || 1e-9;
-            let t = ((x - s[0]) * vx + (y - s[1]) * vy) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t;
-            const px = s[0] + vx * t - x, py = s[1] + vy * t - y, e = Math.sqrt(px * px + py * py) - s[6];
-            if (e < best) { best = e; bS = s; bT = t; bLat = (vx * (y - s[1]) - vy * (x - s[0])) / Math.sqrt(L2); }
-          }
-        }
-        const Fz = bS ? Math.max(F, bS[9] || 0) : F, dd = bS ? (bS[10] || 0) : 0;
-        // relieve junto al camino: la elevación del satélite incluye la altura de las copas de los árboles y arma
-        // paredones falsos al lado del camino. Cerca del camino el terreno sigue el plano de la ladera real
-        // (pendiente lateral medida a 15 m de cada lado) y solo se aparta de a poco; desde 30 m vuelve al natural.
-        if (o.edgeFix && bS && !isNaN(bS[4]) && best < 55) {
-          const target = bS[4] + (bS[5] - bS[4]) * bT + (bS[11] || 0) * bLat, allow = 0.4 + 0.08 * Math.max(0, best - Fz);
-          const hc = target + Math.max(-allow, Math.min(allow, h - target));
-          if (best <= 30) h = hc; else { let w = (best - 30) / 25; w = w * w * (3 - 2 * w); h = hc * (1 - w) + h * w; }
-        }
-        if (bS && best < Fz + B) {
-          let bH;
-          if (isNaN(bS[4])) bH = o.heightS(x, y);
-          else {
-            const sl = bS[7] + (bS[8] - bS[7]) * bT, lat = Math.max(-bS[6], Math.min(bS[6], bLat));
-            bH = bS[4] + (bS[5] - bS[4]) * bT + sl * lat;
-          }
-          if (best < Fz) h = bH - depth - dd;
-          else { let t = (best - Fz) / B; t = t * t * (3 - 2 * t); h = (bH - depth - dd) * (1 - t) + h * t; }
-        }
-        if (o.carve) { const cv = o.carve(x, y); if (cv > 0) h = Math.min(h, hNat - 0.15) - cv; } // el cauce sigue su nivel natural aunque el camino suba al puente
-        H[j * nx + i] = h;
+        H[j * nx + i] = terrainPointH(ctx, x, y);
       }
       if (progress && j % 50 === 0) progress(j / ny);
     }
@@ -593,7 +656,7 @@ const Core = (() => {
       const vid = (P, i, j) => {
         const k = j * nx + i; if (P.map.has(k)) return P.map.get(k);
         const x = bbox.minx + i * res, y = bbox.miny + j * res;
-        P.m.v.push([x, y, H[k]]); P.m.uv.push([x / 5, y / 5]); P.map.set(k, P.m.v.length - 1); return P.m.v.length - 1;
+        P.m.v.push([x, y, H[k]]); P.m.uv.push([x / 5, y / 5]); (P.m.gk || (P.m.gk = [])).push(k); P.map.set(k, P.m.v.length - 1); return P.m.v.length - 1;
       };
       for (let j = cj; j < Math.min(ny - 1, cj + CH); j++) for (let i = ci; i < Math.min(nx - 1, ci + CH); i++) {
         const k00 = j * nx + i, k10 = k00 + 1, k01 = k00 + nx, k11 = k01 + 1;
@@ -673,7 +736,7 @@ const Core = (() => {
       let wm = null;
       for (const [x, y, h, kind, ra] of list) {
         if (kind === 2 || rd(x, y, o.trunkDist + 1) > o.trunkDist) continue;
-        if (!wm || wm.v.length > 50000) { wm = newMesh(`${o.wallCounter()}WALL`, 'bark'); walls.push(wm); }
+        if (!wm || wm.v.length > 50000) { wm = newMesh(`${o.wallCounter()}WALL`, 'bark'); wm.block = 18; walls.push(wm); }
         const r = kind === 0 ? 0.14 + ra * 0.1 : 0.12 + ra * 0.12, top = 2.8, b = wm.v.length, N = 8;
         for (let k = 0; k <= N; k++) { const a = k / N * Math.PI * 2; wm.v.push([x + Math.cos(a) * r, y + Math.sin(a) * r, h - 0.5], [x + Math.cos(a) * r * 0.8, y + Math.sin(a) * r * 0.8, h + top]); wm.uv.push([k / N, 0], [k / N, 2]); }
         for (let k = 0; k < N; k++) { const a0 = b + k * 2, a1 = b + k * 2 + 2; wm.f.push([a0, a1, a1 + 1], [a0, a1 + 1, a0 + 1]); }
@@ -682,7 +745,7 @@ const Core = (() => {
     const meshes = [...walls], PER = 3000;
     let m = null, n = 0;
     for (const [x, y, h, kind, ra, rb, , edgeB] of list) {
-      if (!m || n >= PER) { m = newMesh('TREES_' + (meshes.length - walls.length), 'tree'); meshes.push(m); n = 0; }
+      if (!m || n >= PER) { m = newMesh('TREES_' + (meshes.length - walls.length), 'tree'); m.block = 16; meshes.push(m); n = 0; }
       const Ht = kind === 2 ? (edgeB ? 2.2 + ra * 2.4 : 1.2 + ra * 1.5) : kind === 0 ? 7 + ra * 9 : 6 + ra * 7, W = kind === 0 ? Ht * 0.68 : kind === 1 ? Ht * 0.85 : Ht * 1.3;
       const slot = kind === 1 ? (ra > 0.5 ? 3 : 1) : kind, u0 = slot / 4, u1 = (slot + 1) / 4, ang = rb * Math.PI, z0 = h - 0.3;
       for (const a of [ang, ang + Math.PI / 2]) {
@@ -721,7 +784,7 @@ const Core = (() => {
     let count = 0, big = 0;
     const meshFor = (isWall) => {
       const g = isWall ? groups.wall : groups.vis; let m = g[g.length - 1];
-      if (!m || m.v.length > 50000) { m = newMesh(isWall ? `${o.wallCounter()}WALL` : 'ROCKS_' + g.length, 'boulder'); g.push(m); }
+      if (!m || m.v.length > 50000) { m = newMesh(isWall ? `${o.wallCounter()}WALL` : 'ROCKS_' + g.length, 'boulder'); m.block = 12; g.push(m); }
       return m;
     };
     for (let i = 0; i < r.n; i++) for (const side of [1, -1]) {
@@ -774,7 +837,7 @@ const Core = (() => {
     return mats.map(([name, tex, kd]) => `newmtl ${name}\nKa 1 1 1\nKd ${kd}\nKs 0 0 0\nd 1\nillum 1\nmap_Kd ${tex}\n`).join('\n');
   }
 
-  return { MAT, buildTrees, buildRocks, roadDistFn, makeProj, resample, smooth1D, buildRoute, buildArea, buildSideRoads, buildTerrain, toOBJ, toMTL, computeNormals };
+  return { MAT, buildTrees, buildRocks, roadDistFn, patchTerrain, terrainHeightFn, makeProj, resample, smooth1D, buildRoute, buildArea, buildSideRoads, buildTerrain, toOBJ, toMTL, computeNormals };
 })();
 
 
@@ -1960,20 +2023,31 @@ function editFns(o, total, closed) {
       let s = 0;
       for (const e of S.edits) {
         if (e.kind === 'raise') {
-          if (e.d1 - e.d0 < 1) s += e.h * bell(wrap(d, e.d0), 30);
-          else { const f = 25, x = d < e.d0 ? (e.d0 - d) / f : d > e.d1 ? (d - e.d1) / f : 0; s += x >= 1 ? 0 : e.h * ss(1 - x); }
+          // punto: campana de radio r. Tramo: de h (inicio) a h1 (final) = pendiente, con transiciones f0 / f1 a cada lado
+          if (e.d1 - e.d0 < 1) s += e.h * bell(wrap(d, e.d0), e.r || 30);
+          else {
+            const h1 = e.h1 != null ? e.h1 : e.h, f0 = Math.max(0.5, e.f0 != null ? e.f0 : 25), f1 = Math.max(0.5, e.f1 != null ? e.f1 : 25);
+            if (d < e.d0) { const x = (e.d0 - d) / f0; if (x < 1) s += e.h * ss(1 - x); }
+            else if (d > e.d1) { const x = (d - e.d1) / f1; if (x < 1) s += h1 * ss(1 - x); }
+            else s += e.h + (h1 - e.h) * (d - e.d0) / (e.d1 - e.d0);
+          }
         } else if (e.kind === 'bump') s += e.h * bell(wrap(d, e.d), e.len / 2);
         else if (e.kind === 'pothole') s -= e.h * bell(wrap(d, e.d), e.len / 2);
         else if (e.kind === 'jump') {
-          const x = wrap(d, e.d);
+          // rampa de entrada (len) hasta la cresta y caída de recepción (land)
+          const x = wrap(d, e.d), land = e.land != null ? e.land : e.len * 0.3;
           if (x <= 0 && x > -e.len) s += e.h * ss(1 + x / e.len);
-          else if (x > 0 && x < e.len * 0.3) s += e.h * ss(1 - x / (e.len * 0.3));
+          else if (x > 0 && x < land) s += e.h * ss(1 - x / land);
+        } else if (e.kind === 'cattle') {
+          // guardaganado: foso poco profundo con bordes casi verticales (las barras se dibujan aparte)
+          const x = Math.abs(wrap(d, e.d)), half = (e.len || 2.6) / 2;
+          if (x < half + 0.6) s -= (e.h != null ? e.h : 0.08) * Math.min(1, (half + 0.6 - x) / 0.6);
         }
       }
       return s;
     },
     widthAt: d => { let w = S.autoW ? S.autoW(d) : o.width; for (const e of S.edits) if (e.kind === 'width' && inSec(d, e)) w = e.w; return w; },
-    bankAt: (d, k) => { for (let i = S.edits.length - 1; i >= 0; i--) { const e = S.edits[i]; if (e.kind === 'bank' && inSec(d, e)) return e.deg; } return o.autoBank * Math.min(1, Math.abs(k) * 30); },
+    bankAt: (d, k) => { for (let i = S.edits.length - 1; i >= 0; i--) { const e = S.edits[i]; if (e.kind === 'bank' && inSec(d, e)) return e.abs ? { abs: e.deg } : e.deg; } return o.autoBank * Math.min(1, Math.abs(k) * 30); },
     surfaceAt: (d, h) => {
       for (let i = S.edits.length - 1; i >= 0; i--) { const e = S.edits[i]; if (e.kind === 'surface' && inSec(d, e)) return e.key; }
       if (o.snow && o.snowRoad && h + S.base.h0 >= o.snowAlt) return 'SNOW';
@@ -2396,15 +2470,19 @@ async function rebuild(keepCam) {
         return best == null ? null : sm[best] + off; };
       log(`Altura del camino tomada del GPS (${T0.length.toLocaleString()} puntos, alineada con el satélite ${off >= 0 ? '+' : ''}${off.toFixed(1)} m).`);
     }
-    res = Core.buildRoute({ roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, shoulder: Math.min(3.5, o.res * 1.5 + 1), ...editFns(o, S.lastTotal, B.closed) });
+    const routeArgs = { roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, shoulder: Math.min(3.5, o.res * 1.5 + 1) };
+    S.live = { routeArgs, cache: { keyFn: () => JSON.stringify(S.edits.filter(e => e.kind === 'shape')) }, sideArgs: null, sideSegs: [] };
+    res = Core.buildRoute({ ...routeArgs, ...editFns(o, S.lastTotal, B.closed), cache: S.live.cache });
     S.lastTotal = res.total;
     res.zone = useZ ? { pres: ZPRE - 30, start: ZPRE, finish: res.total - ZPOST, stop: res.total - ZPOST + 30 } : null;
     if (useZ) log('Largada y llegada: se tomaron 30 m antes de la largada para la presentación (control horario) y 30 m después de la llegada para el control stop, donde se entrega el carnet y los tiempos. El reloj corre desde la largada hasta la llegada.');
-    meshes.push(...res.meshes); length = res.total; outline = [res.C];
+    meshes.push(...res.meshes, ...cattleMeshes(res)); length = res.total; outline = [res.C];
     res.sideJ = [];
     if (S.side.length) {
       const sw = S.side.map(sr => ({ pts: sr.pts.map(p => B.P.fwd(p[0], p[1])), width: Math.max(3, Math.min((ROAD_CLASS[sr.cls] || { w: 5 }).w, o.width || 6)), key: sr.unpaved || o.surface === 'gravel' ? 'GRAVEL' : 'ROAD' }));
-      const sd = Core.buildSideRoads({ ways: sw, routeSegs: res.segs, heightS: B.heightS, maxDist: Math.max(20, o.margin - 10) });
+      S.live.sideArgs = { ways: sw, heightS: B.heightS, maxDist: Math.max(20, o.margin - 10) };
+      const sd = Core.buildSideRoads({ ...S.live.sideArgs, routeSegs: res.segs });
+      sd.meshes.forEach(m => m.side = true); S.live.sideSegs = sd.segs;
       meshes.push(...sd.meshes); res.segs = res.segs.concat(sd.segs);
       res.sideJ = sd.junctions.map(p => { let bi = 0, bd = Infinity; for (let i = 0; i < res.n; i++) { const d = Math.hypot(res.C[i][0] - p[0], res.C[i][1] - p[1]); if (d < bd) { bd = d; bi = i; } } return res.dist[bi]; });
       log(`Caminos laterales: ${S.side.length} (${(sd.total / 1000).toFixed(2)} km dentro del margen de terreno, ${sd.junctions.length} cruce(s) con el tramo).`);
@@ -2442,7 +2520,7 @@ async function rebuild(keepCam) {
   }
   const CARVE = B.mode === 'route' && S.water && S.water.ww.length ? makeCarve(S.water.ww) : null;
   if (CARVE) log(`Ríos y arroyos: ${S.water.ww.length} tramos de agua en la zona${S.crossings.length ? ` · el camino cruza ${S.crossings.filter(b => b.bridge).length} puente(s) y ${S.crossings.filter(b => !b.bridge).length} alcantarilla(s)` : ''}.`);
-  const ter = Core.buildTerrain({
+  const terOpts = {
     carve: CARVE, edgeFix: o.edgeFix && B.mode === 'route', bbox: B.bbox, res: o.res, margin: B.mode === 'route' ? o.margin : Infinity, segs: res.segs, height: B.height, heightS: B.heightS,
     flat: o.res * 1.5, blend: Math.max(12, o.res * 3), depth: 0.15,
     surfAt: (h, slope, x, y) => {
@@ -2453,7 +2531,9 @@ async function rebuild(keepCam) {
       if (o.veg && slope > 1.4) return ['ROCK', 'rock'];
       return LAND_SURF[lc] || null;
     },
-  }, p => { $('#prog').textContent = `Terreno ${(p * 100).toFixed(0)}%`; });
+  };
+  const ter = Core.buildTerrain(terOpts, p => { $('#prog').textContent = `Terreno ${(p * 100).toFixed(0)}%`; });
+  if (B.mode === 'route') S.live.terOpts = terOpts; else S.live = null;
   meshes.push(...ter.meshes);
   let wallN = 0; const wallCounter = () => ++wallN;
   if (CARVE) { meshes.push(...waterMeshes(S.water, ter, B.bbox, o.res)); }
@@ -2510,7 +2590,7 @@ async function rebuild(keepCam) {
   S.result = { o, meshes, spawnList, outline, length, P: B.P, h0: B.h0, bbox: B.bbox, ter, info, res, lat0: B.lat0, lon0: B.lon0, mode: B.mode, closed: B.closed };
   showPreview(S.result, keepCam);
   $('#editor').style.display = B.mode === 'route' ? '' : 'none';
-  if (B.mode === 'route') { drawProfile(); drawHeat(); renderCrit(); renderEdits(); drawSel(); renderNotes(); }
+  if (B.mode === 'route') { drawProfile(); drawHeat(); renderCrit(); renderEdits(); drawSel(); renderNotes(); edRefresh(); }
   $('#zipBtn').style.display = 'block'; $('#dl').style.display = 'none';
   log(`Listo en ${((performance.now() - t0) / 1000).toFixed(1)} s · ${(length / 1000).toFixed(2)} km · ${vcount.toLocaleString()} vértices, ${fcount.toLocaleString()} triángulos.`, 'ok');
 }
@@ -2565,72 +2645,9 @@ function gripAnalysis(r) {
 const CLS_COL = ['#2ecc71', '#c6e23a', '#ffb020', '#ff4d4d'];
 
 // ---------- Perfil interactivo ----------
-const PF = { cv: $('#profile'), pad: { l: 40, r: 8, t: 10, b: 36 }, down: null, hover: null };
-function pfGeom() {
-  const cv = PF.cv, dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
-  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
-  return { w, h, dpr, pw: w - PF.pad.l - PF.pad.r, ph: h - PF.pad.t - PF.pad.b };
-}
-function drawProfile() {
-  const R = S.result; if (!R || R.mode !== 'route') return;
-  const r = R.res, G = pfGeom(), ctx = PF.cv.getContext('2d'), p = PF.pad, h0 = R.h0;
-  ctx.setTransform(G.dpr, 0, 0, G.dpr, 0, 0); ctx.clearRect(0, 0, G.w, G.h);
-  let mn = Infinity, mx = -Infinity; for (let i = 0; i < r.n; i++) { mn = Math.min(mn, r.hs[i], r.raw[i]); mx = Math.max(mx, r.hs[i], r.raw[i]); }
-  const pad = Math.max(5, (mx - mn) * 0.1); mn -= pad; mx += pad;
-  const X = d => p.l + d / r.total * G.pw, Y = h => p.t + (1 - (h - mn) / (mx - mn)) * G.ph;
-  PF.X = X; PF.inv = x => Math.max(0, Math.min(r.total, (x - p.l) / G.pw * r.total));
-  // grilla
-  ctx.font = '10px Inter, sans-serif'; ctx.fillStyle = '#8b939c'; ctx.strokeStyle = '#262a30'; ctx.lineWidth = 1;
-  for (let k = 0; k <= 3; k++) { const h = mn + (mx - mn) * k / 3, y = Y(h); ctx.beginPath(); ctx.moveTo(p.l, y); ctx.lineTo(G.w - p.r, y); ctx.stroke(); if (k) ctx.fillText(Math.round(h + h0) + ' m', 2, y + 3); }
-  const stepKm = r.total > 20000 ? 5000 : r.total > 8000 ? 2000 : r.total > 3000 ? 1000 : 500;
-  for (let d = 0; d <= r.total; d += stepKm) ctx.fillText((d / 1000).toFixed(stepKm < 1000 ? 1 : 0) + ' km', X(d) - 8, G.h - 2);
-  // terreno original
-  ctx.strokeStyle = '#59606a'; ctx.setLineDash([3, 3]); ctx.beginPath();
-  for (let i = 0; i < r.n; i++) { const x = X(r.dist[i]), y = Y(r.raw[i]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke(); ctx.setLineDash([]);
-  // camino
-  ctx.beginPath(); ctx.moveTo(X(0), p.t + G.ph);
-  for (let i = 0; i < r.n; i++) ctx.lineTo(X(r.dist[i]), Y(r.hs[i]));
-  ctx.lineTo(X(r.dist[r.n - 1]), p.t + G.ph); ctx.closePath(); ctx.fillStyle = 'rgba(255,210,0,0.10)'; ctx.fill();
-  ctx.strokeStyle = '#ffd200'; ctx.lineWidth = 1.6; ctx.beginPath();
-  for (let i = 0; i < r.n; i++) { const x = X(r.dist[i]), y = Y(r.hs[i]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke();
-  // franjas: superficie y agarre
-  const sy = p.t + G.ph + 4, gy = sy + 8;
-  const grip = R.info.grip;
-  for (let i = 0; i < r.n - 1; i++) {
-    const x0 = X(r.dist[i]), x1 = Math.max(x0 + 0.6, X(r.dist[i + 1]));
-    ctx.fillStyle = SURF[r.SURF[i]].ui; ctx.fillRect(x0, sy, x1 - x0, 6);
-    ctx.fillStyle = CLS_COL[grip.CLS[i]]; ctx.fillRect(x0, gy, x1 - x0, 6);
-  }
-  ctx.fillStyle = '#8b939c'; ctx.fillText('sup.', 4, sy + 6); ctx.fillText('agarre', 2, gy + 6);
-  // ediciones
-  for (const e of S.edits) {
-    ctx.fillStyle = '#ff7ad9';
-    if (e.d !== undefined) { ctx.beginPath(); ctx.moveTo(X(e.d), p.t); ctx.lineTo(X(e.d) - 4, p.t - 7 + 7); ctx.lineTo(X(e.d) + 4, p.t); ctx.fill(); ctx.fillRect(X(e.d) - 0.5, p.t, 1, G.ph); }
-    else { ctx.globalAlpha = 0.12; ctx.fillRect(X(e.d0), p.t, Math.max(2, X(e.d1) - X(e.d0)), G.ph); ctx.globalAlpha = 1; }
-  }
-  // selección
-  if (S.sel) {
-    ctx.fillStyle = 'rgba(0,200,255,0.18)'; ctx.strokeStyle = '#00c8ff';
-    const a = X(S.sel.d0), b = X(S.sel.d1);
-    ctx.fillRect(a, p.t, Math.max(2, b - a), G.ph); ctx.strokeRect(a, p.t, Math.max(2, b - a), G.ph);
-  }
-  if (PF.hover != null) { ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.moveTo(X(PF.hover), p.t); ctx.lineTo(X(PF.hover), p.t + G.ph); ctx.stroke(); }
-}
+// el perfil (panel lateral y vista 3D) está en editor3d.js
 function idxAt(d) { const r = S.result.res; return Math.max(0, Math.min(r.n - 1, Math.round(d / 2))); }
 function fixIdx(d) { const r = S.result.res; let i = idxAt(d); while (i > 0 && r.dist[i] > d) i--; while (i < r.n - 1 && r.dist[i + 1] <= d) i++; return i; }
-PF.cv.addEventListener('pointerdown', e => { if (!S.result) return; PF.down = PF.inv(e.offsetX); PF.cv.setPointerCapture(e.pointerId); S.sel = { d0: PF.down, d1: PF.down }; drawProfile(); });
-PF.cv.addEventListener('pointermove', e => {
-  if (!S.result || S.result.mode !== 'route') return;
-  const d = PF.inv(e.offsetX); PF.hover = d;
-  if (PF.down != null) S.sel = { d0: Math.min(PF.down, d), d1: Math.max(PF.down, d) };
-  const r = S.result.res, i = fixIdx(d), g = S.result.info.grip;
-  $('#hoverInfo').textContent = `${(d / 1000).toFixed(3)} km · ${(r.hs[i] + S.result.h0).toFixed(0)} m · pendiente ${(g.GR[i] * 100).toFixed(1)}% · ancho ${r.W[i].toFixed(1)} m · ${SURF[r.SURF[i]].name} · vel. segura ≈ ${g.V[i].toFixed(0)} km/h`;
-  const ll = S.result.info.ll[i]; if (!PF.dot) PF.dot = L.circleMarker(ll, { radius: 6, color: '#fff', fillColor: '#00c8ff', fillOpacity: 1 }).addTo(map); else PF.dot.setLatLng(ll);
-  drawProfile();
-});
-PF.cv.addEventListener('pointerup', () => { if (PF.down == null) return; PF.down = null; if (S.sel.d1 - S.sel.d0 < S.result.res.total / 300) { const m = (S.sel.d0 + S.sel.d1) / 2; S.sel = { d0: m, d1: m }; } selInfo(); drawSel(); drawProfile(); });
-PF.cv.addEventListener('pointerleave', () => { PF.hover = null; if (PF.dot) { map.removeLayer(PF.dot); PF.dot = null; } drawProfile(); });
-window.addEventListener('resize', () => drawProfile());
 
 function selInfo() {
   const s = S.sel;
@@ -2666,15 +2683,19 @@ function renderCrit() {
 
 // ---------- Herramientas de edición ----------
 const EDIT_TXT = {
-  raise: e => `${e.h > 0 ? 'Subir' : 'Bajar'} ${Math.abs(e.h)} m`, smooth: () => 'Suavizar', bump: e => `Lomada ${e.h} m`, jump: e => `Salto ${e.h} m`,
-  shape: e => `Curva movida ${Math.hypot(e.dx, e.dy).toFixed(1)} m`, pothole: e => `Bache ${e.h} m`, width: e => `Ancho ${e.w} m`, bank: e => `Peralte ${e.deg}°`, surface: e => SURF[e.key].name,
+  raise: e => e.h1 != null && e.d1 - e.d0 >= 1 && Math.abs(e.h1 - e.h) > 0.005 ? `Pendiente ${fmtH(e.h)} → ${fmtH(e.h1)} m` : `${e.h > 0 ? 'Subir' : 'Bajar'} ${Math.abs(+e.h.toFixed(2))} m`,
+  smooth: () => 'Suavizar', bump: e => `Lomada ${+e.h.toFixed(2)} m`, jump: e => `Salto ${+e.h.toFixed(2)} m`, cattle: () => 'Guardaganado',
+  shape: e => `Curva movida ${Math.hypot(e.dx, e.dy).toFixed(1)} m`, pothole: e => `Bache ${+e.h.toFixed(2)} m`, width: e => `Ancho ${+e.w.toFixed(1)} m`,
+  bank: e => e.abs ? `Inclinación ${+e.deg.toFixed(1)}°` : `Peralte ${+e.deg.toFixed(1)}°`, surface: e => SURF[e.key].name,
 };
+const fmtH = h => (h > 0 ? '+' : '') + (+h.toFixed(2));
 function where(e) { return e.d !== undefined ? `${(e.d / 1000).toFixed(2)} km` : e.d1 - e.d0 < 1 ? `${(e.d0 / 1000).toFixed(2)} km` : `${(e.d0 / 1000).toFixed(2)}–${(e.d1 / 1000).toFixed(2)} km`; }
 function renderEdits() {
   $('#editCount').textContent = S.edits.length;
-  $('#edits').innerHTML = S.edits.length ? S.edits.map((e, k) => `<div class="edit"><span>${EDIT_TXT[e.kind](e)} <span class="mut">· ${where(e)}</span></span><button class="x" data-k="${k}" title="Quitar">✕</button></div>`).join('')
+  $('#edits').innerHTML = S.edits.length ? S.edits.map((e, k) => `<div class="edit${e === ED.active ? ' on' : ''}" data-k="${k}"><span>${EDIT_TXT[e.kind](e)} <span class="mut">· ${where(e)}</span></span><button class="x" data-k="${k}" title="Quitar">✕</button></div>`).join('')
     : '<div class="mut">Todavía no hay cambios.</div>';
-  $('#edits').querySelectorAll('.x').forEach(b => b.onclick = () => { S.edits.splice(+b.dataset.k, 1); applyEdits(); });
+  $('#edits').querySelectorAll('.x').forEach(b => b.onclick = ev => { ev.stopPropagation(); edPushUndo(); const e = S.edits.splice(+b.dataset.k, 1)[0]; if (e === ED.active) ED.active = null; editsChanged(); });
+  $('#edits').querySelectorAll('.edit').forEach(div => div.onclick = () => edFocusEdit(S.edits[+div.dataset.k], true));
 }
 async function applyEdits() {
   busy(true);
@@ -2685,7 +2706,7 @@ function needSel() { if (!S.sel) { $('#selInfo').textContent = '⚠ Primero eleg
 function secSel() { const s = S.sel; return s.d1 - s.d0 < 10 ? { d0: Math.max(0, s.d0 - 25), d1: s.d0 + 25 } : { d0: s.d0, d1: s.d1 }; }
 function ptSel() { return (S.sel.d0 + S.sel.d1) / 2; }
 const num = (id, def) => { const v = parseFloat($(id).value); return isFinite(v) ? v : def; };
-function addEdit(e) { S.edits.push(e); applyEdits(); }
+function addEdit(e) { edPushUndo(); S.edits.push(e); ED.active = e; editsChanged(); }
 $('#tRaise').onclick = () => { if (!needSel()) return; const s = S.sel; addEdit({ kind: 'raise', d0: s.d0, d1: s.d1, h: num('#dh', 1) }); };
 $('#tSmooth').onclick = () => { if (!needSel()) return; addEdit({ kind: 'smooth', ...secSel() }); };
 $('#tBump').onclick = () => { if (!needSel()) return; addEdit({ kind: 'bump', d: ptSel(), h: Math.abs(num('#fh', 0.4)), len: 10 }); };
@@ -2694,7 +2715,7 @@ $('#tPot').onclick = () => { if (!needSel()) return; addEdit({ kind: 'pothole', 
 $('#tWidth').onclick = () => { if (!needSel()) return; addEdit({ kind: 'width', ...secSel(), w: Math.max(3, Math.min(25, num('#ew', 7))) }); };
 $('#tBank').onclick = () => { if (!needSel()) return; addEdit({ kind: 'bank', ...secSel(), deg: Math.max(-15, Math.min(25, num('#eb', 6))) }); };
 $('#tSurf').onclick = () => { if (!needSel()) return; addEdit({ kind: 'surface', ...secSel(), key: $('#surfKey').value }); };
-$('#tClearEd').onclick = () => { if (!S.edits.length) return; S.edits = []; applyEdits(); };
+$('#tClearEd').onclick = () => { if (!S.edits.length) return; edPushUndo(); S.edits = []; ED.active = null; editsChanged(); };
 $('#tApply').onclick = () => applyEdits();
 
 // ---------- Empties de Assetto Corsa (coords Blender: X este, Y norte, Z arriba) ----------
@@ -2930,6 +2951,36 @@ track.obj abre en Blender, BeamNG (vía Blender), Unity, Unreal, etc. Ejes: Y ar
 
 // ---------- Vista 3D ----------
 const PV = { renderer: null };
+function pvMat(k) {
+  return PV.mats[k] || (PV.mats[k] = (() => {
+    const t = new THREE.CanvasTexture(TEX[k]); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
+    if (k === 'tree') { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide }); }
+    if (k === 'fwire' || k === 'fgate') return new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.5 });
+    return new THREE.MeshLambertMaterial({ map: t, polygonOffset: k === 'line', polygonOffsetFactor: -2 });
+  })());
+}
+// agrega una malla a la vista 3D (y la recuerda para poder moverle los vértices después)
+function pvAdd(m) {
+  const pos = new Float32Array(m.v.length * 3), uv = new Float32Array(m.uv.length * 2), idx = new Uint32Array(m.f.length * 3);
+  m.v.forEach((v, i) => { pos[i * 3] = v[0]; pos[i * 3 + 1] = v[2]; pos[i * 3 + 2] = -v[1]; });
+  m.uv.forEach((t, i) => { uv[i * 2] = t[0]; uv[i * 2 + 1] = t[1]; });
+  m.f.forEach((f, i) => idx.set(f, i * 3));
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(new THREE.BufferAttribute(idx, 1)); g.computeVertexNormals();
+  const mesh = new THREE.Mesh(g, pvMat(m.mat)); mesh.userData.src = m; PV.group.add(mesh); PV.byMesh.set(m, mesh);
+  if (m.terrain) PV.terrain.push({ mesh, src: m, mat: mesh.material });
+  return mesh;
+}
+function pvRemove(m) {
+  const mesh = PV.byMesh && PV.byMesh.get(m); if (!mesh) return;
+  PV.group.remove(mesh); mesh.geometry.dispose(); PV.byMesh.delete(m);
+}
+// copia las posiciones de la malla de origen a la vista 3D
+function pvSync(m) {
+  const mesh = PV.byMesh && PV.byMesh.get(m); if (!mesh) return;
+  const g = mesh.geometry, a = g.attributes.position.array;
+  for (let i = 0; i < m.v.length; i++) { const v = m.v[i]; a[i * 3] = v[0]; a[i * 3 + 1] = v[2]; a[i * 3 + 2] = -v[1]; }
+  g.attributes.position.needsUpdate = true; g.computeVertexNormals(); g.computeBoundingSphere(); g.computeBoundingBox();
+}
 function showPreview(R, keepCam) {
   $('#viewer').style.display = 'block';
   const host = $('#viewer3d');
@@ -2947,29 +2998,15 @@ function showPreview(R, keepCam) {
     new ResizeObserver(resize).observe(host); resize();
     PV.render = () => PV.renderer.render(PV.scene, PV.camera);
     PV.mats = {};
-    setTimeout(hookViewerEvents, 0);
-    const loop = () => { requestAnimationFrame(loop); if (PV.drive) PV.drive(); PV.controls.update(); PV.render(); }; loop();
+    setTimeout(edHookViewer, 0);
+    const loop = () => { requestAnimationFrame(loop); if (PV.drive) PV.drive(); if (PV.onFrame) PV.onFrame(); PV.controls.update(); PV.render(); }; loop();
   }
   while (PV.group.children.length) { const c = PV.group.children.pop(); c.geometry.dispose(); }
-  const getMat = k => PV.mats[k] || (PV.mats[k] = (() => {
-    const t = new THREE.CanvasTexture(TEX[k]); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
-    if (k === 'tree') { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide }); }
-    if (k === 'fwire' || k === 'fgate') return new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.5 });
-    return new THREE.MeshLambertMaterial({ map: t, polygonOffset: k === 'line', polygonOffsetFactor: -2 });
-  })());
-  PV.terrain = [];
-  for (const m of R.meshes) {
-    const pos = new Float32Array(m.v.length * 3), uv = new Float32Array(m.uv.length * 2), idx = new Uint32Array(m.f.length * 3);
-    m.v.forEach((v, i) => { pos[i * 3] = v[0]; pos[i * 3 + 1] = v[2]; pos[i * 3 + 2] = -v[1]; });
-    m.uv.forEach((t, i) => { uv[i * 2] = t[0]; uv[i * 2 + 1] = t[1]; });
-    m.f.forEach((f, i) => idx.set(f, i * 3));
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(new THREE.BufferAttribute(idx, 1)); g.computeVertexNormals();
-    const mesh = new THREE.Mesh(g, getMat(m.mat)); PV.group.add(mesh);
-    if (m.terrain) PV.terrain.push({ mesh, src: m, mat: mesh.material });
-  }
+  PV.terrain = []; PV.byMesh = new Map();
+  for (const m of R.meshes) pvAdd(m);
   $('#drive').style.display = R.mode === 'route' ? '' : 'none';
   if (PV.sat) loadSat().then(applySat).catch(() => {}); else applySat();
-  refreshHandles();
+  edRefresh();
   if (keepCam && PV.placed) return;
   PV.placed = true;
   const sp = R.spawnList[0];
@@ -3002,83 +3039,8 @@ $('#drive').onclick = () => {
 S.edits = []; S.sel = null;
 setMode('route'); $('#traceMode').onchange();
 
-// ---------- Ajustar curvas arrastrando en 3D ----------
-PV.edit = false; PV.handles = null; PV.drag = null; PV.ghost = null;
-$('#editCurves').onclick = () => {
-  PV.edit = !PV.edit; PV.drive = null; $('#drive').textContent = '▶ Recorrer';
-  $('#editCurves').classList.toggle('on', PV.edit); $('#vhint').style.display = PV.edit ? '' : 'none';
-  refreshHandles();
-};
-function refreshHandles() {
-  if (!PV.scene) return;
-  if (PV.handles) { PV.scene.remove(PV.handles); PV.handles.geometry.dispose(); PV.handles = null; }
-  const R = S.result; if (!PV.edit || !R || R.mode !== 'route') return;
-  const r = R.res, every = Math.max(1, Math.round(Math.min(30, Math.max(10, r.total / 400)) / 2)), idx = [];
-  for (let i = 0; i < r.n; i += every) idx.push(i);
-  const pos = new Float32Array(idx.length * 3);
-  idx.forEach((i, k) => { pos[k * 3] = r.C[i][0]; pos[k * 3 + 1] = r.hs[i] + 0.8; pos[k * 3 + 2] = -r.C[i][1]; });
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  PV.handles = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffd200, size: 11, sizeAttenuation: false, depthTest: false }));
-  PV.handles.renderOrder = 10; PV.handles.userData.idx = idx; PV.scene.add(PV.handles);
-}
-function pickHandle(ev) {
-  if (!PV.handles) return null;
-  const rect = PV.renderer.domElement.getBoundingClientRect(), pos = PV.handles.geometry.attributes.position, v = new THREE.Vector3();
-  let best = null;
-  for (let k = 0; k < pos.count; k++) {
-    v.set(pos.getX(k), pos.getY(k), pos.getZ(k)).project(PV.camera);
-    if (v.z > 1) continue;
-    const sx = (v.x + 1) / 2 * rect.width, sy = (1 - v.y) / 2 * rect.height, d = Math.hypot(sx - (ev.clientX - rect.left), sy - (ev.clientY - rect.top));
-    if (d < 14 && (!best || d < best.d)) best = { d, k };
-  }
-  return best && PV.handles.userData.idx[best.k];
-}
-function groundHit(ev, y) {
-  const rect = PV.renderer.domElement.getBoundingClientRect();
-  const ndc = new THREE.Vector2((ev.clientX - rect.left) / rect.width * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
-  const rc = new THREE.Raycaster(); rc.setFromCamera(ndc, PV.camera);
-  const hit = new THREE.Vector3(); return rc.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -y), hit) ? hit : null;
-}
-function ghostLine(i0, dx, dy) {
-  const r = S.result.res, R = +$('#dragR').value, pts = [];
-  const tot = r.total, wrap = d => { let x = d - r.dist[i0]; if (r.closed) x = ((x + tot / 2) % tot + tot) % tot - tot / 2; return x; };
-  for (let i = 0; i < r.n; i++) {
-    const x = wrap(r.dist[i]); if (Math.abs(x) > R * 1.5) continue;
-    const w = Math.abs(x) >= R ? 0 : 0.5 * (1 + Math.cos(Math.PI * x / R));
-    pts.push(new THREE.Vector3(r.C[i][0] + dx * w, r.hs[i] + 1, -(r.C[i][1] + dy * w)));
-  }
-  if (PV.ghost) { PV.scene.remove(PV.ghost); PV.ghost.geometry.dispose(); }
-  PV.ghost = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x00c8ff, depthTest: false }));
-  PV.ghost.renderOrder = 11; PV.scene.add(PV.ghost);
-}
-function hookViewerEvents() {
-  const el = PV.renderer && PV.renderer.domElement; if (!el || el.__hooked) return; el.__hooked = true;
-  el.addEventListener('pointerdown', ev => {
-    if (!PV.edit) return;
-    const i = pickHandle(ev); if (i == null) return;
-    const r = S.result.res, y = r.hs[i] + 0.8, start = groundHit(ev, y); if (!start) return;
-    PV.drag = { i, y, start, dx: 0, dy: 0 }; PV.controls.enabled = false; el.setPointerCapture(ev.pointerId);
-    ev.stopImmediatePropagation(); ev.preventDefault();
-  }, true);
-  el.addEventListener('pointermove', ev => {
-    if (!PV.drag) { if (PV.edit) el.style.cursor = pickHandle(ev) != null ? 'grab' : ''; return; }
-    const h = groundHit(ev, PV.drag.y); if (!h) return;
-    PV.drag.dx = h.x - PV.drag.start.x; PV.drag.dy = -(h.z - PV.drag.start.z);
-    ghostLine(PV.drag.i, PV.drag.dx, PV.drag.dy);
-    $('#vhint').textContent = `Moviendo ${Math.hypot(PV.drag.dx, PV.drag.dy).toFixed(1)} m — soltá para aplicar`;
-  });
-  el.addEventListener('pointerup', () => {
-    if (!PV.drag) return;
-    const dr = PV.drag; PV.drag = null; PV.controls.enabled = true;
-    if (PV.ghost) { PV.scene.remove(PV.ghost); PV.ghost = null; }
-    $('#vhint').textContent = 'Arrastrá un punto amarillo para mover la curva. Rueda/arrastre normal = mover la cámara.';
-    if (Math.hypot(dr.dx, dr.dy) < 0.3) return;
-    S.edits.push({ kind: 'shape', d: S.result.res.dist[dr.i], dx: +dr.dx.toFixed(2), dy: +dr.dy.toFixed(2), r: +$('#dragR').value });
-    applyEdits();
-  });
-}
+// la edición directa en 3D (selección, manipuladores, curvas) está en editor3d.js
 
-// ---------- Foto satelital sobre el terreno (solo para comparar en la vista 3D) ----------
 PV.sat = false; PV.satTex = null; PV.satKey = null;
 $('#satBtn').onclick = async () => {
   PV.sat = !PV.sat; $('#satBtn').classList.toggle('on', PV.sat);
@@ -3709,6 +3671,759 @@ const HELP = {
   document.addEventListener('mouseover', show); document.addEventListener('focusin', show); document.addEventListener('touchstart', show, { passive: true });
   const tm = document.getElementById('traceMode'); if (tm) tm.addEventListener('change', () => { bar.innerHTML = '<b>ℹ️</b> ' + HELP.traceMode[tm.value]; });
 })();
+
+// ===== Editor directo en 3D =====
+// Clic sobre el camino = elegir punto (Shift+clic = tramo). Aparecen manipuladores según la herramienta
+// (altura, pendiente, peralte, salto, lomada, bache, guardaganado, ancho, curva, suavizado).
+// Mientras se arrastra solo se mueven los vértices del camino que cambian; al soltar se ajusta el terreno
+// únicamente alrededor de la zona editada. El perfil del panel y el de la vista 3D muestran lo mismo.
+
+const ED = { tool: 'height', active: null, undo: [], redo: [], drag: null, pending: false, gz: [], hover: null, anchor: null, keys: new Set(), commitT: null };
+const ED_KIND = { height: 'raise', bank: 'bank', jump: 'jump', bump: 'bump', pothole: 'pothole', cattle: 'cattle', width: 'width', curve: 'shape', smooth: 'smooth' };
+const ED_TOOLS = [
+  ['height', '⇕ Altura / pendiente', 'Punto: subir o bajar. Tramo: manijas al inicio y al final para armar la pendiente; las naranjas alargan la transición.'],
+  ['bank', '⟋ Peralte', 'Subí o bajá un borde del camino para inclinarlo (también invertido o en rectas).'],
+  ['jump', '⤴ Salto', 'Crea o edita un salto: altura, rampa de entrada y recepción.'],
+  ['bump', '◠ Lomada', 'Lomada: altura y largo.'],
+  ['pothole', '◡ Depresión', 'Bache o depresión: profundidad y largo.'],
+  ['cattle', '▥ Guardaganado', 'Guardaganado: foso con barras de hierro a lo ancho del camino.'],
+  ['width', '↔ Ancho', 'Arrastrá los bordes verdes para ensanchar o angostar el tramo.'],
+  ['curve', '✋ Curva', 'Arrastrá los puntos amarillos para mover el trazado; el alcance define cuánto camino se mueve.'],
+  ['smooth', '≈ Suavizar', 'Suaviza las alturas del tramo elegido (quita escalones y saltos falsos).'],
+];
+// parámetros editables con número (clave, nombre, unidad, paso, mín, máx)
+const ED_PARAMS = {
+  raise: e => e.d1 - e.d0 < 1 ? [['h', 'Altura', 'm', 0.1, -60, 60], ['r', 'Transición', 'm', 1, 3, 400]]
+    : [['h', 'Altura al inicio', 'm', 0.1, -60, 60], ['h1', 'Altura al final', 'm', 0.1, -60, 60], ['f0', 'Transición antes', 'm', 1, 0, 400], ['f1', 'Transición después', 'm', 1, 0, 400], ['d0', 'Desde', 'm', 1], ['d1', 'Hasta', 'm', 1]],
+  jump: () => [['h', 'Altura', 'm', 0.1, 0.1, 8], ['len', 'Rampa de entrada', 'm', 1, 3, 200], ['land', 'Recepción', 'm', 0.5, 1, 120], ['d', 'Cresta en', 'm', 1]],
+  bump: () => [['h', 'Altura', 'm', 0.05, 0.02, 4], ['len', 'Largo', 'm', 0.5, 2, 120], ['d', 'Centro en', 'm', 1]],
+  pothole: () => [['h', 'Profundidad', 'm', 0.05, 0.02, 4], ['len', 'Largo', 'm', 0.5, 1, 120], ['d', 'Centro en', 'm', 1]],
+  cattle: () => [['h', 'Desnivel del foso', 'm', 0.01, 0, 0.4], ['len', 'Largo', 'm', 0.1, 1.5, 6], ['d', 'Centro en', 'm', 1]],
+  bank: () => [['deg', 'Inclinación (+ = izquierda arriba)', '°', 0.5, -35, 35], ['d0', 'Desde', 'm', 1], ['d1', 'Hasta', 'm', 1]],
+  width: () => [['w', 'Ancho', 'm', 0.1, 3, 25], ['d0', 'Desde', 'm', 1], ['d1', 'Hasta', 'm', 1]],
+  shape: () => [['dx', 'Mover al este', 'm', 0.5], ['dy', 'Mover al norte', 'm', 0.5], ['r', 'Alcance', 'm', 5, 8, 500]],
+  smooth: () => [['d0', 'Desde', 'm', 1], ['d1', 'Hasta', 'm', 1]],
+  width_: null,
+};
+
+// ---------- utilidades de la ruta ----------
+const edR = () => S.result && S.result.mode === 'route' ? S.result.res : null;
+function edClampD(d) { const r = edR(); if (!r) return d; return r.closed ? ((d % r.total) + r.total) % r.total : Math.max(0, Math.min(r.total, d)); }
+// posición sobre el camino a la distancia d, corrida lat metros a la izquierda (interpolada entre secciones)
+function edAt(d, lat = 0) {
+  const r = edR(); d = edClampD(d);
+  let i = Math.max(0, Math.min(r.n - 1, Math.round(d / 2))); while (i > 0 && r.dist[i] > d) i--; while (i < r.n - 1 && r.dist[i + 1] <= d) i++;
+  const j = Math.min(r.n - 1, i + 1), L = r.dist[j] - r.dist[i], t = L > 0 ? Math.max(0, Math.min(1, (d - r.dist[i]) / L)) : 0;
+  const lp = (a, b) => a + (b - a) * t;
+  const cx = lp(r.C[i][0], r.C[j][0]), cy = lp(r.C[i][1], r.C[j][1]), hs = lp(r.hs[i], r.hs[j]), SL = lp(r.SL[i], r.SL[j]), hw = lp(r.W[i], r.W[j]) / 2;
+  const tx = r.T[i][0], ty = r.T[i][1], nx = -ty, ny = tx, lc = Math.max(-hw, Math.min(hw, lat));
+  return { x: cx + nx * lat, y: cy + ny * lat, h: hs + SL * lc + 0.02 * (hw - Math.abs(lc)), i, hw, T: [tx, ty], N: [nx, ny], SL, hs };
+}
+const v3 = (x, y, h) => new THREE.Vector3(x, h, -y);
+function edNearestD(x, y) {
+  const r = edR(); let bi = 0, bd = Infinity;
+  for (let i = 0; i < r.n; i++) { const dx = r.C[i][0] - x, dy = r.C[i][1] - y, q = dx * dx + dy * dy; if (q < bd) { bd = q; bi = i; } }
+  const t = r.T[bi], along = (x - r.C[bi][0]) * t[0] + (y - r.C[bi][1]) * t[1];
+  return { d: edClampD(r.dist[bi] + along), dist: Math.sqrt(bd), i: bi };
+}
+
+// ---------- extensión de cada edición (para encontrarla al hacer clic) ----------
+function edExtent(e) {
+  if (e.d !== undefined) {
+    if (e.kind === 'jump') return [e.d - e.len, e.d + (e.land != null ? e.land : e.len * 0.3)];
+    if (e.kind === 'shape') return [e.d - e.r, e.d + e.r];
+    const h = (e.len || 2.6) / 2 + 1; return [e.d - h, e.d + h];
+  }
+  if (e.kind === 'raise' && e.d1 - e.d0 < 1) return [e.d0 - (e.r || 30), e.d0 + (e.r || 30)];
+  return [e.d0, e.d1];
+}
+const edCenter = e => e.d !== undefined ? e.d : (e.d0 + e.d1) / 2;
+function edSecSel() { const s = S.sel; return s.d1 - s.d0 < 10 ? { d0: Math.max(0, s.d0 - 25), d1: Math.min(edR().total, s.d0 + 25) } : { d0: s.d0, d1: s.d1 }; }
+// la edición que manipulan las manijas de la herramienta actual (puede no existir todavía: se crea al arrastrar)
+function edTarget() {
+  const kind = ED_KIND[ED.tool]; if (!S.sel) return null;
+  if (ED.active && ED.active.kind === kind && S.edits.includes(ED.active)) return ED.active;
+  const s = S.sel, pt = s.d1 - s.d0 < 1;
+  if (kind === 'raise') return S.edits.find(e => e.kind === 'raise' && (pt ? e.d1 - e.d0 < 1 && Math.abs(e.d0 - s.d0) < 1.5 : Math.abs(e.d0 - s.d0) < 1.5 && Math.abs(e.d1 - s.d1) < 1.5)) || null;
+  if (kind === 'bank' || kind === 'width' || kind === 'smooth') { const q = edSecSel(); return S.edits.find(e => e.kind === kind && Math.abs(e.d0 - q.d0) < 1.5 && Math.abs(e.d1 - q.d1) < 1.5) || null; }
+  if (kind === 'shape') return null;
+  const c = (s.d0 + s.d1) / 2; return S.edits.find(e => e.kind === kind && c >= edExtent(e)[0] && c <= edExtent(e)[1]) || null;
+}
+function edMake(kind) {
+  const s = S.sel, c = (s.d0 + s.d1) / 2, r = edR();
+  if (kind === 'raise') return s.d1 - s.d0 < 1 ? { kind, d0: s.d0, d1: s.d0, h: 0, r: 30 } : { kind, d0: s.d0, d1: s.d1, h: 0, h1: 0, f0: 25, f1: 25 };
+  if (kind === 'bank') { const q = edSecSel(), p = edAt((q.d0 + q.d1) / 2); return { kind, ...q, abs: true, deg: +(Math.atan(p.SL) / D2R).toFixed(2) }; }
+  if (kind === 'width') { const q = edSecSel(); return { kind, ...q, w: +(edAt((q.d0 + q.d1) / 2).hw * 2).toFixed(2) }; }
+  if (kind === 'smooth') return { kind, ...edSecSel() };
+  if (kind === 'jump') return { kind, d: c, h: 1.2, len: 24, land: 8 };
+  if (kind === 'bump') return { kind, d: c, h: 0.5, len: 10 };
+  if (kind === 'pothole') return { kind, d: c, h: 0.3, len: 6 };
+  if (kind === 'cattle') return { kind, d: c, h: 0.08, len: 2.6 };
+  return null;
+}
+function edEnsure() { let e = edTarget(); if (!e) { e = edMake(ED_KIND[ED.tool]); if (e) S.edits.push(e); } if (e) ED.active = e; return e; }
+
+// ---------- deshacer ----------
+function edPushUndo() { ED.undo.push(JSON.stringify(S.edits)); if (ED.undo.length > 100) ED.undo.shift(); ED.redo = []; }
+function edUndo(redo) {
+  const from = redo ? ED.redo : ED.undo, to = redo ? ED.undo : ED.redo; if (!from.length) return;
+  to.push(JSON.stringify(S.edits)); S.edits = JSON.parse(from.pop()); ED.active = null; editsChanged();
+}
+
+// ---------- actualización en vivo ----------
+// recalcula el camino con las ediciones actuales. Si solo cambiaron alturas o peralte, mueve los vértices
+// existentes (rápido); si cambió el trazado, el ancho o la superficie, rearma solo las mallas del camino.
+function liveRoute() {
+  const R = S.result, L = S.live, B = S.base; if (!R || !L || R.mode !== 'route') return false;
+  const old = R.res, o = R.o;
+  const args = { ...L.routeArgs, ...editFns(o, S.lastTotal, B.closed), cache: L.cache };
+  const prof = Core.buildRoute({ ...args, profileOnly: true });
+  const same = (a, b, eps) => { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > eps) return false; return true; };
+  const fast = prof.C === old.C && same(prof.W, old.W, 1e-6) && prof.SURF.every((k, i) => k === old.SURF[i]);
+  let i0 = Infinity, i1 = -1;
+  if (fast) {
+    const n = old.n, dh = new Float64Array(n), ds = new Float64Array(n);
+    for (let i = 0; i < n; i++) { dh[i] = prof.hs[i] - old.hs[i]; ds[i] = prof.SL[i] - old.SL[i]; if (Math.abs(dh[i]) > 1e-6 || Math.abs(ds[i]) > 1e-7) { if (i < i0) i0 = i; i1 = i; } }
+    if (i1 >= 0) for (const m of R.meshes) {
+      if (!m.route || !m.ri) continue;
+      if (m.riMin == null) { m.riMin = Infinity; m.riMax = -1; for (const i of m.ri) { if (i < m.riMin) m.riMin = i; if (i > m.riMax) m.riMax = i; } }
+      if (m.riMax < i0 || m.riMin > i1) continue;
+      const mesh = PV.byMesh && PV.byMesh.get(m), a = mesh && mesh.geometry.attributes.position.array; let t = false;
+      for (let v = 0; v < m.v.length; v++) {
+        const i = m.ri[v], dz = dh[i] + ds[i] * m.rs[v]; if (dz === 0) continue;
+        m.v[v][2] += dz; if (a) a[v * 3 + 1] += dz; t = true;
+      }
+      if (t && mesh) { mesh.geometry.attributes.position.needsUpdate = true; mesh.geometry.computeVertexNormals(); mesh.geometry.computeBoundingSphere(); }
+    }
+    for (const k of ['hs', 'SL', 'W', 'SURF', 'DL', 'DR']) old[k] = prof[k];
+    old.segs = prof.segs.concat(L.sideSegs);
+  } else {
+    const nr = Core.buildRoute(args);
+    // rango que cambió (por el principio y por el final) para saber qué terreno recalcular después
+    let a = 0; const m0 = Math.min(nr.n, old.n);
+    while (a < m0 && Math.abs(nr.C[a][0] - old.C[a][0]) < 1e-6 && Math.abs(nr.C[a][1] - old.C[a][1]) < 1e-6 && Math.abs(nr.hs[a] - old.hs[a]) < 1e-6 && Math.abs(nr.W[a] - old.W[a]) < 1e-6 && Math.abs(nr.SL[a] - old.SL[a]) < 1e-7) a++;
+    let b = 0;
+    while (b < m0 - a && (() => { const p = nr.n - 1 - b, q = old.n - 1 - b; return Math.abs(nr.C[p][0] - old.C[q][0]) < 1e-6 && Math.abs(nr.C[p][1] - old.C[q][1]) < 1e-6 && Math.abs(nr.hs[p] - old.hs[q]) < 1e-6 && Math.abs(nr.W[p] - old.W[q]) < 1e-6 && Math.abs(nr.SL[p] - old.SL[q]) < 1e-7; })()) b++;
+    edDirty(old, a, old.n - 1 - b); i0 = a; i1 = nr.n - 1 - b;
+    if (prof.C !== old.C) L.dirtyXY = true;
+    if (!same(prof.W, old.W, 1e-6)) L.dirtyXY = true;
+    const keep = R.meshes.filter(m => !m.route), oldRoute = R.meshes.filter(m => m.route);
+    oldRoute.forEach(pvRemove);
+    for (const k of ['zone', 'sideJ', 'bridges']) nr[k] = old[k];
+    nr.segs = nr.segs.concat(L.sideSegs);
+    R.res = nr; R.meshes = [...keep, ...nr.meshes];
+    nr.meshes.forEach(pvAdd);
+    if (prof.C !== old.C) { R.info.ll = nr.C.map(p => B.P.inv(p[0], p[1])); R.outline = [nr.C]; }
+  }
+  const r = R.res; S.lastTotal = r.total; R.length = r.total;
+  if (i1 >= 0) edDirty(r, i0, i1);
+  // barras de los guardaganados
+  const cm = R.meshes.filter(m => m.cattle); cm.forEach(pvRemove);
+  R.meshes = R.meshes.filter(m => !m.cattle); const nc = cattleMeshes(r); R.meshes.push(...nc); nc.forEach(pvAdd);
+  return i1 >= 0;
+}
+// zona a recalcular al soltar (en metros del modelo)
+function edDirty(r, i0, i1) {
+  const L = S.live; i0 = Math.max(0, i0 - 2); i1 = Math.min(r.n - 1, i1 + 2); if (i1 < i0) return;
+  const q = L.dirty || (L.dirty = { minx: Infinity, miny: Infinity, maxx: -Infinity, maxy: -Infinity });
+  for (let i = i0; i <= i1; i++) { const [x, y] = r.C[i]; if (x < q.minx) q.minx = x; if (x > q.maxx) q.maxx = x; if (y < q.miny) q.miny = y; if (y > q.maxy) q.maxy = y; }
+}
+function edMeshBB(m) {
+  if (m._bb) return m._bb;
+  let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity; for (const v of m.v) { if (v[0] < a) a = v[0]; if (v[0] > c) c = v[0]; if (v[1] < b) b = v[1]; if (v[1] > d) d = v[1]; }
+  return (m._bb = { minx: a, miny: b, maxx: c, maxy: d });
+}
+const edHit = (bb, q) => bb.maxx >= q.minx && bb.minx <= q.maxx && bb.maxy >= q.miny && bb.miny <= q.maxy;
+// al soltar: laterales, terreno de la zona editada, objetos apoyados encima, agarre y notas
+function liveCommit() {
+  const R = S.result, L = S.live; if (!R || !L) return;
+  if (ED.pending) { ED.pending = false; liveRoute(); }
+  const r = R.res, B = S.base, routeSegs = r.segs.slice(0, r.segs.length - L.sideSegs.length);
+  const q0 = L.dirty; L.dirty = null; const xy = L.dirtyXY; L.dirtyXY = false;
+  if (q0) {
+    const touched = new Set();
+    // caminos laterales: se vuelven a pegar al camino
+    if (L.sideArgs) {
+      R.meshes.filter(m => m.side).forEach(pvRemove); R.meshes = R.meshes.filter(m => !m.side);
+      const sd = Core.buildSideRoads({ ...L.sideArgs, routeSegs }); sd.meshes.forEach(m => { m.side = true; R.meshes.push(m); pvAdd(m); });
+      L.sideSegs = sd.segs;
+      r.sideJ = sd.junctions.map(p => edNearestD(p[0], p[1]).d);
+    }
+    r.segs = routeSegs.concat(L.sideSegs);
+    // terreno: solo el rectángulo afectado
+    const ter = R.ter, o = L.terOpts, pad = Math.max(o.flat, r.EX || 0) + o.blend + (o.edgeFix ? 55 : 0) + 12;
+    const q = { minx: q0.minx - pad, miny: q0.miny - pad, maxx: q0.maxx + pad, maxy: q0.maxy + pad };
+    o.segs = r.segs;
+    const pt = Core.patchTerrain(ter, o, q), old = new Map();
+    for (let k = 0; k < pt.changed.length; k += 2) old.set(pt.changed[k], pt.changed[k + 1]);
+    if (old.size) {
+      for (const m of R.meshes) if (m.terrain && m.gk && edHit(edMeshBB(m), q)) {
+        let t = false; for (let v = 0; v < m.v.length; v++) { const k = m.gk[v]; if (old.has(k)) { m.v[v][2] = ter.H[k]; t = true; } }
+        if (t) touched.add(m);
+      }
+      // árboles, piedras, alambrados, carteles…: suben o bajan lo mismo que el terreno debajo
+      const { nx, ny } = ter, bb = R.bbox, res = o.res;
+      const dAt = (x, y) => {
+        const fi = (x - bb.minx) / res, fj = (y - bb.miny) / res, i = Math.floor(fi), j = Math.floor(fj);
+        if (i < 0 || j < 0 || i >= nx - 1 || j >= ny - 1) return 0;
+        const a = fi - i, b = fj - j, dk = k => old.has(k) ? ter.H[k] - old.get(k) : 0, k = j * nx + i;
+        return dk(k) * (1 - a) * (1 - b) + dk(k + 1) * a * (1 - b) + dk(k + nx) * (1 - a) * b + dk(k + nx + 1) * a * b;
+      };
+      for (const m of R.meshes) {
+        if (m.terrain || m.route || m.side || m.cattle || !edHit(edMeshBB(m), q)) continue;
+        let t = false;
+        for (const v of m.v) { if (v[0] < q.minx || v[0] > q.maxx || v[1] < q.miny || v[1] > q.maxy) continue; const dz = dAt(v[0], v[1]); if (dz) { v[2] += dz; t = true; } }
+        if (t) touched.add(m);
+      }
+    }
+    // si el camino se movió o se ensanchó: sacar los árboles y piedras que quedaron encima
+    if (xy) {
+      const rd = Core.roadDistFn(r.segs, true);
+      for (const m of R.meshes) {
+        if (!m.block || !edHit(edMeshBB(m), q)) continue;
+        const lim = m.mat === 'tree' ? 1.0 : 0.4; let t = false;
+        for (let b = 0; b + m.block <= m.v.length; b += m.block) {
+          let cx = 0, cy = 0; for (let k = 0; k < m.block; k++) { cx += m.v[b + k][0]; cy += m.v[b + k][1]; } cx /= m.block; cy /= m.block;
+          if (cx < q.minx || cx > q.maxx || cy < q.miny || cy > q.maxy) continue;
+          if (m.v[b][0] === m.v[b + 1][0] && m.v[b][1] === m.v[b + 1][1] && m.v[b][2] === m.v[b + 1][2]) continue; // ya quitado
+          if (rd(cx, cy, 12) < lim) { const p0 = m.v[b].slice(); for (let k = 0; k < m.block; k++) m.v[b + k] = p0.slice(); t = true; }
+        }
+        if (t) touched.add(m);
+      }
+    }
+    touched.forEach(pvSync);
+  }
+  // análisis y paneles
+  R.info.grip = gripAnalysis(r); r.bridges = r.bridges || []; R.info.notes = paceNotes(r, R.info.grip);
+  R.spawnList = routeEmpties(r, R.o, r.closed);
+  drawProfile(); drawHeat(); renderCrit(); renderEdits(); drawSel(); renderNotes(); edRefresh();
+}
+function edSchedule() {
+  if (ED.pending) return; ED.pending = true;
+  requestAnimationFrame(() => { if (!ED.pending) return; ED.pending = false; liveRoute(); edRefresh(true); drawProfile(); });
+}
+// cambió la lista de ediciones (botones, lista, deshacer): en vivo si se puede, si no, regenerar
+function editsChanged() {
+  if (!S.live || !S.result || S.result.mode !== 'route' || !PV.byMesh) { applyEdits(); return; }
+  try { liveRoute(); liveCommit(); }
+  catch (e) { console.error(e); log('La edición en vivo falló (' + e.message + '); regenero todo.', 'err'); applyEdits(); }
+}
+
+// ---------- guardaganado: barras de hierro a lo ancho y postes en los costados ----------
+function cattleMeshes(r) {
+  const list = S.edits.filter(e => e.kind === 'cattle'); if (!list.length) return [];
+  const bars = { name: 'OBJECTS_CATTLE', mat: 'brail', v: [], uv: [], f: [], cattle: true }, posts = { name: 'OBJECTS_CATTLE_POSTS', mat: 'bconc', v: [], uv: [], f: [], cattle: true };
+  const idx = d => { d = r.closed ? ((d % r.total) + r.total) % r.total : Math.max(0, Math.min(r.total, d)); let i = Math.max(0, Math.min(r.n - 1, Math.round(d / 2))); while (i > 0 && r.dist[i] > d) i--; while (i < r.n - 1 && r.dist[i + 1] <= d) i++; return i; };
+  const box = (m, c, ax, ay, lx, ly, z0, z1) => { // caja orientada: centro c, ejes (ax,ay) y normal, medias longitudes
+    const bx = -ay, by = ax, P = (sx, sy, z) => [c[0] + ax * lx * sx + bx * ly * sy, c[1] + ay * lx * sx + by * ly * sy, z], b = m.v.length;
+    for (const z of [z0, z1]) for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { m.v.push(P(sx, sy, z)); m.uv.push([(sx + 1) / 2, z === z0 ? 0 : 1]); }
+    for (let k = 0; k < 4; k++) { const a = b + k, n = b + (k + 1) % 4; m.f.push([a, n, n + 4], [a, n + 4, a + 4]); }
+    m.f.push([b + 4, b + 5, b + 6], [b + 4, b + 6, b + 7]);
+  };
+  for (const e of list) {
+    const len = e.len || 2.6, depth = e.h != null ? e.h : 0.08, nb = Math.max(4, Math.round(len / 0.14));
+    for (let k = 0; k < nb; k++) {
+      const d = e.d - len / 2 + (k + 0.5) * len / nb, i = idx(d), j = Math.min(r.n - 1, i + 1), t = r.dist[j] > r.dist[i] ? Math.max(0, Math.min(1, (d - r.dist[i]) / (r.dist[j] - r.dist[i]))) : 0;
+      const cx = r.C[i][0] + (r.C[j][0] - r.C[i][0]) * t, cy = r.C[i][1] + (r.C[j][1] - r.C[i][1]) * t, h = r.hs[i] + (r.hs[j] - r.hs[i]) * t + depth;
+      const [tx, ty] = r.T[i], hw = r.W[i] / 2 + 0.25;
+      box(bars, [cx, cy], -ty, tx, hw, 0.025, h - 0.06, h + 0.01);
+    }
+    const i = idx(e.d), [tx, ty] = r.T[i], hw = r.W[i] / 2 + 0.45;
+    for (const sd of [1, -1]) for (const off of [-len / 2, len / 2]) {
+      const p = [r.C[i][0] + tx * off - ty * hw * sd, r.C[i][1] + ty * off + tx * hw * sd];
+      box(posts, p, tx, ty, 0.12, 0.12, r.hs[i] - 0.4, r.hs[i] + 0.9);
+    }
+  }
+  return [bars, posts];
+}
+
+// ---------- manipuladores (gizmos) ----------
+// tipo: 'up' = arrastre vertical, 'along' = a lo largo del camino, 'side' = hacia los costados, 'plane' = libre en planta
+const GZ_COL = { up: 0xff5c8a, both: 0xc77dff, along: 0xffb020, side: 0x2ecc71, plane: 0xffd200, move: 0xffffff };
+function edGizmoDefs() {
+  const r = edR(); if (!r || !S.sel) return [];
+  const e = edTarget(), kind = ED_KIND[ED.tool], s = S.sel, out = [];
+  const G = (type, d, lat, yOff, drag, tip, col) => out.push({ type, d: edClampD(d), lat, yOff, drag, tip, col: col || type });
+  const clampMin = (v, m) => Math.max(m, v);
+  if (kind === 'raise') {
+    if (s.d1 - s.d0 < 1) {
+      const rr = e ? e.r || 30 : 30;
+      G('up', s.d0, 0, 1.6, (e0, x, e) => { e.h = e0.h + x; }, 'Arrastrá arriba/abajo: subir o bajar este punto');
+      G('along', s.d0 - rr, 0, 0.4, (e0, x, e) => { e.r = clampMin((e0.r || 30) - x, 3); }, 'Largo de la transición');
+      G('along', s.d0 + rr, 0, 0.4, (e0, x, e) => { e.r = clampMin((e0.r || 30) + x, 3); }, 'Largo de la transición');
+    } else {
+      const f0 = e && e.f0 != null ? e.f0 : 25, f1 = e && e.f1 != null ? e.f1 : 25;
+      G('up', s.d0, 0, 1.6, (e0, x, e) => { e.h = e0.h + x; }, 'Altura al inicio del tramo (pendiente)');
+      G('up', s.d1, 0, 1.6, (e0, x, e) => { e.h1 = (e0.h1 != null ? e0.h1 : e0.h) + x; }, 'Altura al final del tramo (pendiente)');
+      G('up', (s.d0 + s.d1) / 2, 0, 2.2, (e0, x, e) => { e.h = e0.h + x; e.h1 = (e0.h1 != null ? e0.h1 : e0.h) + x; }, 'Subir o bajar todo el tramo', 'both');
+      G('along', s.d0 - f0, 0, 0.4, (e0, x, e) => { e.f0 = clampMin((e0.f0 != null ? e0.f0 : 25) - x, 0); }, 'Transición de entrada: más larga = más suave');
+      G('along', s.d1 + f1, 0, 0.4, (e0, x, e) => { e.f1 = clampMin((e0.f1 != null ? e0.f1 : 25) + x, 0); }, 'Transición de salida: más larga = más suave');
+    }
+  } else if (kind === 'bank' || kind === 'width' || kind === 'smooth') {
+    const q = e || edSecSel(), mid = (q.d0 + q.d1) / 2, hw = edAt(mid).hw;
+    if (kind === 'bank') {
+      const tilt = (e0, x, e, sg) => { if (!e0.abs) { e0.abs = true; e0.deg = Math.atan(edAt(mid).SL) / D2R; } e.abs = true; e.deg = Math.max(-35, Math.min(35, Math.atan(Math.tan(e0.deg * D2R) + sg * x / hw) / D2R)); };
+      G('up', mid, hw, 0.8, (e0, x, e) => tilt(e0, x, e, 1), 'Borde izquierdo: subilo o bajalo para peraltar');
+      G('up', mid, -hw, 0.8, (e0, x, e) => tilt(e0, x, e, -1), 'Borde derecho: subilo o bajalo para peraltar');
+    }
+    if (kind === 'width') {
+      G('side', mid, hw, 0.5, (e0, x, e) => { e.w = Math.max(3, Math.min(25, e0.w + 2 * x)); }, 'Borde izquierdo: arrastrá hacia afuera para ensanchar');
+      G('side', mid, -hw, 0.5, (e0, x, e) => { e.w = Math.max(3, Math.min(25, e0.w - 2 * x)); }, 'Borde derecho: arrastrá hacia afuera para ensanchar');
+    }
+    G('along', q.d0, 0, 0.4, (e0, x, e) => { e.d0 = Math.max(0, Math.min(e0.d1 - 2, e0.d0 + x)); }, 'Comienzo del tramo');
+    G('along', q.d1, 0, 0.4, (e0, x, e) => { e.d1 = Math.min(r.total, Math.max(e0.d0 + 2, e0.d1 + x)); }, 'Final del tramo');
+  } else if (kind === 'jump' && e) {
+    const land = e.land != null ? e.land : e.len * 0.3;
+    G('up', e.d, 0, 1.6, (e0, x, e) => { e.h = Math.max(0.1, e0.h + x); }, 'Altura del salto');
+    G('along', e.d - e.len, 0, 0.4, (e0, x, e) => { e.len = Math.max(3, e0.len - x); }, 'Comienzo de la rampa: más largo = entrada más suave');
+    G('along', e.d + land, 0, 0.4, (e0, x, e) => { e.land = Math.max(1, (e0.land != null ? e0.land : e0.len * 0.3) + x); }, 'Recepción: más largo = aterrizaje más suave');
+    G('move', e.d, edAt(e.d).hw + 1.2, 0.3, (e0, x, e) => { e.d = edClampD(e0.d + x); }, 'Mover el salto por el camino');
+  } else if ((kind === 'bump' || kind === 'pothole' || kind === 'cattle') && e) {
+    const sg = kind === 'bump' ? 1 : -1, half = (e.len || 2.6) / 2, mn = kind === 'cattle' ? 1.5 : 1;
+    G('up', e.d, 0, 1.2, (e0, x, e) => { e.h = Math.max(kind === 'cattle' ? 0 : 0.02, e0.h + sg * x); if (kind === 'cattle') e.h = Math.min(0.4, e.h); }, kind === 'bump' ? 'Altura de la lomada' : 'Profundidad');
+    G('along', e.d - half, 0, 0.4, (e0, x, e) => { e.len = Math.max(mn, (e0.len || 2.6) - 2 * x); }, 'Largo');
+    G('along', e.d + half, 0, 0.4, (e0, x, e) => { e.len = Math.max(mn, (e0.len || 2.6) + 2 * x); }, 'Largo');
+    G('move', e.d, edAt(e.d).hw + 1.2, 0.3, (e0, x, e) => { e.d = edClampD(e0.d + x); }, 'Mover por el camino');
+  } else if (kind === 'shape') {
+    // puntos de control del trazado alrededor de la selección
+    const c = (s.d0 + s.d1) / 2, span = Math.max(150, (s.d1 - s.d0) / 2 + 80), every = Math.max(8, Math.round(span / 12));
+    for (let d = Math.max(0, c - span); d <= Math.min(r.total, c + span); d += every) G('plane', d, 0, 0.8, null, 'Arrastrá para mover el trazado (alcance: ' + $('#dragR').value + ' m)');
+    if (e) {
+      G('along', e.d - e.r, 0, 0.4, (e0, x, e) => { e.r = Math.max(8, e0.r - x); }, 'Alcance de la curva');
+      G('along', e.d + e.r, 0, 0.4, (e0, x, e) => { e.r = Math.max(8, e0.r + x); }, 'Alcance de la curva');
+    }
+  }
+  return out;
+}
+function edGizmoPos(g) { const p = edAt(g.d, g.lat); return v3(p.x, p.y, p.h + g.yOff); }
+const GZ_GEO = {};
+function edGizmoMesh(g) {
+  const geo = GZ_GEO[g.type] || (GZ_GEO[g.type] = g.type === 'up' ? new THREE.SphereGeometry(1, 16, 12) : g.type === 'along' ? new THREE.BoxGeometry(1.5, 1.5, 1.5) : g.type === 'side' ? new THREE.BoxGeometry(1.4, 1.4, 1.4) : g.type === 'move' ? new THREE.OctahedronGeometry(1.2) : new THREE.SphereGeometry(0.9, 12, 8));
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: GZ_COL[g.col], depthTest: false, transparent: true, opacity: 0.95 }));
+  m.renderOrder = 20; return m;
+}
+function edBuildGizmos() {
+  if (!PV.scene) return;
+  if (ED.gzGroup) { PV.scene.remove(ED.gzGroup); ED.gzGroup.traverse(o => { if (o.material) o.material.dispose(); if (o.geometry && !Object.values(GZ_GEO).includes(o.geometry)) o.geometry.dispose(); }); }
+  ED.gzGroup = new THREE.Group(); PV.scene.add(ED.gzGroup);
+  if (!edOn()) { ED.gz = []; return; }
+  ED.gz = edGizmoDefs();
+  for (const g of ED.gz) {
+    g.mesh = edGizmoMesh(g); ED.gzGroup.add(g.mesh);
+    if (g.type === 'up' || g.type === 'side') { // tallo hasta el camino
+      g.stem = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: GZ_COL[g.col], depthTest: false }));
+      g.stem.renderOrder = 19; ED.gzGroup.add(g.stem);
+    }
+  }
+  edPlaceGizmos();
+}
+function edPlaceGizmos() {
+  if (!edR()) return;
+  for (const g of ED.gz) {
+    const p = edGizmoPos(g); g.pos = p; g.mesh.position.copy(p);
+    if (g.stem) { const a = g.stem.geometry.attributes.position; const q = edAt(g.d, g.lat); a.setXYZ(0, p.x, p.y, p.z); a.setXYZ(1, p.x, q.h, p.z); a.needsUpdate = true; g.stem.geometry.computeBoundingSphere(); }
+  }
+  edBuildSelMesh();
+}
+// el tamaño en pantalla de las manijas no depende de la distancia
+function edFrame() {
+  if (ED.gz.length && PV.camera) for (const g of ED.gz) { const k = PV.camera.position.distanceTo(g.mesh.position) * 0.011 * (ED.hover === g || (ED.drag && ED.drag.g === g) ? 1.45 : 1); g.mesh.scale.setScalar(Math.max(0.05, k)); }
+  // teclado: WASD / flechas = desplazarse, Q/E = girar, R/F = acercar/alejar
+  if (ED.keys.size && PV.camera && $('#viewer').style.display !== 'none') {
+    const c = PV.controls, cam = PV.camera, off = cam.position.clone().sub(c.target), dist = off.length(), sp = Math.max(0.6, dist * 0.02);
+    const fw = new THREE.Vector3(-off.x, 0, -off.z).normalize(), rt = new THREE.Vector3(-fw.z, 0, fw.x), mv = new THREE.Vector3();
+    if (ED.keys.has('w') || ED.keys.has('arrowup')) mv.add(fw); if (ED.keys.has('s') || ED.keys.has('arrowdown')) mv.sub(fw);
+    if (ED.keys.has('d') || ED.keys.has('arrowright')) mv.add(rt); if (ED.keys.has('a') || ED.keys.has('arrowleft')) mv.sub(rt);
+    if (mv.lengthSq()) { mv.normalize().multiplyScalar(sp); cam.position.add(mv); c.target.add(mv); }
+    if (ED.keys.has('q') || ED.keys.has('e')) { const a = (ED.keys.has('q') ? 1 : -1) * 0.025; off.applyAxisAngle(new THREE.Vector3(0, 1, 0), a); cam.position.copy(c.target).add(off); }
+    if (ED.keys.has('r') || ED.keys.has('f')) { const k = ED.keys.has('r') ? 0.97 : 1.03; if (dist * k > 1.5) cam.position.copy(c.target).add(off.multiplyScalar(k)); }
+  }
+}
+// franja celeste sobre la selección
+function edBuildSelMesh() {
+  if (ED.selMesh) { PV.scene.remove(ED.selMesh); ED.selMesh.geometry.dispose(); ED.selMesh = null; }
+  const r = edR(); if (!r || !S.sel || !PV.scene || $('#viewer').style.display === 'none') return;
+  let d0 = S.sel.d0, d1 = S.sel.d1; if (d1 - d0 < 1) { d0 -= 1.5; d1 += 1.5; }
+  const pos = [], idx = [], N = Math.max(2, Math.min(4000, Math.ceil((d1 - d0) / 2)));
+  for (let k = 0; k <= N; k++) {
+    const d = d0 + (d1 - d0) * k / N, a = edAt(d), hw = a.hw + 0.25;
+    for (const lat of [hw, -hw]) { const p = edAt(d, lat); pos.push(p.x, p.h + 0.06, -p.y); }
+    if (k) { const b = (k - 1) * 2; idx.push(b, b + 1, b + 3, b, b + 3, b + 2); }
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+  ED.selMesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4 }));
+  ED.selMesh.renderOrder = 5; PV.scene.add(ED.selMesh);
+}
+function edScreen(p) {
+  const rect = PV.renderer.domElement.getBoundingClientRect(), v = p.clone().project(PV.camera);
+  return v.z > 1 ? null : { x: (v.x + 1) / 2 * rect.width, y: (1 - v.y) / 2 * rect.height };
+}
+function edPickGizmo(ev) {
+  const rect = PV.renderer.domElement.getBoundingClientRect(), mx = ev.clientX - rect.left, my = ev.clientY - rect.top; let best = null;
+  for (const g of ED.gz) { const s = edScreen(g.pos); if (!s) continue; const d = Math.hypot(s.x - mx, s.y - my); if (d < 16 && (!best || d < best.d)) best = { d, g }; }
+  return best && best.g;
+}
+function edRay(ev) {
+  const rect = PV.renderer.domElement.getBoundingClientRect(), rc = new THREE.Raycaster();
+  rc.setFromCamera(new THREE.Vector2((ev.clientX - rect.left) / rect.width * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1), PV.camera);
+  return rc;
+}
+function edPlaneHit(rc, plane) { const h = new THREE.Vector3(); return rc.ray.intersectPlane(plane, h) ? h : null; }
+// cuánto se arrastró, en metros, según el tipo de manija
+function edDragDelta(ev) {
+  const D = ED.drag, rc = edRay(ev), g = D.g;
+  if (g.type === 'up') {
+    const cd = new THREE.Vector3(); PV.camera.getWorldDirection(cd); cd.y = 0; if (cd.lengthSq() < 1e-6) cd.set(0, 0, 1); cd.normalize();
+    const pl = new THREE.Plane().setFromNormalAndCoplanarPoint(cd, D.p0), h = edPlaneHit(rc, pl); return h ? h.y - D.p0.y : null;
+  }
+  const h = edPlaneHit(rc, new THREE.Plane(new THREE.Vector3(0, 1, 0), -D.p0.y)); if (!h) return null;
+  const dx = h.x - D.p0.x, dy = -(h.z - D.p0.z);
+  if (g.type === 'along' || g.type === 'move') return dx * D.T[0] + dy * D.T[1];
+  if (g.type === 'side') return dx * D.N[0] + dy * D.N[1];
+  return [dx, dy];
+}
+function edStartDrag(g, src) {
+  edPushUndo();
+  let e;
+  if (g.type === 'plane') { e = { kind: 'shape', d: g.d, dx: 0, dy: 0, r: +$('#dragR').value }; S.edits.push(e); ED.active = e; }
+  else { e = edEnsure(); if (!e) { ED.undo.pop(); return false; } }
+  const a = edAt(g.d);
+  ED.drag = { g, e, e0: JSON.parse(JSON.stringify(e)), p0: g.pos.clone(), T: a.T, N: a.N, src, moved: false };
+  return true;
+}
+function edApplyDrag(x, fine) {
+  const D = ED.drag; if (x == null) return;
+  if (fine) x = Array.isArray(x) ? x.map(v => v * 0.25) : x * 0.25;
+  if (D.g.type === 'plane') { D.e.dx = +(D.e0.dx + x[0]).toFixed(3); D.e.dy = +(D.e0.dy + x[1]).toFixed(3); }
+  else D.g.drag(JSON.parse(JSON.stringify(D.e0)), x, D.e);
+  D.moved = true; edSchedule(); edLiveReadout();
+}
+function edEndDrag() {
+  const D = ED.drag; ED.drag = null; if (PV.controls) PV.controls.enabled = true;
+  if (!D) return;
+  if (!D.moved) { ED.undo.pop(); if (D.g.type === 'plane') { S.edits.splice(S.edits.indexOf(D.e), 1); ED.active = null; } edRefresh(); return; }
+  if (D.e.kind === 'shape' && Math.hypot(D.e.dx, D.e.dy) < 0.2) { S.edits.splice(S.edits.indexOf(D.e), 1); ED.active = null; }
+  // si la selección era la de la edición, que la siga
+  if (D.e.d0 !== undefined && D.e.kind !== 'raise') S.sel = { d0: D.e.d0, d1: D.e.d1 };
+  liveCommit(); selInfo();
+}
+function edLiveReadout() {
+  const D = ED.drag; if (!D) return;
+  const txt = EDIT_TXT[D.e.kind] ? EDIT_TXT[D.e.kind](D.e) : '';
+  const p = edAt(D.g.d); edHint(`${txt} · ${(D.g.d / 1000).toFixed(3)} km · camino a ${(p.hs + S.result.h0).toFixed(2)} m · ${D.g.tip}  (Shift = fino)`);
+  edPanel(true);
+}
+const edHint = t => { const h = $('#vhint'); h.style.display = t ? '' : 'none'; h.textContent = t || ''; };
+const edOn = () => !!(S.result && S.result.mode === 'route' && ED.panelOn);
+
+// ---------- selección ----------
+function edSelect(d, extend) {
+  const r = edR(); if (!r) return;
+  d = edClampD(d);
+  if (extend && ED.anchor != null) S.sel = { d0: Math.min(ED.anchor, d), d1: Math.max(ED.anchor, d) };
+  else { S.sel = { d0: d, d1: d }; ED.anchor = d; }
+  // si hay un salto, lomada, bache o guardaganado ahí, queda elegido para editarlo
+  if (!extend) {
+    const hit = S.edits.filter(e => ['jump', 'bump', 'pothole', 'cattle'].includes(e.kind)).find(e => { const [a, b] = edExtent(e); return d >= a && d <= b; });
+    if (hit) { ED.active = hit; ED.tool = Object.keys(ED_KIND).find(k => ED_KIND[k] === hit.kind); }
+    else if (ED.active && !(ED.active.d0 !== undefined && d >= ED.active.d0 && d <= ED.active.d1)) ED.active = null;
+  }
+  selInfo(); drawSel(); drawProfile(); edRefresh(); renderEdits();
+}
+function edFocusEdit(e, fly) {
+  if (!e || !edR()) return;
+  ED.active = e; ED.tool = Object.keys(ED_KIND).find(k => ED_KIND[k] === e.kind) || ED.tool;
+  const [a, b] = e.d !== undefined ? [e.d, e.d] : [e.d0, e.d1]; S.sel = { d0: a, d1: b }; ED.anchor = a;
+  selInfo(); drawSel(); drawProfile(); edRefresh(); renderEdits();
+  if (fly && $('#viewer').style.display !== 'none') edFly(edCenter(e));
+}
+function edFly(d) {
+  const p = edAt(d), c = PV.controls, cam = PV.camera, to = v3(p.x, p.y, p.h), off = cam.position.clone().sub(c.target);
+  const L = off.length(); if (L > 120) off.multiplyScalar(120 / L); if (L < 15) off.multiplyScalar(15 / Math.max(1, L));
+  const t0 = c.target.clone(), c0 = cam.position.clone(), c1 = to.clone().add(off), T0 = performance.now();
+  const step = () => { const k = Math.min(1, (performance.now() - T0) / 350), s = k * k * (3 - 2 * k); c.target.lerpVectors(t0, to, s); cam.position.lerpVectors(c0, c1, s); if (k < 1) requestAnimationFrame(step); };
+  step();
+}
+function edPickRoad(ev) {
+  const rc = edRay(ev), list = [];
+  for (const [m, mesh] of PV.byMesh) if (m.route && !/^LINES_/.test(m.name)) list.push(mesh);
+  let h = rc.intersectObjects(list, false)[0];
+  if (!h) { const ter = PV.terrain.map(t => t.mesh); h = rc.intersectObjects(ter, false)[0]; if (!h) return null; }
+  const q = edNearestD(h.point.x, -h.point.z); return q.dist < edAt(q.d).hw + 12 ? q : null;
+}
+
+// ---------- panel de la vista 3D ----------
+function edRefresh(light) {
+  if (!PV.scene) return;
+  const route = !!edR();
+  $('#vpanel').style.display = route && ED.panelOn ? '' : 'none'; $('#vprof').style.display = route && ED.panelOn ? '' : 'none';
+  $('#editCurves').classList.toggle('on', !!ED.panelOn);
+  $('#dragRw').style.display = route && ED.panelOn && ED.tool === 'curve' ? '' : 'none';
+  if (!route) { ED.gz = []; if (ED.gzGroup) PV.scene.remove(ED.gzGroup); return; }
+  if (light && ED.gz.length) { edPlaceGizmos(); edPanel(true); return; }
+  edBuildGizmos(); edPanel(); if (ED.panelOn && $('#viewer').style.display !== 'none') PROF3.draw();
+}
+function edPanel(light) {
+  const R = S.result, r = edR(); if (!r || !ED.panelOn) return;
+  document.querySelectorAll('#vpTools button').forEach(b => b.classList.toggle('on', b.dataset.tool === ED.tool));
+  const s = S.sel, h0 = R.h0;
+  if (!s) { $('#vpSel').textContent = 'Hacé clic sobre el camino'; $('#vpData').innerHTML = '<div class="mut">Clic = elegir un punto · Shift+clic = elegir hasta ahí (tramo).</div>'; $('#vpParams').innerHTML = ''; $('#vpNear').innerHTML = ''; return; }
+  const d = (s.d0 + s.d1) / 2, p = edAt(d), i = p.i, g = R.info.grip;
+  const hAt = x => edAt(x).hs, grade = (hAt(d + 4) - hAt(d - 4)) / 8 * 100;
+  const k = r.K[i], tilt = Math.atan(p.SL) / D2R, rad = Math.abs(k) > 1 / 2000 ? 1 / Math.abs(k) : 0;
+  const bankTxt = Math.abs(tilt) < 0.05 ? 'plano' : rad ? `${Math.abs(tilt).toFixed(1)}° ${p.SL * k < 0 ? 'hacia adentro' : 'hacia afuera (invertido)'}` : `${Math.abs(tilt).toFixed(1)}° (${tilt > 0 ? 'izquierda' : 'derecha'} más alta)`;
+  const rows = [];
+  if (s.d1 - s.d0 < 1) {
+    $('#vpSel').textContent = `Punto en ${(d / 1000).toFixed(3)} km`;
+    rows.push(['Altura', `${(p.hs + h0).toFixed(2)} m`], ['Pendiente', `${grade >= 0 ? '+' : ''}${grade.toFixed(1)} %`], ['Peralte', bankTxt], ['Curva', rad ? `radio ${rad.toFixed(0)} m, ${k > 0 ? 'izquierda' : 'derecha'}` : 'recta'], ['Ancho', `${(p.hw * 2).toFixed(1)} m`], ['Superficie', SURF[r.SURF[i]].name]);
+    if (g && g.V) rows.push(['Vel. segura', `≈ ${g.V[i].toFixed(0)} km/h`]);
+    const nb = [-50, -20, 20, 50].filter(o => d + o >= 0 && d + o <= r.total).map(o => `<span class="${o < 0 ? 'pv' : 'nx'}">${o > 0 ? '+' : ''}${o} m: <b>${(hAt(d + o) + h0).toFixed(1)}</b> (${fmtH(+(hAt(d + o) - p.hs).toFixed(2))})</span>`).join('');
+    rows.push(['Antes / después', `<div class="nbh">${nb}</div>`]);
+  } else {
+    const a = edAt(s.d0), b = edAt(s.d1); let mx = -Infinity, mn = Infinity, gmax = 0;
+    for (let x = s.d0; x <= s.d1; x += 2) { const h = hAt(x); mx = Math.max(mx, h); mn = Math.min(mn, h); if (x + 4 <= s.d1) gmax = Math.max(gmax, Math.abs(hAt(x + 4) - h) / 4 * 100); }
+    $('#vpSel').textContent = `Tramo ${(s.d0 / 1000).toFixed(3)}–${(s.d1 / 1000).toFixed(3)} km (${(s.d1 - s.d0).toFixed(0)} m)`;
+    rows.push(['Altura inicio / fin', `${(a.hs + h0).toFixed(1)} → ${(b.hs + h0).toFixed(1)} m`], ['Desnivel', `${fmtH(+(b.hs - a.hs).toFixed(2))} m`], ['Pendiente media', `${((b.hs - a.hs) / (s.d1 - s.d0) * 100).toFixed(1)} %`],
+      ['Pendiente máxima', `${gmax.toFixed(1)} %`], ['Mín / máx', `${(mn + h0).toFixed(1)} / ${(mx + h0).toFixed(1)} m`], ['Peralte al medio', bankTxt]);
+  }
+  rows.push(['Desde el inicio', `${(d / 1000).toFixed(3)} km de ${(r.total / 1000).toFixed(2)}`]);
+  $('#vpData').innerHTML = rows.map(([k, v]) => `<div class="vr"><span>${k}</span><span>${v}</span></div>`).join('');
+  // parámetros de la edición elegida (se pueden escribir: precisión)
+  const e = edTarget(), kind = ED_KIND[ED.tool];
+  if (!light || !ED.drag) {
+    const ps = e && ED_PARAMS[e.kind] ? ED_PARAMS[e.kind](e) : [];
+    let html = `<div class="vp-t">${ED_TOOLS.find(t => t[0] === ED.tool)[2]}</div>`;
+    if (e) {
+      html += `<div class="vp-e"><b>${EDIT_TXT[e.kind](e)}</b> <button class="b sm" id="vpDel" title="Eliminar este cambio (Supr)">🗑 Eliminar</button></div>`;
+      html += ps.map(([key, name, unit, step, mn, mx]) => { const val = e[key] != null ? e[key] : (key === 'h1' ? e.h : key === 'f0' || key === 'f1' ? 25 : key === 'r' ? 30 : key === 'land' ? e.len * 0.3 : 0);
+        return `<label class="vp-p">${name} <span><input type="number" data-k="${key}" value="${+(+val).toFixed(3)}" step="${step}"${mn != null ? ` min="${mn}"` : ''}${mx != null ? ` max="${mx}"` : ''}> ${unit}</span></label>`; }).join('');
+      const tr = edTransInfo(e); if (tr) html += `<div class="mut">${tr}</div>`;
+    } else if (['jump', 'bump', 'pothole', 'cattle'].includes(kind)) html += `<button class="b wide" id="vpMake">Crear ${ED_TOOLS.find(t => t[0] === ED.tool)[1].slice(2)} acá</button>`;
+    else if (kind === 'smooth') html += `<button class="b wide" id="vpMake">Suavizar ${s.d1 - s.d0 < 10 ? 'alrededor del punto (±25 m)' : 'el tramo elegido'}</button>`;
+    else if (kind === 'shape') html += '<div class="mut">Arrastrá un punto amarillo.</div>';
+    else html += '<div class="mut">Arrastrá una manija para crear el cambio.</div>';
+    html += `<div class="vp-surf"><select id="vpSurf">${$('#surfKey').innerHTML}</select><button class="b sm" id="vpSurfGo">Superficie al tramo</button></div>`;
+    $('#vpParams').innerHTML = html;
+    $('#vpSurf').value = $('#surfKey').value;
+    $('#vpParams').querySelectorAll('input[data-k]').forEach(inp => {
+      inp.onfocus = () => { inp._undo = false; };
+      inp.oninput = () => { const v = parseFloat(inp.value); if (!isFinite(v)) return; if (!inp._undo) { edPushUndo(); inp._undo = true; } e[inp.dataset.k] = v; if (e.d1 !== undefined && e.d1 < e.d0) [e.d0, e.d1] = [e.d1, e.d0]; edSchedule(); clearTimeout(ED.commitT); ED.commitT = setTimeout(() => { liveCommit(); }, 350); };
+    });
+    const del = $('#vpDel'); if (del) del.onclick = () => edDelete(e);
+    const mk = $('#vpMake'); if (mk) mk.onclick = () => { edPushUndo(); const ne = edMake(kind); S.edits.push(ne); ED.active = ne; editsChanged(); };
+    $('#vpSurfGo').onclick = () => { edPushUndo(); const ne = { kind: 'surface', ...edSecSel(), key: $('#vpSurf').value }; S.edits.push(ne); editsChanged(); };
+  }
+  // ediciones cercanas y sus transiciones
+  const near = S.edits.filter(x => { const [a, b] = edExtent(x); return b >= d - 200 && a <= d + 200; });
+  $('#vpNear').innerHTML = near.length ? '<div class="vp-t">Cambios cercanos</div>' + near.map(x => `<div class="vp-n${x === ED.active ? ' on' : ''}" data-k="${S.edits.indexOf(x)}">${EDIT_TXT[x.kind](x)} <span class="mut">· ${where(x)}${edTransInfo(x) ? ' · ' + edTransInfo(x) : ''}</span></div>`).join('') : '';
+  $('#vpNear').querySelectorAll('.vp-n').forEach(div => div.onclick = () => edFocusEdit(S.edits[+div.dataset.k], true));
+}
+function edTransInfo(e) {
+  if (e.kind === 'raise') return e.d1 - e.d0 < 1 ? `transición ±${(e.r || 30).toFixed(0)} m` : `transiciones ${(e.f0 != null ? e.f0 : 25).toFixed(0)} / ${(e.f1 != null ? e.f1 : 25).toFixed(0)} m`;
+  if (e.kind === 'jump') { const land = e.land != null ? e.land : e.len * 0.3; return `entrada ${(e.h / e.len * 100).toFixed(0)}% en ${e.len.toFixed(0)} m · recepción ${(e.h / land * 100).toFixed(0)}% en ${land.toFixed(1)} m`; }
+  if (e.kind === 'bump' || e.kind === 'pothole') return `largo ${(+e.len).toFixed(1)} m`;
+  return '';
+}
+function edDelete(e) {
+  if (!e || !S.edits.includes(e)) return;
+  edPushUndo(); S.edits.splice(S.edits.indexOf(e), 1); if (ED.active === e) ED.active = null; editsChanged();
+}
+
+// ---------- perfil de alturas (panel lateral y vista 3D, sincronizados) ----------
+function makeProf(cv, opt) {
+  const P = { cv, pad: { l: 40, r: 8, t: 10, b: opt.strips ? 36 : 20 }, down: null, hover: null, drag: null, lock: null };
+  const geom = () => {
+    const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    return { w, h, dpr, pw: w - P.pad.l - P.pad.r, ph: h - P.pad.t - P.pad.b };
+  };
+  P.win = () => { const r = edR(); return P.lock ? P.lock.win : opt.window ? opt.window(r) : [0, r.total]; };
+  P.draw = () => {
+    const R = S.result; if (!R || R.mode !== 'route' || !cv.clientWidth) return;
+    const r = R.res, G = geom(), ctx = cv.getContext('2d'), p = P.pad, h0 = R.h0, [w0, w1] = P.win();
+    ctx.setTransform(G.dpr, 0, 0, G.dpr, 0, 0); ctx.clearRect(0, 0, G.w, G.h);
+    const a = Math.max(0, fixIdx(w0) - 1), b = Math.min(r.n - 1, fixIdx(w1) + 1);
+    let mn = Infinity, mx = -Infinity; for (let i = a; i <= b; i++) { mn = Math.min(mn, r.hs[i], r.raw[i]); mx = Math.max(mx, r.hs[i], r.raw[i]); }
+    if (P.lock) { mn = P.lock.mn; mx = P.lock.mx; } else { const pad = Math.max(opt.strips ? 5 : 2, (mx - mn) * 0.12); mn -= pad; mx += pad; }
+    const X = d => p.l + (d - w0) / (w1 - w0) * G.pw, Y = h => p.t + (1 - (h - mn) / (mx - mn)) * G.ph;
+    Object.assign(P, { X, Y, mn, mx, G, w0, w1, inv: x => Math.max(0, Math.min(r.total, w0 + (x - p.l) / G.pw * (w1 - w0))) });
+    ctx.save(); ctx.beginPath(); ctx.rect(p.l, 0, G.pw, G.h); ctx.clip();
+    ctx.font = '10px Inter, sans-serif'; ctx.fillStyle = '#8b939c'; ctx.strokeStyle = '#262a30'; ctx.lineWidth = 1;
+    for (let k = 0; k <= 3; k++) { const y = Y(mn + (mx - mn) * k / 3); ctx.beginPath(); ctx.moveTo(p.l, y); ctx.lineTo(G.w - p.r, y); ctx.stroke(); }
+    // terreno original y camino
+    ctx.strokeStyle = '#59606a'; ctx.setLineDash([3, 3]); ctx.beginPath();
+    for (let i = a; i <= b; i++) { const x = X(r.dist[i]), y = Y(r.raw[i]); i > a ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(X(r.dist[a]), p.t + G.ph); for (let i = a; i <= b; i++) ctx.lineTo(X(r.dist[i]), Y(r.hs[i])); ctx.lineTo(X(r.dist[b]), p.t + G.ph); ctx.closePath();
+    ctx.fillStyle = 'rgba(255,210,0,0.10)'; ctx.fill();
+    ctx.strokeStyle = '#ffd200'; ctx.lineWidth = 1.6; ctx.beginPath(); for (let i = a; i <= b; i++) { const x = X(r.dist[i]), y = Y(r.hs[i]); i > a ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke();
+    // ediciones
+    for (const e of S.edits) {
+      const [ea, eb] = edExtent(e); if (eb < w0 || ea > w1) continue;
+      ctx.fillStyle = e === ED.active ? '#ff7ad9' : 'rgba(255,122,217,0.8)';
+      if (e.d !== undefined) { ctx.fillRect(X(e.d) - 0.5, p.t, 1, G.ph); ctx.globalAlpha = e === ED.active ? 0.16 : 0.07; ctx.fillRect(X(ea), p.t, Math.max(1, X(eb) - X(ea)), G.ph); ctx.globalAlpha = 1; }
+      else { ctx.globalAlpha = e === ED.active ? 0.2 : 0.1; ctx.fillRect(X(e.d0), p.t, Math.max(2, X(e.d1) - X(e.d0)), G.ph); ctx.globalAlpha = 1; }
+    }
+    if (S.sel) {
+      ctx.fillStyle = 'rgba(0,200,255,0.16)'; ctx.strokeStyle = '#00c8ff';
+      const sa = X(S.sel.d0), sb = X(S.sel.d1); ctx.fillRect(sa, p.t, Math.max(2, sb - sa), G.ph); ctx.strokeRect(sa, p.t, Math.max(2, sb - sa), G.ph);
+    }
+    // manijas (las mismas que en 3D)
+    P.handles = [];
+    if (edOn() || !opt.dock) for (const g of (ED.gz.length ? ED.gz : edGizmoDefs())) {
+      if (g.lat || g.type === 'side' || g.type === 'plane') continue;
+      const hy = edAt(g.d).hs, x = X(g.d), y = g.type === 'up' ? Y(hy) : Y(hy) + 0; if (x < p.l - 2 || x > G.w - p.r + 2) continue;
+      P.handles.push({ g, x, y });
+      ctx.fillStyle = '#' + GZ_COL[g.col].toString(16).padStart(6, '0'); ctx.strokeStyle = '#111'; ctx.lineWidth = 1.5; ctx.beginPath();
+      if (g.type === 'up') ctx.arc(x, y, ED.drag && ED.drag.g === g ? 7 : 5.5, 0, 7); else if (g.type === 'move') { ctx.moveTo(x, y - 7); ctx.lineTo(x + 6, y); ctx.lineTo(x, y + 7); ctx.lineTo(x - 6, y); ctx.closePath(); } else ctx.rect(x - 4.5, y - 4.5, 9, 9);
+      ctx.fill(); ctx.stroke();
+    }
+    if (P.hover != null) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(X(P.hover), p.t); ctx.lineTo(X(P.hover), p.t + G.ph); ctx.stroke(); }
+    ctx.restore();
+    // ejes
+    ctx.fillStyle = '#8b939c'; ctx.font = '10px Inter, sans-serif';
+    for (let k = 1; k <= 3; k++) { const h = mn + (mx - mn) * k / 3; ctx.fillText(Math.round(h + h0) + ' m', 2, Y(h) + 3); }
+    const span = w1 - w0, stepKm = span > 20000 ? 5000 : span > 8000 ? 2000 : span > 3000 ? 1000 : span > 1200 ? 500 : span > 500 ? 100 : 50;
+    for (let d = Math.ceil(w0 / stepKm) * stepKm; d <= w1; d += stepKm) ctx.fillText(stepKm >= 1000 ? (d / 1000).toFixed(0) + ' km' : (d / 1000).toFixed(stepKm < 100 ? 2 : 1) + ' km', X(d) - 10, G.h - (opt.strips ? 2 : 4));
+    if (opt.strips) {
+      const sy = p.t + G.ph + 4, gy = sy + 8, grip = R.info.grip;
+      for (let i = a; i < b; i++) {
+        const x0 = X(r.dist[i]), x1 = Math.max(x0 + 0.6, X(r.dist[i + 1]));
+        ctx.fillStyle = SURF[r.SURF[i]].ui; ctx.fillRect(x0, sy, x1 - x0, 6);
+        ctx.fillStyle = CLS_COL[grip.CLS[i]]; ctx.fillRect(x0, gy, x1 - x0, 6);
+      }
+      ctx.fillStyle = '#8b939c'; ctx.fillText('sup.', 4, sy + 6); ctx.fillText('agarre', 2, gy + 6);
+    }
+    if (opt.dock && P.hover != null) { const i = fixIdx(P.hover); ctx.fillStyle = '#fff'; ctx.fillText(`${(P.hover / 1000).toFixed(3)} km · ${(r.hs[i] + h0).toFixed(2)} m`, p.l + 6, p.t + 11); }
+  };
+  const handleAt = (x, y) => { let best = null; for (const h of P.handles || []) { const d = Math.hypot(h.x - x, h.y - y); if (d < 10 && (!best || d < best.d)) best = { d, h }; } return best && best.h; };
+  cv.addEventListener('pointerdown', ev => {
+    if (!edR()) return; cv.setPointerCapture(ev.pointerId);
+    const h = handleAt(ev.offsetX, ev.offsetY);
+    if (h) { // arrastrar una manija desde el perfil: misma edición que en 3D
+      if (!ED.gz.length) ED.gz = edGizmoDefs();
+      const g = ED.gz.find(q => q.type === h.g.type && Math.abs(q.d - h.g.d) < 0.01 && q.tip === h.g.tip) || h.g; g.pos = edGizmoPos(g);
+      if (!edStartDrag(g, 'prof')) return;
+      P.drag = { x0: ev.offsetX, y0: ev.offsetY, mpp: (P.mx - P.mn) / P.G.ph, dpp: (P.w1 - P.w0) / P.G.pw };
+      P.lock = { mn: P.mn, mx: P.mx, win: [P.w0, P.w1] }; return;
+    }
+    P.down = P.inv(ev.offsetX); P.shift = ev.shiftKey;
+    if (ev.shiftKey && S.sel) { P.down = ED.anchor != null ? ED.anchor : S.sel.d0; }
+  });
+  cv.addEventListener('pointermove', ev => {
+    if (!edR()) return;
+    if (P.drag && ED.drag) {
+      const g = ED.drag.g, x = g.type === 'up' ? -(ev.offsetY - P.drag.y0) * P.drag.mpp : (ev.offsetX - P.drag.x0) * P.drag.dpp;
+      edApplyDrag(x, ev.shiftKey); return;
+    }
+    const d = P.inv(ev.offsetX); P.hover = d;
+    cv.style.cursor = handleAt(ev.offsetX, ev.offsetY) ? 'grab' : 'crosshair';
+    if (P.down != null) S.sel = { d0: Math.min(P.down, d), d1: Math.max(P.down, d) };
+    if (opt.hoverInfo) opt.hoverInfo(d);
+    drawProfile();
+  });
+  cv.addEventListener('pointerup', ev => {
+    if (P.drag) { P.drag = null; P.lock = null; edEndDrag(); drawProfile(); return; }
+    if (P.down == null) return;
+    const d = P.inv(ev.offsetX), r = edR(), tiny = Math.abs(d - P.down) < (P.w1 - P.w0) / 300;
+    if (tiny && !P.shift) edSelect(P.down, false);
+    else { const a = Math.min(P.down, d), b = Math.max(P.down, d); ED.anchor = P.down; S.sel = { d0: a, d1: tiny ? a : b }; if (ED.active && !(ED.active.d0 !== undefined && Math.abs(ED.active.d0 - a) < 1.5)) ED.active = null; selInfo(); drawSel(); drawProfile(); edRefresh(); renderEdits(); }
+    P.down = null;
+  });
+  cv.addEventListener('pointerleave', () => { P.hover = null; if (opt.leave) opt.leave(); drawProfile(); });
+  return P;
+}
+const PROF = makeProf($('#profile'), {
+  strips: true,
+  hoverInfo: d => {
+    const r = S.result.res, i = fixIdx(d), g = S.result.info.grip;
+    $('#hoverInfo').textContent = `${(d / 1000).toFixed(3)} km · ${(r.hs[i] + S.result.h0).toFixed(0)} m · pendiente ${(g.GR[i] * 100).toFixed(1)}% · ancho ${r.W[i].toFixed(1)} m · ${SURF[r.SURF[i]].name} · vel. segura ≈ ${g.V[i].toFixed(0)} km/h`;
+    const ll = S.result.info.ll[i]; if (!PROF.dot) PROF.dot = L.circleMarker(ll, { radius: 6, color: '#fff', fillColor: '#00c8ff', fillOpacity: 1 }).addTo(map); else PROF.dot.setLatLng(ll);
+  },
+  leave: () => { if (PROF.dot) { map.removeLayer(PROF.dot); PROF.dot = null; } },
+});
+const PROF3 = makeProf($('#vprof'), {
+  dock: true,
+  window: r => {
+    if (!S.sel) return [0, r.total];
+    const c = (S.sel.d0 + S.sel.d1) / 2, ext = ED.active ? edExtent(ED.active) : [S.sel.d0, S.sel.d1];
+    const half = Math.max(120, (Math.max(S.sel.d1, ext[1]) - Math.min(S.sel.d0, ext[0])) / 2 * 1.35 + 40);
+    let a = c - half, b = c + half; if (a < 0) { b -= a; a = 0; } if (b > r.total) { a -= b - r.total; b = r.total; } return [Math.max(0, a), b];
+  },
+});
+function drawProfile() { PROF.draw(); if ($('#viewer').style.display !== 'none' && ED.panelOn) PROF3.draw(); }
+window.addEventListener('resize', () => drawProfile());
+
+// ---------- eventos de la vista 3D ----------
+ED.panelOn = true;
+$('#editCurves').onclick = () => { ED.panelOn = !ED.panelOn; edRefresh(); edBuildSelMesh(); drawProfile(); };
+$('#vpTools').innerHTML = ED_TOOLS.map(([k, name, tip]) => `<button class="b" data-tool="${k}" title="${tip}">${name}</button>`).join('');
+$('#vpTools').querySelectorAll('button').forEach(b => b.onclick = () => {
+  const t = b.dataset.tool; ED.tool = t; if (ED.active && ED.active.kind !== ED_KIND[t]) ED.active = null;
+  // salto, lomada, bache, guardaganado: se crean al tocar la herramienta (en el punto elegido)
+  if (S.sel && ['jump', 'bump', 'pothole', 'cattle'].includes(t) && !edTarget()) { edPushUndo(); const e = edMake(ED_KIND[t]); S.edits.push(e); ED.active = e; editsChanged(); return; }
+  edRefresh(); drawProfile();
+});
+$('#dragR').onchange = () => edRefresh();
+function edHookViewer() {
+  const el = PV.renderer && PV.renderer.domElement; if (!el || el.__ed) return; el.__ed = true;
+  const c = PV.controls;
+  // navegación: izquierdo o central = desplazar, derecho (o Ctrl+izquierdo) = girar, rueda = acercar hacia el cursor
+  c.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
+  c.screenSpacePanning = false; c.enableZoom = false; c.maxPolarAngle = Math.PI * 0.495; c.panSpeed = 1; c.rotateSpeed = 0.7;
+  c.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+  PV.onFrame = edFrame;
+  let down = null;
+  el.addEventListener('pointerdown', ev => {
+    down = { x: ev.clientX, y: ev.clientY, b: ev.button };
+    if (ev.button !== 0 || !edOn()) return;
+    const g = edPickGizmo(ev); if (!g) return;
+    if (!edStartDrag(g, '3d')) return;
+    PV.controls.enabled = false; el.setPointerCapture(ev.pointerId); el.style.cursor = 'grabbing';
+    ev.stopImmediatePropagation(); ev.preventDefault();
+  }, true);
+  el.addEventListener('pointermove', ev => {
+    if (ED.drag && ED.drag.src === '3d') { edApplyDrag(edDragDelta(ev), ev.shiftKey); return; }
+    if (!edOn() || ev.buttons) return;
+    const g = edPickGizmo(ev); if (g !== ED.hover) { ED.hover = g; el.style.cursor = g ? 'grab' : ''; edHint(g ? g.tip : ''); }
+  });
+  el.addEventListener('pointerup', ev => {
+    if (ED.drag && ED.drag.src === '3d') { edEndDrag(); el.style.cursor = ''; edHint(''); return; }
+    // clic sin arrastrar sobre el camino = elegir
+    if (down && down.b === 0 && Math.hypot(ev.clientX - down.x, ev.clientY - down.y) < 5 && edR() && !PV.drive) {
+      const q = edPickRoad(ev); if (q) edSelect(q.d, ev.shiftKey);
+    }
+    down = null;
+  });
+  el.addEventListener('contextmenu', ev => ev.preventDefault());
+  el.addEventListener('wheel', ev => {
+    ev.preventDefault(); if (PV.drive) return;
+    const cam = PV.camera, t = c.target, f = Math.pow(1.0012, ev.deltaY * (ev.deltaMode === 1 ? 30 : 1));
+    const hit = edPlaneHit(edRay(ev), new THREE.Plane(new THREE.Vector3(0, 1, 0), -t.y)) || t.clone();
+    if (f < 1 && cam.position.distanceTo(t) < 2) return;
+    if (hit.distanceTo(cam.position) > 20000) hit.copy(t);
+    cam.position.sub(hit).multiplyScalar(f).add(hit); t.sub(hit).multiplyScalar(f).add(hit);
+  }, { passive: false });
+  el.addEventListener('dblclick', ev => {
+    const rc = edRay(ev), list = [...PV.byMesh.entries()].filter(([m]) => m.route || m.terrain).map(([, mesh]) => mesh), h = rc.intersectObjects(list, false)[0];
+    if (!h) return;
+    const to = h.point, off = PV.camera.position.clone().sub(c.target), L = off.length(); off.multiplyScalar(Math.min(1, 60 / L));
+    const t0 = c.target.clone(), c0 = PV.camera.position.clone(), c1 = to.clone().add(off), T0 = performance.now();
+    const step = () => { const k = Math.min(1, (performance.now() - T0) / 350), s = k * k * (3 - 2 * k); c.target.lerpVectors(t0, to, s); PV.camera.position.lerpVectors(c0, c1, s); if (k < 1) requestAnimationFrame(step); };
+    step();
+  });
+  const typing = () => { const a = document.activeElement; return a && (a.tagName === 'INPUT' || a.tagName === 'SELECT' || a.tagName === 'TEXTAREA'); };
+  window.addEventListener('keydown', ev => {
+    if ($('#viewer').style.display === 'none' || typing()) return;
+    const k = ev.key.toLowerCase();
+    if ((ev.ctrlKey || ev.metaKey) && k === 'z') { ev.preventDefault(); edUndo(ev.shiftKey); return; }
+    if ((ev.ctrlKey || ev.metaKey) && k === 'y') { ev.preventDefault(); edUndo(true); return; }
+    if ((k === 'delete' || k === 'backspace') && ED.active) { ev.preventDefault(); edDelete(ED.active); return; }
+    if (k === 'escape') { S.sel = null; ED.active = null; selInfo(); drawSel(); drawProfile(); edRefresh(); edBuildSelMesh(); return; }
+    if (['w', 'a', 's', 'd', 'q', 'e', 'r', 'f', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k) && !ev.ctrlKey && !ev.metaKey) { ED.keys.add(k); if (k.startsWith('arrow')) ev.preventDefault(); }
+  });
+  window.addEventListener('keyup', ev => ED.keys.delete(ev.key.toLowerCase()));
+  window.addEventListener('blur', () => ED.keys.clear());
+}
 
 </script>
 </body>
