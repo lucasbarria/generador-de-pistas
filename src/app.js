@@ -1137,7 +1137,14 @@ const REFS = {
   async load() { this.list = (await LOCAL.all('refs')).map(([k, v]) => v).sort((a, b) => a.added - b.added); return this.list; },
   // lectura automática de una foto tomada desde el camino: color del piso al sol y a la sombra, banquina, piedras sueltas
   async analyze(blob) {
-    const bmp = await createImageBitmap(blob), W = 480, H = Math.round(bmp.height * W / bmp.width), c = document.createElement('canvas'); c.width = W; c.height = H;
+    const a = await this.analyze0(await createImageBitmap(blob)); if (a.ok) return a;
+    // fotos de celular que quedaron de costado: se prueba girarlas
+    for (const ang of [90, -90]) { const b0 = await createImageBitmap(blob), c = document.createElement('canvas'); c.width = b0.height; c.height = b0.width; const x = c.getContext('2d'); x.translate(c.width / 2, c.height / 2); x.rotate(ang * Math.PI / 180); x.drawImage(b0, -b0.width / 2, -b0.height / 2);
+      const r = await this.analyze0(await createImageBitmap(c)); if (r.ok) { r.rotated = ang; return r; } }
+    return a;
+  },
+  async analyze0(bmp) {
+    const W = 480, H = Math.round(bmp.height * W / bmp.width), c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(bmp, 0, 0, W, H); const d = x.getImageData(0, 0, W, H).data;
     const px = (x0, y0, x1, y1, f) => { const out = []; for (let yy = Math.floor(y0 * H); yy < y1 * H; yy++) for (let xx = Math.floor(x0 * W); xx < x1 * W; xx++) { const k = (yy * W + xx) * 4, p = [d[k], d[k + 1], d[k + 2]]; if (!f || f(p)) out.push(p); } return out; };
     const L = p => 0.3 * p[0] + 0.59 * p[1] + 0.11 * p[2], med = A => { if (!A.length) return null; return [0, 1, 2].map(c => { const v = A.map(p => p[c]).sort((a, b) => a - b); return Math.round(v[v.length >> 1]); }); };
@@ -1162,11 +1169,27 @@ const REFS = {
     const verge = med([...px(0, 0.5, 0.2, 0.72), ...px(0.8, 0.5, 1, 0.72)].filter(p => p[1] > p[0] + 4 && p[1] > p[2]));
     const dry = [...px(0, 0.5, 0.2, 0.72), ...px(0.8, 0.5, 1, 0.72)].filter(p => p[0] > p[2] + 30 && Math.abs(p[0] - p[1]) < 25 && L(p) > 110).length / (0.4 * 0.22 * W * H);
     const forest = px(0, 0.1, 1, 0.45, p => p[1] > p[0] + 4 && p[1] > p[2] + 4).length / (0.35 * W * H);
-    return { ok: true, env, hash, w: bmp.width, h: bmp.height, roadShare, rough, sideOther, road: sun, shade, verge, stones: Math.min(0.05, stones * 0.35), dry: Math.min(1, dry), forest: Math.min(1, forest) };
+    // medidas para generar materiales: paleta (6 tonos de la parte al sol), grano, bordes con grava, humedad y brillo de agua
+    const sunPx = road.filter(p => L(p) >= ls[Math.floor(ls.length * 0.35)]).sort((p, q) => L(p) - L(q)), pal = [];
+    for (let k = 0; k < 6; k++) { const part = sunPx.slice(Math.floor(k * sunPx.length / 6), Math.floor((k + 1) * sunPx.length / 6)); if (part.length) pal.push([med(part), +(part.length / sunPx.length).toFixed(3)]); }
+    const texAt = (x0, x1) => { let t = 0, c = 0; for (let yy = Math.floor(0.78 * H); yy < 0.96 * H; yy += 2) for (let xx = Math.floor(x0 * W); xx < x1 * W - 1; xx += 2) { const k = (yy * W + xx) * 4; t += Math.abs(L([d[k], d[k + 1], d[k + 2]]) - L([d[k + 4], d[k + 5], d[k + 6]])); c++; } return t / (c || 1); };
+    const edge_ratio = +(((texAt(0.25, 0.33) + texAt(0.67, 0.75)) / 2) / Math.max(1, texAt(0.42, 0.58))).toFixed(3);
+    const medL = ls[ls.length >> 1], wetPx0 = road.filter(p => L(p) < medL * 0.72 && (Math.max(...p) - Math.min(...p)) / Math.max(1, Math.max(...p)) < 0.28), wm = med(wetPx0) || [0, 0, 0];
+    const wetPx = wm[2] > wm[0] + 3 ? [] : wetPx0, wet = wetPx.length / road.length; // lo oscuro y azulado es sombra, no humedad
+    // piedras: puntitos más claros que su entorno en la franja de abajo (el ancho del camino ≈ 5 m)
+    let pk = 0, pn = 0; for (let yy = Math.floor(0.8 * H); yy < 0.96 * H; yy++) for (let xx = Math.floor(0.3 * W) + 1; xx < 0.7 * W - 1; xx++) { const k = (yy * W + xx) * 4, c0 = L([d[k], d[k + 1], d[k + 2]]);
+      let m = 0; for (const o of [-4, 4, -W * 4, W * 4]) m += L([d[k + o], d[k + o + 1], d[k + o + 2]]); if (c0 > m / 4 + 14 && c0 >= L([d[k - 4], d[k - 3], d[k - 2]]) && c0 >= L([d[k - W * 4], d[k - W * 4 + 1], d[k - W * 4 + 2]])) pk++; pn++; }
+    const mpp = 5 / (0.4 * W * 1.6), densM = pk / Math.max(1, pn * mpp * mpp);
+    const sheenPx = band.filter(p => L(p) > medL * 1.25 && p[2] >= p[0] - 4), sheen = sheenPx.length / band.length;
+    const vg = [...px(0, 0.5, 0.2, 0.72), ...px(0.8, 0.5, 1, 0.72)], gp = vg.filter(p => p[1] > p[0] + 6), dp = vg.filter(p => p[0] > p[2] + 25 && !(p[1] > p[0] + 6));
+    const mat = { pal, dens: Math.round(Math.min(260, densM)), edge_ratio, wet: +wet.toFixed(3), wet_col: wet > 0.06 ? med(wetPx) : null, sheen_col: sheen > 0.01 && wet > 0.06 ? med(sheenPx) : null,
+      verge: vg.length ? { green: +(gp.length / vg.length).toFixed(3), dry: +(dp.length / vg.length).toFixed(3), col: med(vg), green_col: gp.length > 50 ? med(gp) : null, dry_col: dp.length > 50 ? med(dp) : null } : null };
+    return { ok: true, env, hash, w: bmp.width, h: bmp.height, roadShare, rough, sideOther, road: sun, shade, verge, stones: Math.min(0.05, stones * 0.35), dry: Math.min(1, dry), forest: Math.min(1, forest), mat };
   },
   async add(file) {
     const blob = file, a = await this.analyze(blob), id = 'ref_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-    const rec = { id, name: file.name, blob, added: Date.now(), ll: null, note: '', use: false, a }; // las fotos cargadas a mano solo sirven para comparar
+    const rec = { id, name: file.name, blob, added: Date.now(), ll: null, note: '', use: true, user: true, a }; // las fotos que subís se usan solas para los materiales del camino
+    PHOTOMAT.dirty = true;
     await LOCAL.put('refs', id, rec); return rec;
   },
   // color del piso en el km d: de las fotos del camino más cercanas a lo largo del recorrido; si no hay cerca, el promedio
@@ -1344,26 +1367,13 @@ async function renderPhotoPanel() {
 }
 const sw = c => c ? `<span style="display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;background:rgb(${c.join(',')});border:1px solid #0006"></span>` : '—';
 async function renderRefs() {
-  const el = $('#refList'); if (!el) return; await REFS.load();
-  if (!REFS.list.length) { el.innerHTML = '<div class="mut" style="margin:4px 0">Sin fotos todavía. Sirven capturas de Street View, de Google Earth o fotos tuyas tomadas desde el camino.</div>'; return; }
-  el.innerHTML = REFS.list.map(r => `<div class="refrow" data-id="${r.id}" style="display:flex;gap:8px;align-items:center;margin:6px 0">
-    <img data-thumb="${r.id}" style="width:96px;height:48px;object-fit:cover;border-radius:4px;opacity:${r.use ? 1 : 0.4}">
-    <div style="flex:1;min-width:0;font-size:12px"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
-    <div class="mut">${r.a && r.a.ok ? `piso ${sw(r.a.road)} sombra ${sw(r.a.shade)} banquina ${sw(r.a.verge)} · piedras ${Math.round(r.a.stones * 1000) / 10}%` : 'no se reconoció el camino en la foto'}</div>
-    <input data-ll="${r.id}" placeholder="lat, lon (de Google Maps)" value="${r.ll ? r.ll.join(', ') : ''}" style="width:170px;margin-top:2px"> <button class="b" data-go="${r.id}" title="Ver ese punto en el 3D">Ir</button> ${r.auto ? `<button class="b" data-use="${r.id}">${r.use ? 'Usar ✓' : 'No usar'}</button> <a href="${r.url}" target="_blank" rel="noopener">ver</a> ${r.date || ''} <span class="mut">${r.license || ''}</span>` : '<span class="mut">solo para comparar</span>'} <button class="b" data-del="${r.id}">✕</button></div></div>`).join('');
-  for (const r of REFS.list) { const im = el.querySelector(`[data-thumb="${r.id}"]`); if (im) im.src = URL.createObjectURL(r.blob); }
-  el.querySelectorAll('[data-ll]').forEach(i => i.onchange = async () => { const r = REFS.list.find(q => q.id === i.dataset.ll), ll = parseLL(i.value); r.ll = ll; await LOCAL.put('refs', r.id, r); });
-  el.querySelectorAll('[data-use]').forEach(b => b.onclick = async () => { const r = REFS.list.find(q => q.id === b.dataset.use); r.use = !r.use; await LOCAL.put('refs', r.id, r); renderRefs(); });
-  el.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { await LOCAL.del('refs', b.dataset.del); renderRefs(); });
-  el.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { const r = REFS.list.find(q => q.id === b.dataset.go), R = S.result;
-    if (!r.ll) { log('Pegá las coordenadas de la foto (clic derecho en Google Maps → copiar coordenadas).', 'err'); return; }
-    if (!R || !R.res || !R.P) { log('Generá la pista primero para ir a ese punto en el 3D.', 'err'); return; }
-    const [px, py] = R.P.fwd(r.ll[0], r.ll[1]); let bi = 0, bd = Infinity; R.res.C.forEach((c, i) => { const dd = Math.hypot(c[0] - px, c[1] - py); if (dd < bd) { bd = dd; bi = i; } });
-    if (bd > 150) { log(`La foto está a ${Math.round(bd)} m del recorrido: revisá las coordenadas.`, 'err'); return; }
-    const k = $('#navKm'); if (k) { k.value = Math.round(R.res.dist[bi] / R.res.total * 1000); k.dispatchEvent(new Event('input', { bubbles: true })); }
-    log(`Foto "${r.name}": km ${(R.res.dist[bi] / 1000).toFixed(2)} del tramo, a ${Math.round(bd)} m del eje. Compará la vista "a ras del piso" con la foto.`, 'ok'); });
-  const c = REFS.cal;
-  if (c) el.insertAdjacentHTML('beforeend', `<div class="mut" style="margin:4px 0">Calibración con ${c.n} foto(s): piso ${sw(c.road)} · banquina ${sw(c.verge)} · piedras sueltas ${Math.round(c.stones * 1000) / 10}% · pasto seco ${Math.round(c.dry * 100)}%. Fuentes: fotos libres de Wikimedia Commons, Panoramax o Mapillary (cada una con su licencia, ver "ver").</div>`);
+  const el = $('#refList'); if (!el) return; await REFS.load(); const mine = REFS.list.filter(r => !r.auto);
+  if (!mine.length) { el.innerHTML = '<div class="mut" style="margin:4px 0">Subí fotos del camino (tuyas, de Street View o de Google Earth): la app detecta sola el color del piso, las piedras, la humedad y los bordes, y arma los materiales.</div>'; return; }
+  const tag = r => r.a && r.a.ok ? [r.a.mat && r.a.mat.dens > 150 ? 'mucha piedra' : 'ripio', r.a.mat && r.a.mat.wet > 0.04 ? 'húmedo' : 'seco'].join(' · ') : 'no se ve el camino';
+  el.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0">${mine.map(r => `<div style="position:relative;width:88px" title="${r.name}"><img data-thumb="${r.id}" style="width:88px;height:56px;object-fit:cover;border-radius:4px;opacity:${r.a && r.a.ok ? 1 : 0.4}"><div class="mut" style="font-size:10px;line-height:1.2">${tag(r)}</div><button class="b" data-del="${r.id}" title="Quitar" style="position:absolute;top:2px;right:2px;padding:0 5px">×</button></div>`).join('')}</div>
+    <div class="mut">${mine.filter(r => r.a && r.a.ok).length} de ${mine.length} fotos muestran el camino y se usan para los materiales.</div>`;
+  for (const r of mine) { const im = el.querySelector(`[data-thumb="${r.id}"]`); if (im) im.src = URL.createObjectURL(r.blob); }
+  el.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { await LOCAL.del('refs', b.dataset.del); PHOTOMAT.dirty = true; renderRefs(); });
 }
 if ($('#refFile')) $('#refFile').onchange = async ev => { for (const f of ev.target.files) { try { const r = await REFS.add(f); log(`Referencia "${f.name}": ${r.a.ok ? 'camino reconocido, colores medidos.' : 'no se reconoció el camino (sirve igual para comparar).'}`, r.a.ok ? 'ok' : ''); } catch (e) { log('No se pudo leer ' + f.name, 'err'); } } ev.target.value = ''; renderRefs(); };
 if ($('#refCal')) $('#refCal').onchange = () => renderRefs();
@@ -2487,6 +2497,30 @@ function dxt1Encode(img, w, h) {
 // Las fotos se analizaron una vez (colores, piedras, huellas, humedad, bordes y banquinas) y acá se guardan solo esas
 // medidas, no las fotos. Con ellas se generan materiales propios (albedo + relieve + normal), que el satélite reparte
 // a lo largo del recorrido. Las alturas de piedras y huellas son estimaciones visuales: no hay datos geométricos de ellas.
+
+// ---------- Bioma / región: un solo selector que ajusta vegetación, suelo, piedras, cunetas y relieve ----------
+const BIOMES = {
+  auto: { name: 'Automático', info: 'Se decide solo por el satélite: bosque, campo, humedad y piso del camino, tramo por tramo.', set: { forest: 'auto', season: 'summer', density: '1', gravelStyle: 'auto', grassType: 'auto', rocks: '1', ditch: 'auto', relief: '1', fences: 'auto' } },
+  forest: { name: 'Patagonia bosque', info: 'Lengas con hojas, ripio marrón con huellas, zanjas cavadas, pocas piedras grandes.', set: { forest: 'broad', season: 'summer', density: '1.8', gravelStyle: 'forest', grassType: 'green', rocks: '0.6', ditch: 'auto', relief: '1', fences: 'auto' } },
+  forestw: { name: 'Patagonia bosque (otoño/invierno)', info: 'Lengas sin hojas, piso más húmedo y roto, zanjas con barro.', set: { forest: 'broad', season: 'winter', density: '1.8', gravelStyle: 'ab', grassType: 'dry', rocks: '0.6', ditch: 'auto', relief: '1.6', fences: 'auto' } },
+  steppe: { name: 'Estepa patagónica', info: 'Campo abierto con coirón seco, ripio gris de canto rodado, alambrados, cunetas bajas.', set: { forest: 'auto', season: 'summer', density: '0.5', gravelStyle: 'steppe', grassType: 'dry', rocks: '1', ditch: 'auto', relief: '0.6', fences: 'always' } },
+  wet: { name: 'Zona húmeda', info: 'Turba y mallín: cunetas bajas con agua y blandas, piso con baches, surcos y barro.', set: { forest: 'auto', season: 'winter', density: '0.5', gravelStyle: 'ab', grassType: 'dry', rocks: '0.6', ditch: 'both', relief: '1.6', fences: 'auto' } },
+  mountain: { name: 'Montaña', info: 'Roca a los costados, ripio suelto, cunetas con piedra en las laderas y nieve en lo alto.', set: { forest: 'pine', season: 'summer', density: '0.5', gravelStyle: 'steppe', grassType: 'dry', rocks: '1.8', ditch: 'auto', relief: '1', fences: 'none', snow: true } },
+};
+function applyBiome(v, quiet) {
+  const B0 = BIOMES[v] || BIOMES.auto;
+  for (const [id, val] of Object.entries(B0.set)) { const el = $('#' + id); if (!el) continue; if (el.type === 'checkbox') el.checked = !!val; else el.value = val; el.dispatchEvent(new Event('change', { bubbles: true })); }
+  if (v !== 'mountain' && $('#snow') && $('#snow').checked && !quiet) { $('#snow').checked = false; $('#snow').dispatchEvent(new Event('change', { bubbles: true })); }
+  if ($('#biomeInfo')) $('#biomeInfo').textContent = B0.info + (v === 'auto' ? '' : ' Lo podés retocar en "Avanzado".');
+}
+if ($('#biome')) { $('#biome').onchange = () => applyBiome($('#biome').value); setTimeout(() => { if ($('#biomeInfo')) $('#biomeInfo').textContent = (BIOMES[$('#biome').value] || BIOMES.auto).info; }, 0); }
+// bioma que se ve en el satélite (para el modo automático): se informa al generar
+function detectBiome(total) {
+  const SA = S.autoSurf && S.autoSurf.at; if (!SA) return null; let f = 0, l = 0, c = 0;
+  for (let d = 0; d <= total; d += 100) { const q = SA(d); if (!q) continue; f += Math.min(1, q.forest / 1.1); l += q.lum ?? 128; c++; }
+  if (!c) return null; f /= c; l /= c; const hum = RELIEF.H ? RELIEF.H.reduce((a, v) => a + v, 0) / RELIEF.H.length : 0.3;
+  return f > 0.55 ? 'Patagonia bosque' : hum > 0.5 || l < 105 ? 'Zona húmeda' : 'Estepa / campo abierto';
+}
 // ---------- Relieve del piso y humedad del camino ----------
 // Humedad (0 firme y seco … 1 barro) a lo largo del recorrido: camino más oscuro en el satélite, hondonadas (las mide el
 // núcleo con la altura) y tramos de huellones. Con ella varía el relieve: pocos baches en lo firme, muchos y hondos en lo
@@ -2526,7 +2560,12 @@ const PHOTOMAT = {
   st: (() => { try { return JSON.parse(localStorage.getItem('abMat') || 'null'); } catch (e) { return null; } })() || { use: {}, p: { stones: 1, tone: 0, warm: 0, scale: 1, ruts: 1, rutDepth: 0.1 }, ov: [] },
   save() { try { localStorage.setItem('abMat', JSON.stringify(this.st)); } catch (e) { } this.dirty = true; },
   used(p) { return this.st.use[p.id] ?? (p.status === 'confirmada'); },
-  usable() { return this.REF.photos.filter(p => this.used(p)); },
+  // fotos que subió el usuario (cualquier lugar): se analizan solas y pasan a ser referencia del camino de este proyecto
+  userPhotos() { return (REFS.list || []).filter(r => r.user && r.use !== false && r.a && r.a.ok && r.a.mat).map(r => { const a = r.a, m = a.mat, f = [];
+      if (m.dens > 60) f.push('ripio'); if (m.dens > 150) f.push('piedra suelta'); f.push('huellas'); if (m.wet > 0.06) f.push('sectores húmedos'); if (m.wet > 0.12 && m.sheen_col) f.push('huellones (surcos de barro)'); if (m.edge_ratio > 1.12) f.push('grava acumulada en los bordes');
+      return { id: r.id, file: r.name, src: 'Foto que subiste', status: 'confirmada', quality: 'buena', desc: 'Analizada automáticamente', w: a.w, h: a.h, orient: a.w > a.h ? 'horizontal' : 'vertical', hash: a.hash, albedo: a.road.map(v => Math.round(v * 0.9)), pal: m.pal,
+        stones: { claras: { dens: m.dens, d25: 0.008, d50: 0.012, d90: 0.025, col: null }, oscuras: { col: null } }, edge_ratio: m.edge_ratio, wet: m.wet, wet_col: m.wet_col, sheen_col: m.sheen_col, verge: m.verge, feats: f, lum_sd: 30, user: true }; }); },
+  usable() { return [...(this.nearAB !== false ? this.REF.photos.filter(p => this.used(p)) : []), ...this.userPhotos()]; },
   weight(p) { return (p.status === 'confirmada' ? 1 : 0.6) * (/^buena/.test(p.quality) ? 1 : /^media/.test(p.quality) ? 0.8 : 0.5); },
   // paleta combinada de varias fotos (colores con su peso), reducida a 6 tonos ordenados de oscuro a claro
   palette(list, pick = () => true, minK = 0.72) {
@@ -2570,9 +2609,10 @@ const PHOTOMAT = {
   },
   active(B, res) {
     const mode = ($('#photoMat') && $('#photoMat').value) || 'auto';
+    const C = res.C[res.C.length >> 1], [la, lo] = B.P.inv(C[0], C[1]), near = Math.hypot((la - this.CENTER[0]) * 111320, (lo - this.CENTER[1]) * 111320 * Math.cos(la * D2R)) < this.RADIUS;
+    if (near !== this.nearAB) { this.nearAB = near; this.dirty = true; }
     if (mode === 'off' || !this.REF) return false; if (mode === 'on') return true;
-    const C = res.C[res.C.length >> 1], [la, lo] = B.P.inv(C[0], C[1]);
-    return Math.hypot((la - this.CENTER[0]) * 111320, (lo - this.CENTER[1]) * 111320 * Math.cos(la * D2R)) < this.RADIUS;
+    return near || this.userPhotos().length > 0;
   },
   // reparto a lo largo del recorrido (cada 20 m) según el satélite: más claro → ripio y tierra clara;
   // bosque cerrado → grava gris; más oscuro → tierra compactada o húmeda. Cambios suaves (~400 m).
@@ -2617,7 +2657,8 @@ const PHOTOMAT = {
     this.zones = [];
     const mode = this.st.huellon || 'auto', mid = pts[pts.length >> 1], [la, lo] = B.P.inv(mid[0], mid[1]);
     const near = Math.hypot((la - this.CENTER[0]) * 111320, (lo - this.CENTER[1]) * 111320 * Math.cos(la * D2R)) < this.RADIUS, matMode = ($('#photoMat') && $('#photoMat').value) || 'auto';
-    if (mode === 'off' || matMode === 'off' || (matMode === 'auto' && !near)) return this.zones;
+    if (near !== this.nearAB) { this.nearAB = near; this.dirty = true; }
+    if (mode === 'off' || matMode === 'off' || (matMode === 'auto' && !near && !this.userPhotos().length)) return this.zones;
     if (this.dirty || !this.all) this.build();
     if (!this.hasRuts()) return this.zones;
     for (const v of this.st.ov) if (v.mat === 'AB_05') this.zones.push({ a: v.a * 1000, b: v.b * 1000, hand: true });
@@ -3013,6 +3054,7 @@ async function rebuild(keepCam) {
     S.live = { routeArgs, cache: { keyFn: () => JSON.stringify(S.edits.filter(e => e.kind === 'shape')) }, sideArgs: null, sideSegs: [] };
     res = Core.buildRoute({ ...routeArgs, ...editFns(o, S.lastTotal, B.closed), cache: S.live.cache });
     S.lastTotal = res.total;
+    if ($('#biome') && $('#biome').value === 'auto') { const bd = detectBiome(res.total); if (bd) log(`Bioma detectado en el satélite: ${bd}. Vegetación, suelo, piedras, cunetas y relieve se ajustan solos por tramo.`); }
     { const H = res.HUM || [], wet = H.filter(v => v > 0.55).length / (H.length || 1), dry = H.filter(v => v < 0.3).length / (H.length || 1), hol = (res.HO || []).filter(v => v > 0.3).length * 2;
       if (RELIEF.A) log(`Relieve del piso: ${Math.round(dry * 100)}% firme (pocos baches), ${Math.round(wet * 100)}% húmedo (baches, surcos de agua y piso blando)${hol ? `, ${(hol / 1000).toFixed(2)} km en hondonadas` : ''}${RELIEF.ok ? ' — humedad según el satélite y la altura' : ' — sin satélite: humedad por ruido'}. Morros suaves cada ~260 m. Todo en la malla del camino: la suspensión lo absorbe, sin golpes secos.`);
       if (res.accessPts && res.accessPts.length) log(`Accesos y entradas: ${res.accessPts.length} (${res.accessPts.filter(a => a.osm).length} de caminos de OpenStreetMap, el resto agregados donde el terreno es llano). La cuneta se corta y sale un paso de tierra.`); }
@@ -3021,7 +3063,7 @@ async function rebuild(keepCam) {
     res.zone = useZ ? { pres: ZPRE - 30, start: ZPRE, finish: res.total - ZPOST, stop: res.total - ZPOST + 30 } : null;
     if (useZ) log('Largada y llegada: se tomaron 30 m antes de la largada para la presentación (control horario) y 30 m después de la llegada para el control stop, donde se entrega el carnet y los tiempos. El reloj corre desde la largada hasta la llegada.');
     if (o.roadTex) { try { log('Armando la textura continua del camino…'); await tick(); const st = buildRoadStrips(B, res, o);
-      if (st && st.ab) { const M = PHOTOMAT.all, U = PHOTOMAT.usable(); log(`Materiales desde fotos reales de Aguas Blancas: ${U.length} fotos usadas (${U.filter(p => p.status === 'confirmada').length} confirmadas), ${M.length} materiales (${M.map(m => m.id).join(', ')}). El satélite los reparte por sector; detalle en "Reconstrucción de materiales desde fotos reales".`, 'ok'); }
+      if (st && st.ab) { const M = PHOTOMAT.all, U = PHOTOMAT.usable(); log(`Materiales desde fotos reales: ${U.length} fotos usadas (${U.filter(p => !p.user).length} de Aguas Blancas, ${U.filter(p => p.user).length} que subiste), ${M.length} materiales (${M.map(m => m.id).join(', ')}). El satélite los reparte por sector; detalle en "Reconstrucción de materiales desde fotos reales".`, 'ok'); }
       if (st) log(`Textura del camino: ${st.n} tramos de ${STRIP_LEN} m · ${Math.round(st.real * 100)}% de ortofoto real, ${Math.round((1 - st.real) * 100)}% generado (ripio sin patrón repetido, huellas y piedras en los bordes).`); } catch (e) { log('Textura del camino: ' + e.message, 'err'); } }
     meshes.push(...res.meshes, ...cattleMeshes(res)); length = res.total; outline = [res.C];
     res.sideJ = [];
@@ -4192,7 +4234,7 @@ const HELP = {
   roadTex: 'Textura continua del camino: cada 80 m de camino lleva su propia textura que sigue las curvas y el ancho, sin repeticiones visibles. Si cargaste una ortofoto (vuelo de dron) es la foto real del camino; si no, se arma con el ripio, las huellas de las ruedas y piedras sueltas en los bordes (generado). Incluye relieve fino (mapa de normales) que es solo visual: no cambia la física.',
   demSrc: 'Elevación base: Copernicus GLO-30 es el modelo de elevación libre más preciso con cobertura mundial (30 m por píxel, radar 2011–2015). Se descarga gratis del catálogo abierto de HOT y queda guardado en la compu. Donde no hay dato, se completa con Terrarium (SRTM y otras). Los dos son modelos de 30 m: no reproducen cunetas ni baches.',
   freeImg: 'Imágenes libres del recorrido: busca sola en OpenAerialMap y en los datos abiertos de Maxar imágenes de drones o satélites con licencia libre (de 3 cm a 1 m por píxel). Si cubren el camino, se usan para la textura del camino y sus costados, con su atribución en LICENCIAS_DATOS.txt. Si no hay (lo más común en zonas rurales), sigue con Sentinel-2. Costo: cero.',
-  refFile: 'Fotos cargadas a mano: solo para comparar con el 3D (no calibran nada). Pegá sus coordenadas para ir a ese punto. Nunca se incluyen en la pista.',
+  refFile: 'Fotos del camino que subís: se analizan solas (color del piso, piedras, humedad, bordes) y arman los materiales del camino. Nunca se incluyen en la pista.',
   refCal: 'Fotos del lugar automáticas: al generar, busca fotos libres geolocalizadas cerca del recorrido en Wikimedia Commons y Panoramax (sin registrarse), y en Mapillary si cargaste su token. Solo usa las que muestran un camino, y mide el color del piso, la banquina y las piedras sueltas. Las fotos nunca se incluyen en la pista.',
   mlyToken: 'Token gratuito de Mapillary: entrá a mapillary.com, creá una cuenta, andá a Dashboard → Developers → Register application y copiá el "Client Token" (empieza con MLY|). Queda guardado solo en esta compu.',
   matSrc: 'Materiales del suelo: la biblioteca libre usa fotos de materiales reales de Poly Haven (licencia CC0: uso libre, también comercial), con su escala real en metros. Se descarga una sola vez y sirve para todos los caminos del mundo. "Fotos de la app" usa las texturas tomadas en Tierra del Fuego.',
@@ -4234,6 +4276,7 @@ const HELP = {
   autoMargin: 'Terreno automático: donde el camino va por bosque cerrado a los dos lados se generan solo ~50 m de terreno (los árboles tapan la vista) y en el campo abierto el margen completo. La pista pesa menos y carga más rápido.',
   margin: 'Margen de terreno: cuántos metros de campo se generan a cada lado del camino (como máximo). Más margen = más paisaje pero archivo más pesado.',
   hsmooth: 'Suavizado de alturas: alisa los saltos de la elevación del satélite para que el camino no tenga escalones falsos.',
+  biome: 'Un solo ajuste para el ambiente: vegetación, época, color del suelo, tipo de ripio, piedras, cunetas y relieve del piso. Automático = lo decide el satélite tramo por tramo.',
   relief: 'Relieve del piso: pocos baches donde el suelo es firme; muchos baches, surcos de agua y piso blando donde es húmedo (según el satélite y las hondonadas). Morros suaves cada tanto. Está en la malla: el auto los pasa por encima y la suspensión los absorbe.',
   access: 'Entradas a propiedades y cruces de senderos: cortan la cuneta y dejan un paso de tierra. Se toman de OpenStreetMap y se agregan algunas donde el terreno es llano.',
   ditch: 'Cunetas: zanja en V con fondo de barro y agua, berma de piedras del lado del camino y contratalud del otro lado, que sube hasta el terreno real (o baja, si el camino va en terraplén). Automática: a los dos lados, más honda del lado del cerro, y sin cuneta donde el terreno cae fuerte.',

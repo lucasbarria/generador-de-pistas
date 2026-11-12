@@ -124,91 +124,108 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
     <section id="recover" style="display:none;background:#1f2a1f"><div id="recoverInfo" class="mut"></div><div class="row"><button class="b" id="recoverYes">Recuperar</button><button class="b" id="recoverNo">Descartar</button></div></section>
     <section class="row" style="padding-top:10px;padding-bottom:10px"><button class="b" id="saveProj">💾 Guardar proyecto</button><label class="b" style="cursor:pointer">📂 Abrir proyecto<input type="file" id="openProj" accept=".json" hidden></label></section>
     <section>
-      <h2>1 · Qué querés crear</h2>
+      <h2>1 · Trazado y mapa</h2>
       <div class="tabs"><button class="tab" data-mode="route">Tramo / circuito</button><button class="tab" data-mode="area">Zona abierta</button></div>
       <div data-only="route">
         <div class="row" style="margin-top:10px"><button class="b" id="undo">Deshacer punto</button><button class="b" id="clear">Borrar todo</button></div>
         <label class="f" style="margin-top:10px">Cómo marcar <select id="traceMode"><option value="pick" selected>Calle por calle</option><option value="free">Línea libre</option><option value="auto">Ruta automática</option></select></label>
-        <div class="row"><label><input type="checkbox" id="closed"> Circuito cerrado</label><button class="b" id="loadNet">Recargar calles de la vista</button></div>
-        <div class="row"><label title="Para partes del tramo que no figuran en el mapa: cada clic agrega un punto, sin seguir calles (Ctrl+clic hace lo mismo)"><input type="checkbox" id="freePts"> Puntos libres (tramo sin calle en el mapa)</label></div>
-        <div class="row"><label title="Clic en una calle del mapa para agregarla como camino lateral (sale del tramo o lo cruza). Clic sobre una naranja para quitarla."><input type="checkbox" id="sideRoads"> Marcar caminos laterales</label><button class="b" id="clearSide">Borrar laterales</button></div>
-        <label class="b gpsbtn">📍 Importar GPS (video GoPro, GPX, KML, CSV)<input type="file" id="gpsFile" hidden></label>
         <div class="stage"><input id="stA" placeholder="Inicio: -54.6262612, -67.2421884"><input id="stB" placeholder="Fin (opcional)"><button class="b" id="goStage">Ir al tramo</button></div>
         <div class="row"><label><input type="checkbox" id="avoidMain" checked> Evitar rutas principales</label><button class="b" id="findAlt">Buscar caminos reales</button></div>
-        <label class="f">Elevación base <select id="demSrc"><option value="auto" selected>Copernicus GLO-30 (si no hay, Terrarium)</option><option value="terrarium">Terrarium (SRTM y otras)</option></select></label>
-        <label class="b gpsbtn">📐 Importar elevación (GeoTIFF: MDE-Ar del IGN, LiDAR…)<input type="file" id="demFile" accept=".tif,.tiff" multiple hidden></label>
-        <details class="texbox"><summary>Fuentes de elevación y precisión</summary><div id="elevInfo" class="mut"></div></details>
-        <label class="f">Textura continua del camino <span><input type="checkbox" id="roadTex" checked></span></label>
-        <label class="f">Piso arcilloso <select id="clay"><option value="auto" selected>Automático (por tramo)</option><option value="0.15">Poco (ripio suelto)</option><option value="0.4">Medio</option><option value="0.65">Mucho (tierra/arcilla)</option></select></label>
-        <label class="f">Texturas reales del terreno <select id="realTex"><option value="s2_2016" selected>Sentinel-2 2016 (libre, CC BY)</option><option value="s2_2024">Sentinel-2 2024 (no comercial)</option><option value="none">No (texturas generadas)</option></select></label>
-        <details class="texbox"><summary>Reconstrucción de materiales desde fotos reales</summary><div class="mut">REAL PHOTO MATERIAL RECONSTRUCTION: materiales del camino generados a partir de las fotos reales de Aguas Blancas (colores, piedras, huellas, humedad, bordes). El satélite los reparte a lo largo del recorrido. Las fotos no se exportan.</div>
-          <label style="display:block;margin:6px 0">Usar materiales de fotos reales <select id="photoMat"><option value="auto">Automático (tramos de Aguas Blancas)</option><option value="on">Siempre</option><option value="off">No</option></select></label>
-          <div id="abPanel"></div></details>
-        <details class="texbox"><summary>Fotos reales del recorrido (automático)</summary><div class="mut">Al generar, la app busca sola fotos libres del lugar (Wikimedia Commons, Panoramax, Mapillary), verifica que muestren el camino y las usa para calibrar materiales km a km. Nunca se incluyen en la pista exportada.</div><div id="photoPanel" style="margin:6px 0"></div><label class="f">Buscar fotos reales al generar <span><input type="checkbox" id="refCal" checked></span></label><label class="f">Token de Mapillary (opcional) <input id="mlyToken" placeholder="MLY|…" style="width:160px"></label><label class="b gpsbtn">📷 Agregar fotos para comparar<input type="file" id="refFile" accept="image/*" multiple hidden></label><div id="refList"></div></details>
-        <label class="f">Buscar imágenes libres del recorrido <span><input type="checkbox" id="freeImg" checked></span></label>
-        <label class="f">Materiales del suelo <select id="matSrc"><option value="auto" selected>Automático (biblioteca libre si está guardada)</option><option value="lib">Biblioteca libre (Poly Haven, CC0)</option><option value="app">Fotos de la app</option></select></label>
-        <details class="texbox"><summary>Biblioteca de materiales libres</summary><div id="libInfo" class="mut"></div><div style="margin-top:6px"><button class="b" id="libDl">Descargar biblioteca básica (una sola vez)</button> <button class="b" id="libExp">Exportar</button> <label class="b">Importar<input type="file" id="libImp" accept=".zip" hidden></label> <button class="b" id="cacheClr">Vaciar caché de descargas</button></div></details>
-        <label class="b gpsbtn">🛰️ Importar ortofoto (GeoTIFF RGB: dron, IGN…)<input type="file" id="orthoFile" accept=".tif,.tiff" multiple hidden></label>
-        <details class="texbox"><summary>Fuentes de imágenes y licencias</summary><div id="imgInfo" class="mut"></div></details>
         <div class="mut" id="routeInfo">Sin recorrido todavía.</div>
-        <div class="mut">Calle por calle: vos elegís el camino en cada cruce. Línea libre: para huellas que no están en el mapa. Azul = calles, marrón = tierra.</div>
+        <details class="texbox"><summary>Más opciones de trazado</summary>
+<div class="row"><label><input type="checkbox" id="closed"> Circuito cerrado</label><button class="b" id="loadNet">Recargar calles de la vista</button></div>
+<div class="row"><label title="Para partes del tramo que no figuran en el mapa: cada clic agrega un punto, sin seguir calles (Ctrl+clic hace lo mismo)"><input type="checkbox" id="freePts"> Puntos libres (tramo sin calle en el mapa)</label></div>
+<div class="row"><label title="Clic en una calle del mapa para agregarla como camino lateral (sale del tramo o lo cruza). Clic sobre una naranja para quitarla."><input type="checkbox" id="sideRoads"> Marcar caminos laterales</label><button class="b" id="clearSide">Borrar laterales</button></div>
+<label class="b gpsbtn">📍 Importar GPS (video GoPro, GPX, KML, CSV)<input type="file" id="gpsFile" hidden></label>
+<div class="mut">Calle por calle: vos elegís el camino en cada cruce. Línea libre: para huellas que no están en el mapa. Azul = calles, marrón = tierra.</div>
+</details>
       </div>
       <div data-only="area">
-        <div class="row" style="margin-top:10px"><button class="b" id="drawRect">Dibujar zona</button><button class="b" id="loadWays">Ver calles</button><button class="b" id="pickSpawn">Marcar salida</button></div>
-        <div class="mut" id="areaInfo">Todas las calles de la zona, con su ancho real aproximado. Ideal hasta 2–4 km².</div>
-      </div>
+<div class="row" style="margin-top:10px"><button class="b" id="drawRect">Dibujar zona</button><button class="b" id="loadWays">Ver calles</button><button class="b" id="pickSpawn">Marcar salida</button></div>
+<div class="mut" id="areaInfo">Todas las calles de la zona, con su ancho real aproximado. Ideal hasta 2–4 km².</div>
+</div>
       <div id="hint"></div>
     </section>
     <section>
-      <h2>2 · Ajustes</h2>
-      <label class="f">Nombre de la pista <input id="tname" value="Mi pista"></label>
+      <h2>2 · Entorno y bioma</h2>
+      <label class="f">Bioma / región <select id="biome"><option value="auto" selected>Automático (según el satélite del lugar)</option><option value="forest">Patagonia bosque (lenga) · primavera/verano</option><option value="forestw">Patagonia bosque (lenga) · otoño/invierno</option><option value="steppe">Estepa patagónica (seca, coirón)</option><option value="wet">Zona húmeda (turba, mallín, barro)</option><option value="mountain">Montaña (roca y nieve)</option></select></label>
+      <div class="mut" id="biomeInfo" style="margin:2px 0 6px"></div>
       <div data-only="route">
-        <label class="f">Altura del camino desde el GPS (si hay) <span><input type="checkbox" id="gpsAlt" checked></span></label>
-        <label class="f">Relieve real junto al camino <span><input type="checkbox" id="edgeFix" checked></span></label>
-        <label class="f">Ancho automático (satélite) <span><input type="checkbox" id="autoWidth" checked></span></label>
-        <label class="f">Ancho fijo / por defecto (m) <input id="width" type="number" value="7" min="3" max="20" step="0.5"></label>
-        <label class="f">Superficie <select id="surface"><option value="auto" selected>Automática (mapa + satélite)</option><option value="asphalt">Asfalto</option><option value="gravel">Tierra / ripio</option></select></label>
-        <label class="f">Líneas pintadas <span><input type="checkbox" id="lines" checked></span></label>
-        <label class="f">Terreno automático (menos en bosque) <span><input type="checkbox" id="autoMargin" checked></span></label>
-        <label class="f">Terreno a cada lado (m) <input id="margin" type="number" value="150" min="20" max="1000" step="10"></label>
-        <label class="f">Suavizado de pendiente (m) <input id="hsmooth" type="number" value="40" min="0" max="200" step="5"></label>
-        <label class="f">Cunetas <select id="ditch"><option value="none">Sin cunetas</option><option value="auto" selected>Automática (según la ladera)</option><option value="both">Ambos lados</option></select></label>
         <label class="f">Relieve del piso (baches, surcos, morros) <select id="relief"><option value="0">Liso</option><option value="0.6">Suave</option><option value="1" selected>Real (según humedad)</option><option value="1.6">Muy roto</option></select></label>
-        <label class="chk"><input type="checkbox" id="access" checked> Accesos y entradas laterales (cortan la cuneta)</label>
-        <label class="f">Piedras al costado <select id="rocks"><option value="0">Ninguna</option><option value="0.6">Pocas</option><option value="1" selected>Según el terreno</option><option value="1.8">Muchas</option></select></label>
-        <label class="f">Peralte automático máx. (°) <input id="autobank" type="number" value="0" min="0" max="20" step="1"></label>
       </div>
       <label class="f">Vegetación y suelos reales <span><input type="checkbox" id="veg" checked></span></label>
-      <label class="f">Árboles con choque <span><input type="checkbox" id="treeHit" checked></span></label>
-      <label class="f">Tipo de bosque <select id="forest"><option value="auto" selected>Automático (según altura)</option><option value="broad">De hoja (lenga, ñire, eucalipto)</option><option value="pine">Pinos / coníferas</option></select></label>
-      <label class="f">Árboles desde el borde (m) <input id="treeClear" type="number" value="0.8" min="0.3" max="20" step="0.5"></label>
-      <label class="f">Densidad de árboles <select id="density"><option value="0.5">Baja</option><option value="1" selected>Media</option><option value="1.8">Alta</option></select></label>
-      <label class="f">Tipo de ripio <select id="gravelStyle"><option value="auto" selected>Automático según la zona (satélite)</option><option value="forest">Bosque (marrón, con huellas)</option><option value="steppe">Estepa (gris, canto rodado)</option><option value="ab">Aguas Blancas (húmedo)</option></select></label>
-      <label class="f" title="Usa grupos de árboles recortados de fotos. Se ven como paneles de cerca: solo para fondos lejanos">Árboles de fotos (experimental) <span><input type="checkbox" id="photoTrees"></span></label>
-      <label class="f">Época del año <select id="season"><option value="summer" selected>Primavera / verano (con hojas)</option><option value="winter">Otoño / invierno (lengas sin hojas)</option></select></label>
-      <label class="f">Pasto <select id="grassType"><option value="auto" selected>Automático según la zona (satélite)</option><option value="green">Verde</option><option value="dry">Seco (patagónico)</option></select></label>
-      <details class="texbox"><summary>Texturas propias (fotos)</summary><div class="mut">Reemplazá cualquier textura por una foto: del ripio real, del bosque, o texturas fotográficas gratis (ambientCG, Poly Haven). Árboles: PNG con fondo transparente.</div><div id="customTex"></div></details>
       <label class="f">Nieve <span><input type="checkbox" id="snow"></span></label>
       <div id="snowOpts" style="display:none">
-        <label class="f">Nieve desde (m s.n.m.) <input id="snowAlt" type="number" value="2500" step="50"></label>
-        <label class="f">Nieve también en el camino <span><input type="checkbox" id="snowRoad" checked></span></label>
-      </div>
-      <label class="f">Resolución del terreno (m) <select id="res"><option>2</option><option>3</option><option selected>4</option><option>6</option><option>8</option><option>12</option></select></label>
-      <label class="f">Detalle de elevación <select id="zoom"><option value="12">Bajo</option><option value="13">Medio</option><option value="14" selected>Alto</option><option value="15">Máximo</option></select></label>
-      <label class="f" title="El ZIP ya trae el modelo .kn5 listo; los archivos fuente solo sirven para retocarlo a mano en Blender/KsEditor">Incluir archivos fuente (OBJ) <span><input type="checkbox" id="withSrc"></span></label>
-      <label class="f" title="Si en Assetto Corsa los autos aparecen mirando para atrás, marcá esto y volvé a exportar">Invertir dirección de salida <span><input type="checkbox" id="invertSpawn"></span></label>
-      <label class="f">Lugares de salida <input id="pits" type="number" value="4" min="1" max="24"></label>
-      <label class="f" title="Casas y estancias (del mapa y detectadas por los techos en la foto satelital), alambrados y tranqueras">Objetos reales (casas, alambrados, tranqueras) <span><input type="checkbox" id="objects" checked></span></label>
-      <label class="f" title="Cauces de ríos y arroyos del mapa, agua, puentes con guardarraíl y alcantarillas">Ríos, arroyos y puentes <span><input type="checkbox" id="water" checked></span></label>
-      <label class="f" title="Desnivel de la subida y bajada al puente (el tablero queda más alto que el camino)">Rampas de los puentes <select id="bridgeRamp"><option value="none">Sin desnivel</option><option value="soft">Suave (1 m)</option><option value="steep" selected>Empinada (2 m)</option><option value="hard">Muy empinada (3 m, puede saltar)</option></select></label>
-      <label class="f">Alambrados <select id="fences"><option value="auto" selected>Automático (campo/estepa, no en bosque)</option><option value="always">En todo el tramo</option><option value="none">Sin alambrados</option></select></label>
-      <label class="f" title="Agrega 30 m antes de la largada (presentación / control horario) y 30 m después de la llegada (control stop), con pancartas, carteles FIA y reloj. El cronómetro del juego corre de la largada a la llegada.">Largada, llegada y controles (pancartas y reloj) <span><input type="checkbox" id="rallyZones" checked></span></label>
+<label class="f">Nieve desde (m s.n.m.) <input id="snowAlt" type="number" value="2500" step="50"></label>
+<label class="f">Nieve también en el camino <span><input type="checkbox" id="snowRoad" checked></span></label>
+</div>
+      <details class="texbox"><summary>Avanzado: camino</summary>
+<label class="f">Ancho automático (satélite) <span><input type="checkbox" id="autoWidth" checked></span></label>
+<label class="f">Ancho fijo / por defecto (m) <input id="width" type="number" value="7" min="3" max="20" step="0.5"></label>
+<label class="f">Superficie <select id="surface"><option value="auto" selected>Automática (mapa + satélite)</option><option value="asphalt">Asfalto</option><option value="gravel">Tierra / ripio</option></select></label>
+<label class="f">Piso arcilloso <select id="clay"><option value="auto" selected>Automático (por tramo)</option><option value="0.15">Poco (ripio suelto)</option><option value="0.4">Medio</option><option value="0.65">Mucho (tierra/arcilla)</option></select></label>
+<label class="f">Cunetas <select id="ditch"><option value="none">Sin cunetas</option><option value="auto" selected>Automática (según la ladera)</option><option value="both">Ambos lados</option></select></label>
+<label class="chk"><input type="checkbox" id="access" checked> Accesos y entradas laterales (cortan la cuneta)</label>
+<label class="f">Piedras al costado <select id="rocks"><option value="0">Ninguna</option><option value="0.6">Pocas</option><option value="1" selected>Según el terreno</option><option value="1.8">Muchas</option></select></label>
+<label class="f">Líneas pintadas <span><input type="checkbox" id="lines" checked></span></label>
+<label class="f">Peralte automático máx. (°) <input id="autobank" type="number" value="0" min="0" max="20" step="1"></label>
+<label class="f">Suavizado de pendiente (m) <input id="hsmooth" type="number" value="40" min="0" max="200" step="5"></label>
+<label class="f">Altura del camino desde el GPS (si hay) <span><input type="checkbox" id="gpsAlt" checked></span></label>
+<label class="f">Relieve real junto al camino <span><input type="checkbox" id="edgeFix" checked></span></label>
+</details>
+      <details class="texbox"><summary>Avanzado: vegetación y objetos</summary>
+<label class="f">Tipo de bosque <select id="forest"><option value="auto" selected>Automático (según altura)</option><option value="broad">De hoja (lenga, ñire, eucalipto)</option><option value="pine">Pinos / coníferas</option></select></label>
+<label class="f">Época del año <select id="season"><option value="summer" selected>Primavera / verano (con hojas)</option><option value="winter">Otoño / invierno (lengas sin hojas)</option></select></label>
+<label class="f">Densidad de árboles <select id="density"><option value="0.5">Baja</option><option value="1" selected>Media</option><option value="1.8">Alta</option></select></label>
+<label class="f">Árboles desde el borde (m) <input id="treeClear" type="number" value="0.8" min="0.3" max="20" step="0.5"></label>
+<label class="f">Árboles con choque <span><input type="checkbox" id="treeHit" checked></span></label>
+<label class="f" title="Usa grupos de árboles recortados de fotos. Se ven como paneles de cerca: solo para fondos lejanos">Árboles de fotos (experimental) <span><input type="checkbox" id="photoTrees"></span></label>
+<label class="f">Pasto <select id="grassType"><option value="auto" selected>Automático según la zona (satélite)</option><option value="green">Verde</option><option value="dry">Seco (patagónico)</option></select></label>
+<label class="f">Tipo de ripio <select id="gravelStyle"><option value="auto" selected>Automático según la zona (satélite)</option><option value="forest">Bosque (marrón, con huellas)</option><option value="steppe">Estepa (gris, canto rodado)</option><option value="ab">Aguas Blancas (húmedo)</option></select></label>
+<label class="f" title="Casas y estancias (del mapa y detectadas por los techos en la foto satelital), alambrados y tranqueras">Objetos reales (casas, alambrados, tranqueras) <span><input type="checkbox" id="objects" checked></span></label>
+<label class="f" title="Cauces de ríos y arroyos del mapa, agua, puentes con guardarraíl y alcantarillas">Ríos, arroyos y puentes <span><input type="checkbox" id="water" checked></span></label>
+<label class="f" title="Desnivel de la subida y bajada al puente (el tablero queda más alto que el camino)">Rampas de los puentes <select id="bridgeRamp"><option value="none">Sin desnivel</option><option value="soft">Suave (1 m)</option><option value="steep" selected>Empinada (2 m)</option><option value="hard">Muy empinada (3 m, puede saltar)</option></select></label>
+<label class="f">Alambrados <select id="fences"><option value="auto" selected>Automático (campo/estepa, no en bosque)</option><option value="always">En todo el tramo</option><option value="none">Sin alambrados</option></select></label>
+</details>
+      <details class="texbox"><summary>Avanzado / Materiales personalizados</summary>
+<div class="mut">Subí fotos del camino: la app detecta sola ripio, piedras, humedad y bordes.</div>
+<details class="texbox"><summary>Fotos reales del recorrido (automático)</summary><div class="mut">Al generar, la app busca sola fotos libres del lugar (Wikimedia Commons, Panoramax, Mapillary), verifica que muestren el camino y las usa para calibrar materiales km a km. Nunca se incluyen en la pista exportada.</div><div id="photoPanel" style="margin:6px 0"></div><label class="f">Buscar fotos reales al generar <span><input type="checkbox" id="refCal" checked></span></label><label class="f">Token de Mapillary (opcional) <input id="mlyToken" placeholder="MLY|…" style="width:160px"></label><label class="b gpsbtn">📷 Agregar fotos para comparar<input type="file" id="refFile" accept="image/*" multiple hidden></label><div id="refList"></div></details>
+<details class="texbox"><summary>Reconstrucción de materiales desde fotos reales</summary><div class="mut">REAL PHOTO MATERIAL RECONSTRUCTION: materiales del camino generados a partir de las fotos reales de Aguas Blancas (colores, piedras, huellas, humedad, bordes). El satélite los reparte a lo largo del recorrido. Las fotos no se exportan.</div>
+<label style="display:block;margin:6px 0">Usar materiales de fotos reales <select id="photoMat"><option value="auto">Automático (tramos de Aguas Blancas)</option><option value="on">Siempre</option><option value="off">No</option></select></label>
+<div id="abPanel"></div></details>
+<label class="f">Textura continua del camino <span><input type="checkbox" id="roadTex" checked></span></label>
+<label class="f">Texturas reales del terreno <select id="realTex"><option value="s2_2016" selected>Sentinel-2 2016 (libre, CC BY)</option><option value="s2_2024">Sentinel-2 2024 (no comercial)</option><option value="none">No (texturas generadas)</option></select></label>
+<label class="f">Materiales del suelo <select id="matSrc"><option value="auto" selected>Automático (biblioteca libre si está guardada)</option><option value="lib">Biblioteca libre (Poly Haven, CC0)</option><option value="app">Fotos de la app</option></select></label>
+<label class="f">Buscar imágenes libres del recorrido <span><input type="checkbox" id="freeImg" checked></span></label>
+<details class="texbox"><summary>Biblioteca de materiales libres</summary><div id="libInfo" class="mut"></div><div style="margin-top:6px"><button class="b" id="libDl">Descargar biblioteca básica (una sola vez)</button> <button class="b" id="libExp">Exportar</button> <label class="b">Importar<input type="file" id="libImp" accept=".zip" hidden></label> <button class="b" id="cacheClr">Vaciar caché de descargas</button></div></details>
+<details class="texbox"><summary>Texturas propias (fotos)</summary><div class="mut">Reemplazá cualquier textura por una foto: del ripio real, del bosque, o texturas fotográficas gratis (ambientCG, Poly Haven). Árboles: PNG con fondo transparente.</div><div id="customTex"></div></details>
+<label class="b gpsbtn">🛰️ Importar ortofoto (GeoTIFF RGB: dron, IGN…)<input type="file" id="orthoFile" accept=".tif,.tiff" multiple hidden></label>
+</details>
+      <details class="texbox"><summary>Datos de elevación y fuentes</summary>
+<div style="display:none"><label class="f">Elevación base <select id="demSrc"><option value="auto" selected>Copernicus GLO-30 (si no hay, Terrarium)</option><option value="terrarium">Terrarium (SRTM y otras)</option></select></label></div>
+<div class="mut">La elevación y las imágenes se eligen solas: la mejor fuente libre para el lugar.</div>
+<label class="b gpsbtn">📐 Importar elevación (GeoTIFF: MDE-Ar del IGN, LiDAR…)<input type="file" id="demFile" accept=".tif,.tiff" multiple hidden></label>
+<details class="texbox"><summary>Fuentes de elevación y precisión</summary><div id="elevInfo" class="mut"></div></details>
+<details class="texbox"><summary>Fuentes de imágenes y licencias</summary><div id="imgInfo" class="mut"></div></details>
+</details>
     </section>
     <section>
+      <h2>3 · Generación y exportación</h2>
+      <label class="f">Nombre de la pista <input id="tname" value="Mi pista"></label>
       <button id="gen">Generar pista</button>
       <button class="b wide" id="zipBtn" style="display:none">Preparar descarga (ZIP)</button>
       <a id="dl" href="#">Descargar</a>
       <button class="b wide" id="openViewer">Ver en 3D</button>
+      <details class="texbox"><summary>Opciones de exportación y terreno</summary>
+<label class="f" title="Agrega 30 m antes de la largada (presentación / control horario) y 30 m después de la llegada (control stop), con pancartas, carteles FIA y reloj. El cronómetro del juego corre de la largada a la llegada.">Largada, llegada y controles (pancartas y reloj) <span><input type="checkbox" id="rallyZones" checked></span></label>
+<label class="f">Lugares de salida <input id="pits" type="number" value="4" min="1" max="24"></label>
+<label class="f" title="Si en Assetto Corsa los autos aparecen mirando para atrás, marcá esto y volvé a exportar">Invertir dirección de salida <span><input type="checkbox" id="invertSpawn"></span></label>
+<label class="f" title="El ZIP ya trae el modelo .kn5 listo; los archivos fuente solo sirven para retocarlo a mano en Blender/KsEditor">Incluir archivos fuente (OBJ) <span><input type="checkbox" id="withSrc"></span></label>
+<label class="f">Resolución del terreno (m) <select id="res"><option>2</option><option>3</option><option selected>4</option><option>6</option><option>8</option><option>12</option></select></label>
+<label class="f">Detalle de elevación <select id="zoom"><option value="12">Bajo</option><option value="13">Medio</option><option value="14" selected>Alto</option><option value="15">Máximo</option></select></label>
+<label class="f">Terreno automático (menos en bosque) <span><input type="checkbox" id="autoMargin" checked></span></label>
+<label class="f">Terreno a cada lado (m) <input id="margin" type="number" value="150" min="20" max="1000" step="10"></label>
+</details>
       <div id="prog"></div>
       <div id="log"></div>
     </section>
