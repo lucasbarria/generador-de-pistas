@@ -230,10 +230,31 @@ const Core = (() => {
     // cunetas: 'auto' = a los dos lados salvo donde el terreno cae fuerte (terraplén), más honda del lado del cerro;
     // 'both' = siempre a los dos lados; 'none' = sin cunetas
     const mode = o.ditch || 'none';
-    const autoD = sl => sl < -0.15 ? 0 : 0.38 + 0.22 * Math.min(1, Math.max(0, (sl + 0.02) / 0.15));
-    let DLs = SLL.map(sl => mode === 'both' ? 0.45 : mode === 'auto' ? autoD(sl) : 0);
-    let DRs = SLR.map(sl => mode === 'both' ? 0.45 : mode === 'auto' ? autoD(sl) : 0);
+    // humedad (0 = firme y seco, 1 = barro) y bosque (0 = campo abierto, 1 = bosque cerrado) en cada punto del eje
+    const HUM = dist.map(d => o.humAt ? Math.max(0, Math.min(1, o.humAt(d))) : 0.3), FOR = dist.map(d => o.forestAt ? Math.max(0, Math.min(1, o.forestAt(d))) : 0.5);
+    // hondonadas: el camino pasa más bajo que su entorno (±60 m) → junta agua
+    const HO = (() => { let a = hs; for (let p = 0; p < 3; p++) a = smooth1D(a, 30, closed, false); return hs.map((h, i) => Math.max(0, Math.min(1, (a[i] - h - 0.15) / 0.8))); })();
+    const WETP = HUM.map((h, i) => Math.max(h, HO[i] * 0.8));                     // humedad efectiva del camino
+    // ruido suave a lo largo (determinista) para que las cunetas no sean iguales en todo el tramo
+    const hsh = (a, b) => { const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return v - Math.floor(v); };
+    const vn1 = (x, sd) => { const i0 = Math.floor(x), f = x - i0, t = f * f * (3 - 2 * f); return hsh(i0, sd) * (1 - t) + hsh(i0 + 1, sd) * t; };
+    // cuneta: en el bosque, zanja cavada (0,38–0,6 m) más honda del lado del cerro; en campo húmedo, baja y ancha con agua (0,16–0,28 m)
+    const autoD = (sl, i, sd) => { if (sl < -0.15) return 0; const v = 0.75 + 0.5 * vn1(dist[i] / 70, sd * 3 + 1), open = (1 - FOR[i]) * Math.min(1, WETP[i] * 1.6);
+      const deep = (0.38 + 0.22 * Math.min(1, Math.max(0, (sl + 0.02) / 0.15))) * v, shallow = 0.16 + 0.12 * vn1(dist[i] / 40, sd * 5 + 2);
+      return deep * (1 - open) + shallow * open; };
+    // accesos y entradas (OSM + procedurales): la cuneta se corta y queda un paso de tierra a nivel
+    const ACC = [];
+    if (mode !== 'none') {
+      for (const a of (o.accesses || [])) ACC.push({ d: a.d, sd: a.sd, w: a.w || 4, osm: true });
+      if (o.procAccess !== false) for (let k = 0; k * 260 < total; k++) { const d = k * 260 + hsh(k, 7) * 200 + 30, sd = hsh(k, 8) < 0.5 ? 1 : -1;
+        if (d > total - 40 || hsh(k, 9) > 0.32) continue; const i = Math.min(n - 1, Math.round(d / step)), sl = sd > 0 ? SLL[i] : SLR[i];
+        if (Math.abs(sl) > 0.12 || FOR[i] > 0.85 || ACC.some(q => Math.abs(q.d - d) < 120)) continue; ACC.push({ d, sd, w: 3.4 + hsh(k, 10) * 1.2 }); }
+    }
+    const accCut = (i, sd) => { let c = 0; for (const a of ACC) if (a.sd === sd) { const x = Math.abs(dist[i] - a.d) - a.w / 2; c = Math.max(c, x <= 0 ? 1 : Math.max(0, 1 - x / 3)); } return c; };
+    let DLs = SLL.map((sl, i) => mode === 'both' ? 0.45 : mode === 'auto' ? autoD(sl, i, 1) : 0);
+    let DRs = SLR.map((sl, i) => mode === 'both' ? 0.45 : mode === 'auto' ? autoD(sl, i, -1) : 0);
     DLs = smooth1D(DLs, 5, closed); DRs = smooth1D(DRs, 5, closed);
+    if (ACC.length) { DLs = DLs.map((v, i) => v * (1 - accCut(i, 1))); DRs = DRs.map((v, i) => v * (1 - accCut(i, -1))); }
     // perfil transversal de cada costado (distancias desde el borde del ripio):
     // berma de piedras → cuneta en V con fondo → contratalud que sube (o baja) hasta el terreno real de ese lado
     const sideProf = (i, sd, force) => {
@@ -244,8 +265,9 @@ const Core = (() => {
       if (Dd > 0.12) {
         // zanja angosta cavada al borde del camino (como en Aguas Blancas): pared casi vertical del lado del camino,
         // fondo de ~0,3 m, pared de tierra arcillosa del otro lado con terrones apilados encima (desparejo a lo largo)
-        const d = dist[i], lump = 0.1 + 0.08 * Math.sin(d * 0.37 + sd) * Math.sin(d * 0.113 + 2 * sd) + 0.06 * Math.sin(d * 1.3 + sd * 3);
-        const bot = edge - Dd, mtop = edge + Math.max(0.02, lump), a0 = 0.1, a1 = 0.32, a2 = 0.62, a3 = 0.9, a4 = 1.3;
+        const d = dist[i], open = (1 - FOR[i]) * Math.min(1, WETP[i] * 1.6), wf = (0.85 + 0.35 * vn1(d / 45, sd * 7)) * (1 + 0.6 * open);
+        const lump = (0.1 + 0.08 * Math.sin(d * 0.37 + sd) * Math.sin(d * 0.113 + 2 * sd) + 0.06 * Math.sin(d * 1.3 + sd * 3)) * (1 - 0.75 * open); // en el campo casi sin terrones
+        const bot = edge - Dd, mtop = edge + Math.max(0.02, lump), a0 = 0.1 * wf, a1 = 0.32 * wf, a2 = 0.62 * wf, a3 = 0.9 * wf, a4 = 1.3 * wf;
         xe = a4 + 0.8; for (let k = 0; k < 3; k++) { const dh = tg(xe) - mtop; xe = Math.min(9, a4 + Math.max(0.8, Math.abs(dh) * (dh < 0 ? 1.5 : 1.1))); }
         const top = tg(xe);
         pts = [[0, edge], [a0, edge - 0.04], [a1, bot], [a2, bot + 0.03], [a3, mtop - 0.04], [a4, mtop - 0.06], [(a4 + xe) / 2, mtop + (top - mtop) * 0.5], [xe, top]];
@@ -291,8 +313,17 @@ const Core = (() => {
         const S2 = [-hw, ...side.map(v => -v), 0, ...side.slice().reverse(), hw];
         return { cols: S2.map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s) + rutOff(r, s), u: (s + hw) / W[i], s, i, sc: s }; }), d: dist[i] + dOff, step };
       }
-      return { cols: [-hw, -hw * 0.5, 0, hw * 0.5, hw].map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s), u: (s + hw) / W[i], s, i, sc: s }; }), d: dist[i] + dOff, step };
+      const SC = o.reliefAt ? [-1, -0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1] : [-1, -0.5, 0, 0.5, 1];
+      return { cols: SC.map(f => { const s = f * hw, [x, y] = pos(i, s); return { x, y, h: surfH(i, s), u: (s + hw) / W[i], s, i, sc: s }; }), d: dist[i] + dOff, step };
     };
+    // relieve del piso (baches, surcos de agua, morros suaves): se suma a la malla del camino, que es la superficie física.
+    // Es todo continuo (sin bordes verticales): la suspensión lo copia y no hay golpes fantasma.
+    const ctxAt = d => { const f = Math.max(0, Math.min(n - 1.001, d / step)), k = Math.floor(f), u = f - k; return { hum: HUM[k] * (1 - u) + HUM[k + 1] * u, hollow: HO[k] * (1 - u) + HO[k + 1] * u, forest: FOR[k] }; };
+    const addRelief = sc => { if (!o.reliefAt) return sc; const c = ctxAt(sc.d), hw = W[sc.cols[0].i] / 2;
+      for (const q of sc.cols) if (Math.abs(q.s) < hw - 0.01) q.h += o.reliefAt(sc.d, q.s, hw, c); return sc; };
+    // secciones intermedias cada 0,5 m (entre los puntos del eje, que van cada 2 m): los baches necesitan esa resolución
+    const subSecs = (A, B, parts) => { const out = []; for (let k = 1; k < parts; k++) { const t = k / parts;
+      out.push({ cols: A.cols.map((a, j) => { const b = B.cols[j]; return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, h: a.h + (b.h - a.h) * t, u: a.u + (b.u - a.u) * t, s: a.s + (b.s - a.s) * t, i: a.i, sc: a.sc + (b.sc - a.sc) * t }; }), d: A.d + (B.d - A.d) * t, step: A.step / parts }); } return out; };
     // tramos consecutivos con la misma superficie
     const runs = [];
     for (let i = 0; i < segCount; i++) {
@@ -303,7 +334,11 @@ const Core = (() => {
     for (const run of runs) {
       const secs = [];
       let rutMode = false; if (o.rutAt && run.key === 'MUD') for (let i = run.i0; i <= run.i1 + 1 && !rutMode; i++) if (o.rutAt(dist[i % n])) rutMode = true;
-      for (let i = run.i0; i <= run.i1 + 1; i++) secs.push(sec(i % n, 0, i >= n ? total : 0, rutMode));
+      let prev = null;
+      for (let i = run.i0; i <= run.i1 + 1; i++) { const cur = sec(i % n, 0, i >= n ? total : 0, rutMode);
+        if (prev && o.reliefAt) for (const q of subSecs(prev, cur, 4)) secs.push(addRelief(q));
+        secs.push(prev = cur); }
+      if (o.reliefAt) for (const q of secs) if (q.step === step) addRelief(q);
       for (const m of ribbonMeshes(secs, false, run.key, MAT[run.key], 7, { next: () => cnt(run.key) })) { m.road = true; meshes.push(m); }
     }
     // costados: berma, cuneta y contratalud (o banquina y terraplén donde no hay cuneta)
@@ -311,21 +346,34 @@ const Core = (() => {
     // a escala real (u = metros / 5), así el pasto no queda estirado en rayas
     const UD = [0, 0.06, 0.28, 0.4, 0.55, 0.64], UV = [0, 0.25, 0.6], CUT_D = 5, CUT_V = 2;
     for (const side of [1, -1]) {
-      const Dd = side > 0 ? DLs : DRs, onBridge = i => o.bridge && o.bridge(C[i][0], C[i][1]), sideKey = i => onBridge(i) ? 'NONE' : Dd[i] > 0.12 ? 'DITCH' : 'VERGE', runs2 = [];
+      const Dd = side > 0 ? DLs : DRs, SLs = side > 0 ? SLL : SLR, onBridge = i => o.bridge && o.bridge(C[i][0], C[i][1]);
+      // cuneta con barro y agua donde el suelo es húmedo; con piedra donde corta la ladera en seco; normal en el resto
+      const sideKey = i => onBridge(i) ? 'NONE' : Dd[i] > 0.12 ? (WETP[i] > 0.55 ? 'DITCHMUD' : SLs[i] > 0.28 && WETP[i] < 0.4 ? 'DITCHROCK' : 'DITCH') : 'VERGE', runs2 = [];
       for (let i = 0; i < segCount; i++) { const k = sideKey(i), last = runs2[runs2.length - 1]; if (last && last.key === k) last.i1 = i; else runs2.push({ key: k, i0: i, i1: i }); }
       for (const run of runs2) {
         if (run.key === 'NONE') continue; // en los puentes no hay banquina: se ve el río abajo
-        const isD = run.key === 'DITCH', cut = isD ? CUT_D : CUT_V, U = isD ? UD : UV, inner = [], outer = [];
+        const isD = run.key.startsWith('DITCH'), cut = isD ? CUT_D : CUT_V, U = isD ? UD : UV, inner = [], outer = [];
         for (let ii = run.i0; ii <= run.i1 + 1; ii++) {
           const i = ii % n, hw = W[i] / 2, sp0 = SP[i][side > 0 ? 0 : 1], P = (sp0.Dd > 0.12) === isD ? sp0.pts : sideProf(i, side, isD).pts;
           const col = ([e, h], u) => { const [x, y] = pos(i, side * (hw + e)); return { x, y, h, u, i, sc: side * hw }; }, d = dist[i] + (ii >= n ? total : 0);
           const A = P.slice(0, cut + 1).map((q, k) => col(q, U[k])), Bc = P.slice(cut).map(q => col(q, q[0] / 5));
           inner.push({ cols: side > 0 ? A : A.reverse(), d, step }); outer.push({ cols: side > 0 ? Bc : Bc.reverse(), d, step });
         }
-        const key = isD ? 'DITCH' : 'GRASS', mat = isD ? 'ditchside' : 'verge';
-        for (const m of ribbonMeshes(inner, false, key, mat, 7, { next: () => (key === 'GRASS' ? 500 : 0) + cnt(key) })) meshes.push(m);
+        const key = run.key === 'DITCHMUD' ? 'SOFT' : isD ? 'DITCH' : 'GRASS', mat = run.key === 'DITCHMUD' ? 'ditchmud' : run.key === 'DITCHROCK' ? 'ditchrock' : isD ? 'ditchside' : 'verge';
+        for (const m of ribbonMeshes(inner, false, key, mat, 7, { next: () => (key === 'GRASS' ? 500 : key === 'SOFT' ? 700 : 0) + cnt(key) })) meshes.push(m);
         for (const m of ribbonMeshes(outer, false, 'GRASS', 'grass', 7, { next: () => 500 + cnt('GRASS') })) meshes.push(m);
       }
+    }
+    // accesos: un tramo corto de tierra que sale del camino hacia la propiedad o el sendero (12 m), sin cuneta debajo
+    const accessPts = [];
+    for (const a of ACC) {
+      const i = Math.max(0, Math.min(n - 1, Math.round(a.d / step))), hw = W[i] / 2, sd = a.sd, sl = sd > 0 ? SLL[i] : SLR[i], edge = surfH(i, sd * hw), secsA = [];
+      const tx = T[i][0], ty = T[i][1], nx = -ty * sd, ny = tx * sd, x0 = C[i][0] + nx * hw, y0 = C[i][1] + ny * hw, wv = a.w / 2;
+      for (let e = 0; e <= 12.001; e += 1.5) { const tgt = hs[i] + sl * (hw + e) - 0.05, t = Math.min(1, e / 5), h = edge * (1 - t * t * (3 - 2 * t)) + tgt * (t * t * (3 - 2 * t)) + 0.04;
+        const cx = x0 + nx * e, cy = y0 + ny * e, ww = wv * (1 + 0.15 * Math.min(1, e / 12));
+        secsA.push({ cols: [-1, 1].map(k => ({ x: cx + tx * ww * k, y: cy + ty * ww * k, h, u: (k + 1) / 2 * a.w / 5 })), d: e, step: 1.5 }); }
+      for (const m of ribbonMeshes(secsA, false, 'GRAVEL', 'gravel', 5, { next: () => cnt('GRAVEL') })) { m.access = true; meshes.push(m); }
+      accessPts.push({ x: x0 + nx * 6, y: y0 + ny * 6, r: 8, d: a.d, sd, osm: !!a.osm });
     }
     if (o.lines) {
       const lw = 0.06, lift = 0.02, painted = k => k === 'ROAD' || k === 'WET';
@@ -345,7 +393,7 @@ const Core = (() => {
     }
     const segs = routeSegs();
     for (const m of meshes) m.route = true;
-    return { meshes, segs, C, T, hs, raw, dist, total, n, K, W, SL, SURF, closed, CS, DL: DLs, DR: DRs, EX, SP };
+    return { meshes, segs, C, T, hs, raw, dist, total, n, K, W, SL, SURF, closed, CS, DL: DLs, DR: DRs, EX, SP, HUM, HO, FOR, accessPts, ctxAt };
   }
 
   // ---------- Modo ZONA (mundo abierto) ----------
@@ -714,7 +762,7 @@ const Core = (() => {
       const lat = side * (r.W[i] / 2 + r.EX + size + hash2(i, side, 13) * 5);
       const nx = -r.T[i][1], ny = r.T[i][0], x = r.C[i][0] + nx * lat, y = r.C[i][1] + ny * lat, h = hAt(x, y);
       if (h == null) continue;
-      const isWall = size > 0.55, m = meshFor(isWall), b = m.v.length, rot = hash2(i, side, 14) * 6.283, cr = Math.cos(rot), sr = Math.sin(rot);
+      const isWall = size > 0.9, m = meshFor(isWall), b = m.v.length, rot = hash2(i, side, 14) * 6.283, cr = Math.cos(rot), sr = Math.sin(rot);
       ICO_V.forEach(([X, Y, Z], k) => {
         const f = size * (0.7 + 0.6 * hash2(i * 13 + k, side, 15));
         const lx = X * f * 1.2, ly = -Z * f, lz = Y * f * 0.75; // (X,Y,Z) Y-arriba -> (este, norte, arriba)
