@@ -46,8 +46,27 @@ input[type=checkbox]{width:auto}
 #vbar{position:absolute;top:12px;left:12px;z-index:2;display:flex;gap:8px}
 #vbar button.on{background:#ffd200;color:#111;border-color:#ffd200}
 .vsel{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:4px 8px;font-size:13px;display:flex;align-items:center;gap:6px}.vsel select{width:auto;padding:3px 4px}
-#vhint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:2;background:#000c;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px}
+#vhint{position:absolute;bottom:176px;left:50%;transform:translateX(-50%);z-index:2;background:#000c;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px}
 #vbar button{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:8px 12px;cursor:pointer;font-weight:600}
+#vpanel{position:absolute;top:58px;right:12px;bottom:12px;width:300px;z-index:3;background:#121519ee;color:#e6e9ec;border:1px solid #fff2;border-radius:10px;padding:10px 12px;overflow:auto;font-size:12.5px}
+#vpanel .vp-h{font-size:14px;color:#00c8ff;margin-bottom:6px}
+#vpanel .vr{display:flex;justify-content:space-between;gap:8px;padding:2px 0;border-bottom:1px solid #fff1}#vpanel .vr span:first-child{color:#8b939c}
+#vpanel .nbh{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;text-align:right}
+#vpTools{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:10px 0}#vpTools .b{padding:6px 4px;font-size:12px}#vpTools .b.on{background:#ffd200;color:#111;border-color:#ffd200}
+#vpanel .vp-t{color:#8b939c;margin:8px 0 4px}#vpanel .vp-e{display:flex;justify-content:space-between;align-items:center;margin:6px 0}
+#vpanel .vp-p{display:flex;justify-content:space-between;align-items:center;gap:6px;margin:4px 0}#vpanel .vp-p span{display:flex;align-items:center;gap:4px}#vpanel .vp-p input{width:84px;padding:4px 6px}
+#vpanel .b.sm{padding:4px 8px;font-size:12px}#vpanel .vp-surf{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:8px}#vpanel .vp-surf select{padding:4px}
+#vpanel .vp-n{padding:4px 6px;border-radius:5px;cursor:pointer}#vpanel .vp-n:hover,#vpanel .vp-n.on{background:#ffffff14}
+#vpanel .vp-help{color:#8b939c;font-size:11.5px;margin-top:10px;line-height:1.5}
+#vprof{position:absolute;left:12px;width:calc(100% - 338px);bottom:12px;height:150px;z-index:3;background:#0f1114ee;border:1px solid #fff2;border-radius:10px;cursor:crosshair;touch-action:none}
+.edit.on{background:#ff7ad91a}.edit{cursor:pointer}
+@media(max-width:900px){#vpanel{top:auto;height:42%;width:auto;left:12px;bottom:174px}#vprof{width:calc(100% - 24px)}}
+#vnavbox{position:absolute;top:58px;left:12px;width:200px;z-index:3;display:flex;flex-direction:column;gap:6px}
+#vmini{width:200px;height:170px;background:#0f1114dd;border:1px solid #fff2;border-radius:10px;cursor:crosshair;touch-action:none}
+#vnav{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}#vnav .b,#navLow{background:#000a;color:#fff;border-color:#fff3;padding:7px 0;font-size:15px;touch-action:none;user-select:none}#navLow{font-size:12.5px;padding:6px}
+.navkm{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:5px 8px;font-size:12px;display:grid;gap:3px}.navkm input{padding:0}
+.ob-types{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:4px 0 8px}.ob-types .b{padding:6px 4px;font-size:12px}.ob-types .b.on{background:#7cff7c;color:#111;border-color:#7cff7c}
+@media(max-width:900px){#vnavbox{display:none}}
 #profile{width:100%;height:190px;display:block;background:#0f1114;border-radius:8px;cursor:crosshair;touch-action:none}
 #hoverInfo{min-height:34px;margin-top:6px}
 #selInfo{color:#00c8ff;font-size:13px;margin:4px 0}
@@ -75,10 +94,29 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
     <div id="map"></div>
     <form id="search"><input id="q" placeholder="Buscar lugar o coordenadas (ej. Paso de Jama)"><button>Ir</button></form>
     <div id="viewer"><div id="viewer3d"></div>
-      <div id="vbar"><button id="closeViewer">← Volver al mapa</button><button id="drive">▶ Recorrer</button><button id="editCurves">✋ Ajustar curvas</button>
-        <label class="vsel">Alcance <select id="dragR"><option value="15">15 m</option><option value="30">30 m</option><option value="50" selected>50 m</option><option value="100">100 m</option><option value="200">200 m</option></select></label>
+      <div id="vbar"><button id="closeViewer">← Volver al mapa</button><button id="drive">▶ Recorrer</button><button id="editCurves" title="Mostrar u ocultar el editor directo">✏️ Editor</button>
+        <label class="vsel" id="dragRw">Alcance <select id="dragR"><option value="15">15 m</option><option value="30">30 m</option><option value="50" selected>50 m</option><option value="100">100 m</option><option value="200">200 m</option></select></label>
         <button id="satBtn">🛰 Satélite</button></div>
-      <div id="vhint" style="display:none">Arrastrá un punto amarillo para mover la curva. Rueda/arrastre normal = mover la cámara.</div>
+      <div id="vhint" style="display:none"></div>
+      <div id="vpanel" style="display:none">
+        <div class="vp-h"><b id="vpSel">Hacé clic sobre el camino</b></div>
+        <div id="vpData"></div>
+        <div id="vpTools"></div>
+        <div id="vpParams"></div>
+        <div id="vpNear"></div>
+        <div class="vp-help">Clic: elegir punto · Shift+clic: tramo · Arrastrar (izq. o rueda apretada): mover · Derecho o Ctrl+arrastrar: girar · Rueda: zoom al cursor · Doble clic: centrar · WASD/flechas: recorrer · Q/E girar · Supr: borrar cambio · Ctrl+Z / Ctrl+Y: deshacer / rehacer · Esc: soltar selección</div>
+      </div>
+      <canvas id="vprof" style="display:none"></canvas>
+      <div id="vnavbox">
+        <canvas id="vmini" title="Mapa del tramo: clic o arrastrar para ir ahí"></canvas>
+        <div id="vnav">
+          <button class="b" data-key="q" title="Girar a la izquierda (Q)">⟲</button><button class="b" data-key="w" title="Adelante (W)">▲</button><button class="b" data-key="e" title="Girar a la derecha (E)">⟳</button>
+          <button class="b" data-key="a" title="Izquierda (A)">◀</button><button class="b" data-key="s" title="Atrás (S)">▼</button><button class="b" data-key="d" title="Derecha (D)">▶</button>
+          <button class="b" data-key="r" title="Acercar (R o rueda)">＋</button><button class="b" id="navTop" title="Vista desde arriba">🛰</button><button class="b" data-key="f" title="Alejar (F o rueda)">－</button>
+        </div>
+        <button class="b" id="navLow" title="Cámara a ras del piso">👁 A ras del piso</button>
+        <label class="navkm">Ir al <span id="navKmTxt">0.00 km</span><input type="range" id="navKm" min="0" max="1000" value="0"></label>
+      </div>
     </div>
   </div>
   <aside>
@@ -93,6 +131,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <label class="f" style="margin-top:10px">Cómo marcar <select id="traceMode"><option value="pick" selected>Calle por calle</option><option value="free">Línea libre</option><option value="auto">Ruta automática</option></select></label>
         <div class="row"><label><input type="checkbox" id="closed"> Circuito cerrado</label><button class="b" id="loadNet">Recargar calles de la vista</button></div>
         <div class="row"><label title="Para partes del tramo que no figuran en el mapa: cada clic agrega un punto, sin seguir calles (Ctrl+clic hace lo mismo)"><input type="checkbox" id="freePts"> Puntos libres (tramo sin calle en el mapa)</label></div>
+        <div class="row"><label title="Clic en una calle del mapa para agregarla como camino lateral (sale del tramo o lo cruza). Clic sobre una naranja para quitarla."><input type="checkbox" id="sideRoads"> Marcar caminos laterales</label><button class="b" id="clearSide">Borrar laterales</button></div>
         <label class="b gpsbtn">📍 Importar GPS (video GoPro, GPX, KML, CSV)<input type="file" id="gpsFile" hidden></label>
         <div class="stage"><input id="stA" placeholder="Inicio: -54.6262612, -67.2421884"><input id="stB" placeholder="Fin (opcional)"><button class="b" id="goStage">Ir al tramo</button></div>
         <div class="row"><label><input type="checkbox" id="avoidMain" checked> Evitar rutas principales</label><button class="b" id="findAlt">Buscar caminos reales</button></div>
@@ -123,7 +162,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <label class="f">Líneas pintadas <span><input type="checkbox" id="lines" checked></span></label>
         <label class="f">Terreno a cada lado (m) <input id="margin" type="number" value="150" min="20" max="1000" step="10"></label>
         <label class="f">Suavizado de pendiente (m) <input id="hsmooth" type="number" value="40" min="0" max="200" step="5"></label>
-        <label class="f">Cunetas <select id="ditch"><option value="auto" selected>Automática (ambos lados, más honda arriba)</option><option value="both">Ambos lados</option><option value="none">Sin cunetas</option></select></label>
+        <label class="f">Cunetas <select id="ditch"><option value="none" selected>Sin cunetas</option><option value="auto">Automática (ambos lados, más honda arriba)</option><option value="both">Ambos lados</option></select></label>
         <label class="f">Piedras al costado <select id="rocks"><option value="0">Ninguna</option><option value="0.6">Pocas</option><option value="1" selected>Según el terreno</option><option value="1.8">Muchas</option></select></label>
         <label class="f">Peralte automático máx. (°) <input id="autobank" type="number" value="0" min="0" max="20" step="1"></label>
       </div>
