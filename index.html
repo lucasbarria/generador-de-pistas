@@ -2147,7 +2147,7 @@ const REFS = {
       done++; onProgress && onProgress(done / pts.length);
       const dLa = 0.0006, dLo = 0.0006 / Math.cos(la * D2R); // ~65 m alrededor del punto
       let j; try { const r = await fetch(`https://graph.mapillary.com/images?access_token=${encodeURIComponent(token)}&fields=id,thumb_1024_url,computed_geometry,geometry,captured_at,compass_angle,is_pano,creator&bbox=${lo - dLo},${la - dLa},${lo + dLo},${la + dLa}&limit=8`);
-        if (r.status === 401 || r.status === 403) throw new Error('el token de Mapillary no es válido'); j = await r.json(); } catch (e) { if (/token/.test(e.message)) throw e; continue; }
+        if (r.status === 401 || r.status === 403) throw new Error('el token de Mapillary no es válido'); j = await r.json(); if (j.error && done === 1) throw new Error('Mapillary respondió: ' + j.error.message + ' (revisá el token)'); } catch (e) { if (/token/.test(e.message)) throw e; continue; }
       const imgs = (j.data || []).filter(m => !m.is_pano && m.thumb_1024_url).map(m => { const g = (m.computed_geometry || m.geometry).coordinates; return { m, ll: [g[1], g[0]], dist: Math.hypot((g[1] - la) * 111320, (g[0] - lo) * 111320 * Math.cos(la * D2R)) }; }).sort((a, b) => a.dist - b.dist);
       const best = imgs[0]; if (!best) continue; near++; if (have.has(best.m.id)) continue;
       try {
