@@ -98,6 +98,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <div class="row"><label><input type="checkbox" id="avoidMain" checked> Evitar rutas principales</label><button class="b" id="findAlt">Buscar caminos reales</button></div>
         <label class="b gpsbtn">📐 Importar elevación (GeoTIFF: MDE-Ar del IGN, LiDAR…)<input type="file" id="demFile" accept=".tif,.tiff" multiple hidden></label>
         <details class="texbox"><summary>Fuentes de elevación y precisión</summary><div id="elevInfo" class="mut"></div></details>
+        <label class="f">Textura continua del camino <span><input type="checkbox" id="roadTex" checked></span></label>
         <label class="f">Texturas reales del terreno <select id="realTex"><option value="s2_2016" selected>Sentinel-2 2016 (libre, CC BY)</option><option value="s2_2024">Sentinel-2 2024 (no comercial)</option><option value="none">No (texturas generadas)</option></select></label>
         <label class="b gpsbtn">🛰️ Importar ortofoto (GeoTIFF RGB: dron, IGN…)<input type="file" id="orthoFile" accept=".tif,.tiff" multiple hidden></label>
         <details class="texbox"><summary>Fuentes de imágenes y licencias</summary><div id="imgInfo" class="mut"></div></details>
@@ -277,7 +278,7 @@ const Core = (() => {
         if (idx.has(key)) return idx.get(key);
         const ii = i % n, c = sections[ii].cols[k];
         const vv = sections[ii].d / vScale + (i >= n ? sections[n - 1].d / vScale + sections[n - 1].step / vScale - sections[0].d / vScale : 0);
-        m.v.push([c.x, c.y, c.h]); m.uv.push([c.u, vv]);
+        m.v.push([c.x, c.y, c.h]); m.uv.push([c.u, vv]); if (c.s !== undefined) (m.ds || (m.ds = [])).push([sections[ii].d, c.s]);
         idx.set(key, m.v.length - 1); return m.v.length - 1;
       };
       for (let i = s0; i < s1; i++) {
@@ -373,7 +374,7 @@ const Core = (() => {
     const pos = (i, s) => { const nx = -T[i][1], ny = T[i][0], k = K[i]; if (s * k > 0) { const lim = 0.85 / Math.abs(k); if (Math.abs(s) > lim) s = Math.sign(s) * lim; } return [C[i][0] + nx * s, C[i][1] + ny * s]; };
     const sec = (i, j, dOff) => {
       const hw = W[i] / 2;
-      return { cols: [-hw, 0, hw].map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s), u: (s + hw) / W[i] }; }), d: dist[i] + dOff, step };
+      return { cols: [-hw, -hw * 0.5, 0, hw * 0.5, hw].map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s), u: (s + hw) / W[i], s }; }), d: dist[i] + dOff, step };
     };
     // tramos consecutivos con la misma superficie
     const segCount = closed ? n : n - 1, runs = [];
@@ -385,7 +386,7 @@ const Core = (() => {
     for (const run of runs) {
       const secs = [];
       for (let i = run.i0; i <= run.i1 + 1; i++) secs.push(sec(i % n, 0, i >= n ? total : 0));
-      for (const m of ribbonMeshes(secs, false, run.key, MAT[run.key], 7, { next: () => cnt(run.key) })) meshes.push(m);
+      for (const m of ribbonMeshes(secs, false, run.key, MAT[run.key], 7, { next: () => cnt(run.key) })) { m.road = true; meshes.push(m); }
     }
     // banquinas y cunetas a los dos lados
     const DDmax = DLs.map((v, i) => Math.max(v, DRs[i]));
@@ -1757,7 +1758,7 @@ function opt() {
   return {
     name: $('#tname').value.trim() || 'Mi pista', width: +$('#width').value, surface: $('#surface').value,
     lines: $('#lines').checked, margin: +$('#margin').value, res: +$('#res').value, hSmooth: +$('#hsmooth').value,
-    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, bridgeRamp: $('#bridgeRamp') ? $('#bridgeRamp').value : 'steep', autoWidth: !$('#autoWidth') || $('#autoWidth').checked, edgeFix: !$('#edgeFix') || $('#edgeFix').checked, realTex: $('#realTex') ? $('#realTex').value : 'none', gpsAlt: !$('#gpsAlt') || $('#gpsAlt').checked, fences: $('#fences') ? $('#fences').value : 'auto',
+    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, bridgeRamp: $('#bridgeRamp') ? $('#bridgeRamp').value : 'steep', autoWidth: !$('#autoWidth') || $('#autoWidth').checked, edgeFix: !$('#edgeFix') || $('#edgeFix').checked, realTex: $('#realTex') ? $('#realTex').value : 'none', roadTex: !$('#roadTex') || $('#roadTex').checked, gpsAlt: !$('#gpsAlt') || $('#gpsAlt').checked, fences: $('#fences') ? $('#fences').value : 'auto',
     autoBank: Math.max(0, Math.min(20, +$('#autobank').value || 0)),
     snow: $('#snow').checked, snowAlt: +$('#snowAlt').value, snowRoad: $('#snowRoad').checked,
     veg: $('#veg').checked, density: +$('#density').value, treeHit: $('#treeHit').checked,
@@ -2515,6 +2516,91 @@ function dxt1Encode(img, w, h) {
   }
   return out;
 }
+// ---------- Textura continua del camino ----------
+// El camino se divide en tramos de 80 m y cada tramo lleva su propia textura "desenrollada" a lo largo del camino:
+// sigue las curvas y los cambios de ancho, sin repeticiones visibles. Si hay ortofoto propia, es la foto real del camino;
+// si no, se arma con el ripio (sin repetir el patrón), huellas de las ruedas y piedras sueltas en los bordes (generado).
+const STRIP_LEN = 80, STRIP_W = 256, STRIP_H = 2048;
+function hashU(a, b, s) { const v = Math.sin(a * 127.1 + b * 311.7 + s * 74.7) * 43758.5453; return v - Math.floor(v); }
+function buildRoadStrips(B, res) {
+  const r = res, total = r.total, nSeg = Math.max(1, Math.ceil(total / STRIP_LEN)), roads = r.meshes.filter(m => m.road && m.ds);
+  if (!roads.length) return null;
+  // superficie (material) en cada punto del camino
+  const matAt = new Array(Math.ceil(total / 2) + 2).fill(null);
+  for (const m of roads) for (let i = 0; i < m.ds.length; i++) { const k = Math.round(m.ds[i][0] / 2); if (k >= 0 && k < matAt.length && !matAt[k]) matAt[k] = m.mat; }
+  for (let k = 1; k < matAt.length; k++) if (!matAt[k]) matAt[k] = matAt[k - 1]; for (let k = matAt.length - 2; k >= 0; k--) if (!matAt[k]) matAt[k] = matAt[k + 1];
+  const texData = new Map(), tdat = mat => { if (texData.has(mat)) return texData.get(mat); const cv = TEX[mat] || TEX.gravel, d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data, o = { d, w: cv.width, h: cv.height }; texData.set(mat, o); return o; };
+  const at = d => { const f = Math.max(0, Math.min(r.n - 1.001, d / (total / (r.n - 1)))); let i = Math.floor(f); while (i > 0 && r.dist[i] > d) i--; while (i < r.n - 2 && r.dist[i + 1] < d) i++; const t = Math.max(0, Math.min(1, (d - r.dist[i]) / ((r.dist[i + 1] - r.dist[i]) || 1)));
+    return { x: r.C[i][0] + (r.C[i + 1][0] - r.C[i][0]) * t, y: r.C[i][1] + (r.C[i + 1][1] - r.C[i][1]) * t, nx: -r.T[i][1], ny: r.T[i][0], hw: (r.W[i] + (r.W[i + 1] - r.W[i]) * t) / 2 }; };
+  const strips = []; let realPx = 0, allPx = 0;
+  for (let k = 0; k < nSeg; k++) {
+    const d0 = k * STRIP_LEN, d1 = Math.min(total, d0 + STRIP_LEN); let hwMax = 0;
+    for (let d = d0; d <= d1; d += 4) hwMax = Math.max(hwMax, at(d).hw);
+    const HW = hwMax + 0.15, cv = document.createElement('canvas'); cv.width = STRIP_W; cv.height = STRIP_H; const cx = cv.getContext('2d'), img = cx.createImageData(STRIP_W, STRIP_H), od = img.data;
+    for (let py = 0; py < STRIP_H; py++) {
+      const v = 1 - (py + 0.5) / STRIP_H, d = d0 + v * STRIP_LEN, P = at(Math.min(total, d)), mat = matAt[Math.max(0, Math.min(matAt.length - 1, Math.round(d / 2)))] || 'gravel', D = tdat(mat), E = tdat('loose');
+      const [la0, lo0] = B.P.inv(P.x, P.y);
+      for (let px = 0; px < STRIP_W; px++) {
+        const s = ((px + 0.5) / STRIP_W * 2 - 1) * HW, o = (py * STRIP_W + px) * 4; allPx++;
+        let col = null;
+        if (ORTHO.length) { const wx = P.x + P.nx * s, wy = P.y + P.ny * s, [la, lo] = (s === 0 ? [la0, lo0] : B.P.inv(wx, wy)); for (const R of ORTHO) { col = R.rgb(la, lo); if (col) break; } }
+        if (col) { od[o] = col[0]; od[o + 1] = col[1]; od[o + 2] = col[2]; od[o + 3] = 255; realPx++; continue; }
+        // ripio sin patrón repetido: cada parche de 2,5 m toma la textura desde otro lugar y con otra orientación
+        // mezcla suave entre los 4 parches vecinos (sin cortes visibles)
+        const fu = s / 2.5, fv = d / 2.5, i0 = Math.floor(fu), j0 = Math.floor(fv), ax = Math.min(1, Math.max(0, (fu - i0 - 0.15) / 0.7)), ay = Math.min(1, Math.max(0, (fv - j0 - 0.15) / 0.7));
+        const wxs = ax * ax * (3 - 2 * ax), wys = ay * ay * (3 - 2 * ay), h1 = hashU(i0, j0, 1);
+        let rr = 0, gg = 0, bb = 0;
+        for (const [di, dj, wgt] of [[0, 0, (1 - wxs) * (1 - wys)], [1, 0, wxs * (1 - wys)], [0, 1, (1 - wxs) * wys], [1, 1, wxs * wys]]) {
+          if (wgt < 0.001) continue; const cu = i0 + di, cvv = j0 + dj, flip = hashU(cu, cvv, 2) > 0.5; // sin girar: el ripio tiene dirección (huellas a lo largo)
+          let lu = ((flip ? -s : s) / 5 + hashU(cu, cvv, 1) * 7) * D.w, lv = (d / 5 + hashU(cu, cvv, 3) * 7) * D.h;
+          const tx = ((Math.floor(lu) % D.w) + D.w) % D.w, ty = ((Math.floor(lv) % D.h) + D.h) % D.h, k0 = (ty * D.w + tx) * 4;
+          rr += D.d[k0] * wgt; gg += D.d[k0 + 1] * wgt; bb += D.d[k0 + 2] * wgt;
+        }
+        // piedras sueltas hacia los bordes (el ripio que tiran las ruedas)
+        const edge = Math.max(0, (Math.abs(s) - (P.hw - 0.9)) / 0.9);
+        if (edge > 0 && mat === 'gravel') { const ex = ((Math.floor(s / 5 * E.w) % E.w) + E.w) % E.w, ey = ((Math.floor(d / 5 * E.h) % E.h) + E.h) % E.h, e0 = (ey * E.w + ex) * 4, w = Math.min(1, edge); rr = rr * (1 - w) + E.d[e0] * w; gg = gg * (1 - w) + E.d[e0 + 1] * w; bb = bb * (1 - w) + E.d[e0 + 2] * w; }
+        // huellas de las ruedas: más lisas y algo más oscuras
+        const tw = P.hw * 0.42, tr = Math.exp(-((Math.abs(s) - tw) ** 2) / (2 * 0.28 ** 2)) * (0.75 + 0.25 * Math.sin(d * 0.05 + h1));
+        const f = 1 - 0.13 * tr, mean = (rr + gg + bb) / 3; rr = (rr * (1 - tr * 0.35) + mean * tr * 0.35) * f; gg = (gg * (1 - tr * 0.35) + mean * tr * 0.35) * f; bb = (bb * (1 - tr * 0.35) + mean * tr * 0.35) * f;
+        // fuera del ancho real del camino (en tramos más angostos) se ve la banquina
+        if (Math.abs(s) > P.hw) { rr *= 0.9; gg *= 0.92; bb *= 0.85; }
+        od[o] = rr; od[o + 1] = gg; od[o + 2] = bb; od[o + 3] = 255;
+      }
+    }
+    cx.putImageData(img, 0, 0);
+    const name = 'rs_' + k; TEX[name] = cv; TEX[name].__dxt = true; TEX[name].__normal = true;
+    strips.push({ name, d0, HW });
+  }
+  // partir las mallas del camino por tramo y mapear la textura (u: a lo ancho, v: a lo largo)
+  const out = []; let nn = 0;
+  for (const m of roads) {
+    const key = m.name.replace(/^\d+/, ''), parts = new Map();
+    for (const f of m.f) {
+      const dm = (m.ds[f[0]][0] + m.ds[f[1]][0] + m.ds[f[2]][0]) / 3, k = Math.max(0, Math.min(strips.length - 1, Math.floor(dm / STRIP_LEN))), S0 = strips[k];
+      let P = parts.get(k); if (!P) { P = { m: { name: `${9600 + (++nn)}${key}`, mat: S0.name, v: [], uv: [], f: [], road: true, ds: [] }, map: new Map() }; parts.set(k, P); }
+      P.m.f.push(f.map(i => { if (P.map.has(i)) return P.map.get(i); const [d, s] = m.ds[i]; P.m.v.push(m.v[i]); P.m.ds.push(m.ds[i]); P.m.uv.push([(s + S0.HW) / (2 * S0.HW), (d - S0.d0) / STRIP_LEN]); P.map.set(i, P.m.v.length - 1); return P.m.v.length - 1; }));
+    }
+    for (const P of parts.values()) out.push(P.m);
+  }
+  r.meshes = r.meshes.filter(m => !(m.road && m.ds)).concat(out);
+  return { n: strips.length, real: realPx / (allPx || 1) };
+}
+// mapa de normales (relieve fino de la superficie) a partir de la textura: es generado, no medido
+function normalFromCanvas(cv, strength = 2.2, scale = 1) {
+  const W = Math.max(4, Math.round(cv.width * scale)), H = Math.max(4, Math.round(cv.height * scale)), t = document.createElement('canvas'); t.width = W; t.height = H; const tx = t.getContext('2d');
+  tx.drawImage(cv, 0, 0, W, H); const s = tx.getImageData(0, 0, W, H), d = s.data, L = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) L[i] = (0.3 * d[i * 4] + 0.59 * d[i * 4 + 1] + 0.11 * d[i * 4 + 2]) / 255;
+  const out = tx.createImageData(W, H), o = out.data, g = (x, y) => L[((y + H) % H) * W + ((x + W) % W)];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const dx = (g(x + 1, y - 1) + 2 * g(x + 1, y) + g(x + 1, y + 1) - g(x - 1, y - 1) - 2 * g(x - 1, y) - g(x - 1, y + 1)) * strength;
+    const dy = (g(x - 1, y + 1) + 2 * g(x, y + 1) + g(x + 1, y + 1) - g(x - 1, y - 1) - 2 * g(x, y - 1) - g(x + 1, y - 1)) * strength;
+    const len = Math.hypot(dx, dy, 1), k = (y * W + x) * 4; o[k] = (-dx / len * 0.5 + 0.5) * 255; o[k + 1] = (-dy / len * 0.5 + 0.5) * 255; o[k + 2] = (1 / len * 0.5 + 0.5) * 255; o[k + 3] = 255;
+  }
+  tx.putImageData(out, 0, 0); return t;
+}
+const NM_MATS = new Set(['gravel', 'loose', 'mud', 'ditch', 'verge', 'snow', 'asphalt']);
+const hasNormal = m => NM_MATS.has(m) || (TEX[m] && TEX[m].__normal);
+const NMAP = {}; const normalOf = m => NMAP[m] || (NMAP[m] = normalFromCanvas(TEX[m], m.startsWith('rs_') ? 1.6 : 2.2, m.startsWith('rs_') ? 0.5 : 1));
 async function rebuild(keepCam) {
   const B = S.base, o = opt(), t0 = performance.now();
   let meshes = [], res, spawnList, outline, length = 0, info = {};
@@ -2566,6 +2652,8 @@ async function rebuild(keepCam) {
     res.hsrc = res.C.map(p => roadH && roadH(p[0], p[1]) != null ? 'G' : (() => { const [la, lo] = B.P.inv(p[0], p[1]); return DEM.covered(la, lo) ? 'M' : 'S'; })());
     res.zone = useZ ? { pres: ZPRE - 30, start: ZPRE, finish: res.total - ZPOST, stop: res.total - ZPOST + 30 } : null;
     if (useZ) log('Largada y llegada: se tomaron 30 m antes de la largada para la presentación (control horario) y 30 m después de la llegada para el control stop, donde se entrega el carnet y los tiempos. El reloj corre desde la largada hasta la llegada.');
+    if (o.roadTex) { try { log('Armando la textura continua del camino…'); await tick(); const st = buildRoadStrips(B, res);
+      if (st) log(`Textura del camino: ${st.n} tramos de ${STRIP_LEN} m · ${Math.round(st.real * 100)}% de ortofoto real, ${Math.round((1 - st.real) * 100)}% generado (ripio sin patrón repetido, huellas y piedras en los bordes).`); } catch (e) { log('Textura del camino: ' + e.message, 'err'); } }
     meshes.push(...res.meshes); length = res.total; outline = [res.C];
     spawnList = routeEmpties(res, o, B.closed);
     info.grip = gripAnalysis(res);
@@ -3011,7 +3099,7 @@ async function buildZip(R) {
   const tr = zip.folder('content').folder('tracks').folder(slug), src = $('#withSrc').checked ? zip.folder('fuente_' + slug) : null, ref = zip.folder('referencia_rbr_btb');
   const usedMats = [...new Set(R.meshes.map(m => m.mat))];
   const keys = [...new Set(R.meshes.filter(m => !/^(LINES|TREES|ROCKS|BANNERS|OBJECTS)_/.test(m.name)).map(m => m.name.replace(/^\d+/, '')))];
-  const kd = m => (m === 'line' || m === 'tree' || m.startsWith('tc_')) ? '1 1 1' : (TEXDEF[m] || SURF[MAT2KEY[m]]).col.map(v => (v / 255).toFixed(2)).join(' ');
+  const kd = m => (m === 'line' || m === 'tree' || m.startsWith('tc_') || m.startsWith('rs_')) ? '1 1 1' : (TEXDEF[m] || SURF[MAT2KEY[m]]).col.map(v => (v / 255).toFixed(2)).join(' ');
   $('#prog').textContent = 'Escribiendo modelo 3D…'; await tick();
   if ($('#withSrc').checked) {
     src.file('track.obj', Core.toOBJ(R.meshes, 'track.mtl')); await tick();
@@ -3142,6 +3230,9 @@ function showPreview(R, keepCam) {
     const t = new THREE.CanvasTexture(TEX[k]); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
     if (k === 'tree') { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide }); }
     if (k === 'fwire' || k === 'fgate') return new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.5 });
+    if (k.startsWith('rs_')) { t.wrapS = THREE.ClampToEdgeWrapping; t.wrapT = THREE.ClampToEdgeWrapping; }
+    if (hasNormal(k) && THREE.MeshPhongMaterial) { const nt = new THREE.CanvasTexture(normalOf(k)); nt.wrapS = t.wrapS; nt.wrapT = t.wrapT;
+      return new THREE.MeshPhongMaterial({ map: t, normalMap: nt, shininess: 4, specular: 0x0a0a0a }); }
     return new THREE.MeshLambertMaterial({ map: t, polygonOffset: k === 'line', polygonOffsetFactor: -2 });
   })());
   PV.terrain = [];
@@ -3591,23 +3682,26 @@ async function buildKN5(R, slug, invert) {
   // texturas (PNG embebidos)
   const meshes = R.meshes.flatMap(m => chunkMesh(m)).flatMap(m => splitMesh(m));
   const mats = [...new Set(meshes.map(m => m.mat))];
-  w.i32(mats.length);
+  const nmats = mats.filter(hasNormal);
+  w.i32(mats.length + nmats.length);
+  for (const m of nmats) { const nm = normalOf(m), data = canvasToDDS(nm, null, m.startsWith('rs_')); w.i32(1); w.str(m + '_nm.dds'); w.i32(data.length); w.bytes(data); }
   for (const m of mats) {
     // en Assetto Corsa el sol pega más fuerte que en la vista previa y la luz ambiente es azulada:
     // oscurecemos y entibiamos las texturas de suelo para que el ripio no quede blanco y las banquinas no se vean azules
     const G = m === 'tree' || m === 'line' ? null : ['gravel', 'loose', 'asphalt', 'wet', 'ice', 'snow', 'powder'].includes(m) ? [0.7, 0.68, 0.62] : [0.8, 0.79, 0.72];
-    const data = TEX[m].__dxt ? canvasToDDS(TEX[m], [0.86, 0.85, 0.8], true) : canvasToDDS(TEX[m], G);
+    const data = TEX[m].__dxt ? canvasToDDS(TEX[m], m.startsWith('rs_') ? [0.72, 0.7, 0.64] : [0.86, 0.85, 0.8], true) : canvasToDDS(TEX[m], G);
     w.i32(1); w.str(m + '.dds'); w.i32(data.length); w.bytes(data);
   }
   // materiales
   w.i32(mats.length);
   for (const m of mats) {
-    const sh = MAT_SHADER[m] || { shader: 'ksPerPixel', alpha: false };
+    const sh = MAT_SHADER[m] || (hasNormal(m) ? { shader: 'ksPerPixelNM', alpha: false } : { shader: 'ksPerPixel', alpha: false });
     w.str(m); w.str(sh.shader); w.u8(0); w.u8(sh.alpha ? 1 : 0); w.i32(0);
     const props = [['ksAmbient', m === 'tree' ? 0.32 : 0.26], ['ksDiffuse', m === 'tree' ? 0.42 : 0.4], ['ksSpecular', m === 'wet' || m === 'ice' ? 0.25 : 0.04], ['ksSpecularEXP', m === 'wet' || m === 'ice' ? 40 : 12], ['ksEmissive', 0], ['ksAlphaRef', sh.alpha ? 0.5 : 0]];
     w.i32(props.length);
     for (const [n, v] of props) { w.str(n); w.f32(v); for (let i = 0; i < 2 + 3 + 4; i++) w.f32(0); }
-    w.i32(1); w.str('txDiffuse'); w.i32(0); w.str(m + '.dds');
+    if (hasNormal(m)) { w.i32(2); w.str('txDiffuse'); w.i32(0); w.str(m + '.dds'); w.str('txNormal'); w.i32(1); w.str(m + '_nm.dds'); }
+    else { w.i32(1); w.str('txDiffuse'); w.i32(0); w.str(m + '.dds'); }
   }
   // nodos: raíz con las mallas y los puntos de salida/tiempo
   const empties = R.spawnList;
@@ -3818,6 +3912,7 @@ try {
 
 // ---------- Ayuda: explicación de cada control al pasar el mouse (o tocarlo en el celular) ----------
 const HELP = {
+  roadTex: 'Textura continua del camino: cada 80 m de camino lleva su propia textura que sigue las curvas y el ancho, sin repeticiones visibles. Si cargaste una ortofoto (vuelo de dron) es la foto real del camino; si no, se arma con el ripio, las huellas de las ruedas y piedras sueltas en los bordes (generado). Incluye relieve fino (mapa de normales) que es solo visual: no cambia la física.',
   realTex: 'Texturas reales del terreno: pinta el terreno con el color real del suelo tomado de Sentinel-2 (imagen satelital europea de 10 m por píxel con licencia libre) y le suma el detalle de cada suelo. Donde cargaste una ortofoto propia, usa esa (mucho más detallada). La imagen de Esri del mapa no se puede usar dentro de la pista por su licencia.',
   orthoFile: 'Importar ortofoto: una foto aérea georreferenciada (GeoTIFF RGB), por ejemplo de un vuelo de dron o de un organismo público. Donde cubre, el terreno de la pista toma los colores de esa foto. Verificá su licencia antes de publicar la pista.',
   findAlt: 'Buscar caminos reales: con inicio y fin cargados, descarga los caminos del mapa en la zona y propone hasta 3 recorridos por caminos que existen (nunca une los puntos en línea recta). Con "Evitar rutas principales" prioriza caminos de tierra y huellas. Revisá las opciones sobre el satélite y hacé clic en la correcta.',

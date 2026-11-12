@@ -82,7 +82,7 @@ const Core = (() => {
         if (idx.has(key)) return idx.get(key);
         const ii = i % n, c = sections[ii].cols[k];
         const vv = sections[ii].d / vScale + (i >= n ? sections[n - 1].d / vScale + sections[n - 1].step / vScale - sections[0].d / vScale : 0);
-        m.v.push([c.x, c.y, c.h]); m.uv.push([c.u, vv]);
+        m.v.push([c.x, c.y, c.h]); m.uv.push([c.u, vv]); if (c.s !== undefined) (m.ds || (m.ds = [])).push([sections[ii].d, c.s]);
         idx.set(key, m.v.length - 1); return m.v.length - 1;
       };
       for (let i = s0; i < s1; i++) {
@@ -178,7 +178,7 @@ const Core = (() => {
     const pos = (i, s) => { const nx = -T[i][1], ny = T[i][0], k = K[i]; if (s * k > 0) { const lim = 0.85 / Math.abs(k); if (Math.abs(s) > lim) s = Math.sign(s) * lim; } return [C[i][0] + nx * s, C[i][1] + ny * s]; };
     const sec = (i, j, dOff) => {
       const hw = W[i] / 2;
-      return { cols: [-hw, 0, hw].map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s), u: (s + hw) / W[i] }; }), d: dist[i] + dOff, step };
+      return { cols: [-hw, -hw * 0.5, 0, hw * 0.5, hw].map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s), u: (s + hw) / W[i], s }; }), d: dist[i] + dOff, step };
     };
     // tramos consecutivos con la misma superficie
     const segCount = closed ? n : n - 1, runs = [];
@@ -190,7 +190,7 @@ const Core = (() => {
     for (const run of runs) {
       const secs = [];
       for (let i = run.i0; i <= run.i1 + 1; i++) secs.push(sec(i % n, 0, i >= n ? total : 0));
-      for (const m of ribbonMeshes(secs, false, run.key, MAT[run.key], 7, { next: () => cnt(run.key) })) meshes.push(m);
+      for (const m of ribbonMeshes(secs, false, run.key, MAT[run.key], 7, { next: () => cnt(run.key) })) { m.road = true; meshes.push(m); }
     }
     // banquinas y cunetas a los dos lados
     const DDmax = DLs.map((v, i) => Math.max(v, DRs[i]));
