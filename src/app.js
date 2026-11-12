@@ -1666,6 +1666,10 @@ function autoWidthProfile(B, pts, o) {
         if (Lc - Lb > 14) {
           const T = Lb + (Lc - Lb) * 0.5; let l = c0, r = c0;
           while (l > -13.5 && at(l - 0.5) > T) l -= 0.5; while (r < 13.5 && at(r + 0.5) > T) r += 0.5;
+          // borde real: el salto de brillo más fuerte a cada lado (el ripio contra la sombra de la cuneta o el pasto).
+          // Si el umbral se escapa a un claro o a una banquina pelada, manda el borde por contraste.
+          const edgeAt = (dir) => { let bs = null, bg = 0; for (let s2 = 1.5; s2 <= 6.5; s2 += 0.5) { const p0 = c0 + dir * s2, g = at(p0 - dir * 0.5) - at(p0 + dir * 0.5); if (Math.abs(p0) < 13.5 && g > bg) { bg = g; bs = s2; } } return bg > (Lc - Lb) * 0.25 ? bs : null; };
+          const gl = edgeAt(-1), gr = edgeAt(1); if (gl != null) l = Math.max(l, c0 - gl); if (gr != null) r = Math.min(r, c0 + gr);
           const m = (r - l + 0.5) * 0.92; if (m >= 2.5 && m <= 14) w = m;
           // banquina pelada: desde el borde del ripio hasta donde empieza la vegetación (más oscura)
           const T2 = Lb + (Lc - Lb) * 0.18; let bl = l, br = r;
@@ -1683,7 +1687,7 @@ function autoWidthProfile(B, pts, o) {
     let w = win.length >= 3 ? win[Math.floor(win.length / 2)] : null;
     if (w == null) w = s.cls && ROAD_CLASS[s.cls] ? Math.min(ROAD_CLASS[s.cls].w * 0.85, o.width) : o.width;
     // dentro del bosque cerrado las copas tapan el camino en la foto: los caminos de ripio ahí son angostos
-    if (s.wood2 && !(win.length >= 3) && !['motorway', 'trunk', 'primary', 'secondary'].includes(s.cls)) w = Math.min(w, 4.6);
+    if (s.wood2 && !['motorway', 'trunk', 'primary', 'secondary'].includes(s.cls)) w = Math.min(w, win.length >= 3 ? 6 : 4.6); // camino de bosque: angosto
     return Math.max(s.rg[0], Math.min(s.rg[1], w));
   });
   for (let p = 0; p < 2; p++) for (let k = 1; k + 1 < out.length; k++) out[k] = (out[k - 1] + out[k] * 2 + out[k + 1]) / 4;
@@ -1728,7 +1732,7 @@ function surfaceProfile(B, pts, o) {
       for (let u = -4; u <= 4; u += 1) for (const s of [-0.6, 0, 0.6]) { const q = SV.rgb(x + nx * (c0 + s) + tx * u, y + ny * (c0 + s) + ty * u); if (q) { r += q[0]; g += q[1]; bb2 += q[2]; k++; } }
       if (k > 10) rgb = [r / k, g / k, bb2 / k];
     }
-    const forest = SV ? (Math.max(0, SV(x + nx * 15, y + ny * 15)) + Math.max(0, SV(x - nx * 15, y - ny * 15))) / 2 : 0.3;
+    const forest = SV ? [10, 20, 35].reduce((a, dd) => a + Math.max(0, SV(x + nx * dd, y + ny * dd)) + Math.max(0, SV(x - nx * dd, y - ny * dd)), 0) / 6 / 0.6 : 0.3; // 0..~1.6: parte con bosque a los costados
     // ¿asfalto?
     let pav = 0;
     if (ln && ln.paved) pav += 2.5; if (ln && (ln.unpaved || cls === 'track')) pav -= 3;
@@ -1743,8 +1747,10 @@ function surfaceProfile(B, pts, o) {
   }
   // suavizar (tramos de al menos ~80 m, sin parpadeo de superficie)
   const med = (k, f) => { const w = raw.slice(Math.max(0, k - 2), k + 3).map(f).sort((p, q) => p - q); return w[Math.floor(w.length / 2)]; };
-  const sm = raw.map((r, k) => ({ d: r.d, pav: med(k, q => q.pav), clay: med(k, q => q.clay), lum: med(k, q => q.lum ?? 128), forest: r.forest }));
-  const keyOf = q => q.pav > 0.5 ? 'ROAD' : q.clay > 0.55 ? 'CLAY' : q.clay < 0.22 && q.lum > 150 ? 'LOOSE' : 'GRAVEL';
+  const sm = raw.map((r, k) => ({ d: r.d, pav: med(k, q => q.pav), clay: med(k, q => q.clay), lum: med(k, q => q.lum ?? 128), forest: med(k, q => q.forest) }));
+  // en el bosque húmedo (Aguas Blancas) el camino es tierra arcillosa compactada aunque se vea clara desde arriba;
+  // el ripio suelto (claro y gris) es de la estepa y los caminos abiertos
+  const keyOf = q => q.pav > 0.5 ? 'ROAD' : (q.forest > 0.4 && q.lum < 185) || q.clay > 0.55 ? 'CLAY' : q.forest < 0.3 && q.clay < 0.22 && q.lum > 150 ? 'LOOSE' : 'GRAVEL';
   let keys = sm.map(keyOf);
   for (let pass = 0; pass < 2; pass++) { // tramos sueltos de menos de 80 m se pegan al vecino
     let a = 0; while (a < keys.length) { let b = a; while (b + 1 < keys.length && keys[b + 1] === keys[a]) b++;
@@ -1765,7 +1771,7 @@ function marginProfile(B, r, o) {
   const segN = r.closed ? r.n : r.n - 1, raw = new Array(segN);
   for (let i = 0; i < segN; i++) {
     if (i % 5) { raw[i] = raw[i - i % 5]; continue; }
-    const nx = -r.T[i][1], ny = r.T[i][0], p = r.C[i], dense = sd => [15, 30, 45].every(dd => SV(p[0] + sd * nx * dd, p[1] + sd * ny * dd) > 0.42);
+    const nx = -r.T[i][1], ny = r.T[i][0], p = r.C[i], dense = sd => [15, 30, 45, 60].filter(dd => SV(p[0] + sd * nx * dd, p[1] + sd * ny * dd) > 0.35).length >= 3;
     const L = dense(1), R = dense(-1);
     raw[i] = L && R ? 50 : L || R ? Math.max(80, o.margin * 0.6) : o.margin;
   }
