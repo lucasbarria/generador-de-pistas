@@ -6,9 +6,11 @@ const tick = () => new Promise(r => setTimeout(r, 0));
 const D2R = Math.PI / 180;
 
 // ---------- Mapa ----------
-const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([-32.95, -60.65], 13);
-const osm = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Mapa &copy; Esri, HERE, Garmin, OpenStreetMap' }).addTo(map);
-const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Imágenes &copy; Esri' });
+const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([-54.8019, -68.3030], 13); // arranca en Ushuaia, Tierra del Fuego
+const osm = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Mapa &copy; Esri, HERE, Garmin, OpenStreetMap' });
+const satImg = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Imágenes &copy; Esri' });
+const satLbl = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+const sat = L.layerGroup([satImg, satLbl]).addTo(map); // vista satelital con nombres de lugares, por defecto
 const topo = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: '&copy; Esri' });
 L.control.layers({ 'Calles': osm, 'Satélite': sat, 'Relieve': topo }).addTo(map);
 
