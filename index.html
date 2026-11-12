@@ -141,6 +141,9 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <label class="f">Textura continua del camino <span><input type="checkbox" id="roadTex" checked></span></label>
         <label class="f">Piso arcilloso <select id="clay"><option value="auto" selected>Automático (por tramo)</option><option value="0.15">Poco (ripio suelto)</option><option value="0.4">Medio</option><option value="0.65">Mucho (tierra/arcilla)</option></select></label>
         <label class="f">Texturas reales del terreno <select id="realTex"><option value="s2_2016" selected>Sentinel-2 2016 (libre, CC BY)</option><option value="s2_2024">Sentinel-2 2024 (no comercial)</option><option value="none">No (texturas generadas)</option></select></label>
+        <details class="texbox"><summary>Reconstrucción de materiales desde fotos reales</summary><div class="mut">REAL PHOTO MATERIAL RECONSTRUCTION: materiales del camino generados a partir de las fotos reales de Aguas Blancas (colores, piedras, huellas, humedad, bordes). El satélite los reparte a lo largo del recorrido. Las fotos no se exportan.</div>
+          <label style="display:block;margin:6px 0">Usar materiales de fotos reales <select id="photoMat"><option value="auto">Automático (tramos de Aguas Blancas)</option><option value="on">Siempre</option><option value="off">No</option></select></label>
+          <div id="abPanel"></div></details>
         <details class="texbox"><summary>Fotos reales del recorrido (automático)</summary><div class="mut">Al generar, la app busca sola fotos libres del lugar (Wikimedia Commons, Panoramax, Mapillary), verifica que muestren el camino y las usa para calibrar materiales km a km. Nunca se incluyen en la pista exportada.</div><div id="photoPanel" style="margin:6px 0"></div><label class="f">Buscar fotos reales al generar <span><input type="checkbox" id="refCal" checked></span></label><label class="f">Token de Mapillary (opcional) <input id="mlyToken" placeholder="MLY|…" style="width:160px"></label><label class="b gpsbtn">📷 Agregar fotos para comparar<input type="file" id="refFile" accept="image/*" multiple hidden></label><div id="refList"></div></details>
         <label class="f">Buscar imágenes libres del recorrido <span><input type="checkbox" id="freeImg" checked></span></label>
         <label class="f">Materiales del suelo <select id="matSrc"><option value="auto" selected>Automático (biblioteca libre si está guardada)</option><option value="lib">Biblioteca libre (Poly Haven, CC0)</option><option value="app">Fotos de la app</option></select></label>
@@ -2114,6 +2117,7 @@ const photoReady = (async () => {
     TEX.forest = TEX_DEFAULT.forest = tint(PHOTO_CANVAS.forest, 'rgb(70,96,48)', 0.55); // suelo de bosque con musgo (no rojizo)
     TEX.verge = TEX_DEFAULT.verge = makeVergeTex(); TEX.ditchside = TEX_DEFAULT.ditchside = makeDitchTex(); TEX.clay = TEX_DEFAULT.clay = makeClayRoadTex();
     for (const k of OBJ_MATS) TEX[k] = TEX_DEFAULT[k] = objTex(k);
+    try { renderPhotoMatPanel(); } catch (e) { console.warn(e); }
     if (typeof refreshPreviewTextures === 'function' && S.result) refreshPreviewTextures();
   } catch (e) { console.warn('Texturas de fotos no disponibles', e); }
 })();
@@ -3135,6 +3139,7 @@ function surfaceProfile(B, pts, o) {
   const cnt = {}; keys.forEach(k => cnt[k] = (cnt[k] || 0) + STEP);
   fn.summary = Object.entries(cnt).sort((p, q) => q[1] - p[1]).map(([k, m]) => `${SURF[k].name} ${(Math.min(m, total) / 1000).toFixed(2)} km`).join(', ');
   fn.satShare = raw.filter(r => r.sat).length / raw.length;
+  fn.at = d => sm[idx(d)];
   return fn;
 }
 // margen de terreno por tramo: en bosque cerrado a los dos lados basta con ~50 m (los árboles tapan todo); en el campo, el margen elegido
@@ -3468,6 +3473,216 @@ function dxt1Encode(img, w, h) {
 // El camino se divide en tramos de 80 m y cada tramo lleva su propia textura "desenrollada" a lo largo del camino:
 // sigue las curvas y los cambios de ancho, sin repeticiones visibles. Si hay ortofoto propia, es la foto real del camino;
 // si no, se arma con el ripio (sin repetir el patrón), huellas de las ruedas y piedras sueltas en los bordes (generado).
+// ---------- REAL PHOTO MATERIAL RECONSTRUCTION: materiales del camino a partir de las fotos reales de Aguas Blancas ----------
+// Las fotos se analizaron una vez (colores, piedras, huellas, humedad, bordes y banquinas) y acá se guardan solo esas
+// medidas, no las fotos. Con ellas se generan materiales propios (albedo + relieve + normal), que el satélite reparte
+// a lo largo del recorrido. Las alturas de piedras y huellas son estimaciones visuales: no hay datos geométricos de ellas.
+const AB_REF = {"name":"AGUAS BLANCAS – REAL ROAD PHOTO REFERENCE","created":"2026-11-12","photos":[{"id":"2233d841","file":"2233d841-image.png","src":"Street View (Farid Monti) — enviada para Aguas Blancas","status":"confirmada","desc":"Cruce con la ruta asfaltada: ripio gris claro muy pisado, huellas marcadas, banquinas de pasto verde y tierra","w":1917,"h":811,"orient":"horizontal","dup":[],"hash":"0100111101001100100011100000111000000110000001110100001100000011","mpp":0.0049,"road_px":377098,"albedo":[152,149,139],"shade":[100.0,97.0,85.0],"pal":[[[150,147,134],0.201],[[160,157,144],0.212],[[170,167,155],0.208],[[182,179,167],0.181],[[194,191,180],0.137],[[208,206,195],0.061]],"lum_sd":33.4,"stones":{"claras":{"dens":93.8,"d25":0.01,"d50":0.011,"d90":0.017,"col":[203.0,200.0,188.0],"cover":0.032},"oscuras":{"dens":225.9,"d25":0.01,"d50":0.011,"d90":0.016,"col":[86.0,83.0,73.0],"cover":0.066}},"lat":[[0.968,0.848],[0.97,0.815],[0.995,0.901],[1.023,0.972],[1.042,1.134],[1.045,1.059],[1.1,1.014],[1.017,1.083],[0.842,1.209]],"edge_ratio":0.975,"quality":"media (captura de pantalla comprimida)","wet_col":null,"wet":0.0,"wet_blue":-11.0,"puddle":0.0,"verge":{"green":0.078,"dry":0.064,"col":[141.0,138.0,125.0],"green_col":[92.0,104.0,64.0],"dry_col":[120.0,117.0,88.0]},"feats":["ripio","huellas"]},{"id":"480c2481","file":"480c2481-image.png","src":"Street View (Farid Monti) — enviada para Aguas Blancas","status":"confirmada","desc":"Curva en el bosque: ripio gris con grava suelta, sombra de lengas sobre el camino","w":1917,"h":797,"orient":"horizontal","dup":[],"hash":"1000011000000110100001100000111000011010111110011111100000110001","mpp":0.0031,"road_px":427873,"albedo":[174,169,157],"shade":[66.0,80.0,94.0],"pal":[[[129,141,154],0.089],[[150,145,136],0.08],[[170,165,154],0.15],[[187,182,168],0.198],[[201,197,181],0.303],[[214,209,192],0.18]],"lum_sd":47.4,"stones":{"claras":{"dens":232.9,"d25":0.006,"d50":0.007,"d90":0.015,"col":[189.0,183.0,178.0],"cover":0.05},"oscuras":{"dens":580.5,"d25":0.006,"d50":0.007,"d90":0.011,"col":[55.0,67.0,81.0],"cover":0.06}},"lat":[[1.276,0.357],[1.257,0.522],[1.222,0.612],[1.171,0.896],[0.77,1.415],[0.656,1.295],[0.704,1.375],[0.722,1.106],[0.788,1.474]],"edge_ratio":0.762,"quality":"media (captura de pantalla comprimida)","wet_col":null,"wet":0.007,"wet_blue":17.0,"puddle":0.001,"verge":{"green":0.315,"dry":0.051,"col":[191.0,186.0,170.0],"green_col":[97.0,108.0,121.0],"dry_col":[204.0,197.0,176.0]},"feats":["ripio","huellas","banquina con pasto"]},{"id":"5114ab06","file":"5114ab06-image.png","src":"Street View (Farid Monti) — enviada para Aguas Blancas","status":"confirmada","desc":"Bifurcación en el bosque: grava suelta oscura, piedra mediana, sombras","w":1917,"h":807,"orient":"horizontal","dup":[],"hash":"1110001110100110100001100001101001111000011110001011111000101100","mpp":0.0035,"road_px":467871,"albedo":[108,110,113],"shade":[49.0,51.0,56.0],"pal":[[[100,103,107],0.291],[[115,118,122],0.269],[[134,134,136],0.189],[[158,154,152],0.122],[[187,178,171],0.08],[[223,207,191],0.05]],"lum_sd":39.7,"stones":{"claras":{"dens":431.9,"d25":0.007,"d50":0.008,"d90":0.013,"col":[180.0,177.0,175.0],"cover":0.062},"oscuras":{"dens":297.3,"d25":0.007,"d50":0.008,"d90":0.011,"col":[39.0,40.0,46.0],"cover":0.049}},"lat":[[1.101,0.776],[1.148,0.941],[1.103,0.874],[1.033,0.945],[0.989,1.073],[0.822,1.124],[0.773,1.173],[0.819,1.084],[0.877,1.077]],"edge_ratio":0.885,"quality":"media (captura de pantalla comprimida)","wet_col":null,"wet":0.001,"wet_blue":7.0,"puddle":0.077,"verge":{"green":0.194,"dry":0.088,"col":[116.0,117.0,116.0],"green_col":[104.0,114.0,116.0],"dry_col":[175.0,161.0,141.0]},"feats":["ripio","huellas","charcos/reflejos"]},{"id":"7a4f96ca","file":"7a4f96ca-image.png","src":"Street View (Farid Monti) — enviada para Aguas Blancas","status":"confirmada","desc":"Recta con tranquera: ripio beige grisáceo compactado, cordón de grava en los bordes, banquina de pasto","w":1917,"h":801,"orient":"horizontal","dup":[],"hash":"0011110000001100010010001110110011001100100101100001101100111111","mpp":0.0052,"road_px":246801,"albedo":[158,155,140],"shade":[138.0,134.0,118.0],"pal":[[[164,160,143],0.24],[[171,167,151],0.233],[[179,175,159],0.21],[[188,184,169],0.174],[[199,195,180],0.106],[[214,211,197],0.038]],"lum_sd":20.7,"stones":{"claras":{"dens":172.3,"d25":0.01,"d50":0.012,"d90":0.021,"col":[200.0,197.0,182.0],"cover":0.057},"oscuras":{"dens":121.9,"d25":0.01,"d50":0.012,"d90":0.02,"col":[129.0,125.0,110.0],"cover":0.041}},"lat":[[1.054,1.363],[1.074,0.948],[1.059,0.797],[0.998,0.757],[0.97,0.799],[0.985,0.805],[1.01,1.034],[0.966,1.22],[0.912,1.377]],"edge_ratio":1.741,"quality":"media (captura de pantalla comprimida)","wet_col":null,"wet":0.0,"wet_blue":0,"puddle":0.0,"verge":{"green":0.178,"dry":0.448,"col":[141.0,137.0,110.0],"green_col":[99.0,113.0,64.0],"dry_col":[148.0,140.0,105.0]},"feats":["ripio","huellas","grava acumulada en los bordes","pasto seco / tierra al borde"]},{"id":"4783aa93","file":"4783aa93-image.jpg","src":"Foto de rally — enviada como \"piso y cuneta en vida real\" de Aguas Blancas","status":"confirmada","desc":"Curva con polvo: tierra beige clara, cordón de tierra y terrones en el borde, banquina de pasto verde","w":960,"h":640,"orient":"horizontal","dup":[],"hash":"1100100111001101011111010011111100000011010000110001011100111111","mpp":0.0104,"road_px":76539,"albedo":[156,144,130],"shade":[66.0,55.0,45.0],"pal":[[[153,138,122],0.122],[[162,149,134],0.163],[[170,157,142],0.225],[[177,164,149],0.216],[[183,170,156],0.19],[[191,178,163],0.084]],"lum_sd":42.9,"stones":{"claras":{"dens":28.2,"d25":0.024,"d50":0.031,"d90":0.069,"col":[140.0,126.0,110.0],"cover":0.047},"oscuras":{"dens":37.3,"d25":0.024,"d50":0.029,"d90":0.053,"col":[107.0,91.0,73.0],"cover":0.049}},"lat":[[0.92,1.555],[0.924,1.149],[1.061,0.962],[1.085,0.908],[1.086,0.935],[1.046,0.969],[1.035,0.992],[0.992,0.984],[0.908,1.068]],"edge_ratio":1.399,"quality":"buena","wet_col":[62.0,54.0,50.0],"wet":0.036,"wet_blue":-14.0,"puddle":0.0,"verge":{"green":0.417,"dry":0.554,"col":[109.0,114.0,76.0],"green_col":[96.0,108.0,66.0],"dry_col":[127.0,121.0,89.0]},"feats":["ripio","piedra suelta mediana","huellas","sectores húmedos","grava acumulada en los bordes","banquina con pasto","pasto seco / tierra al borde"]},{"id":"c7118f3d","file":"c7118f3d-image.jpg","src":"Foto propia (iPhone), sin ubicación","status":"sin confirmar","desc":"Bosque de lengas en invierno: tierra gris-marrón húmeda, huellas, restos de nieve","w":1512,"h":2016,"orient":"vertical","dup":["41d9d475"],"hash":"0001111100001111000011111000111110001111000001110000011100000011","mpp":0.0051,"road_px":545918,"albedo":[86,85,75],"shade":[55.0,52.0,45.0],"pal":[[[90,88,76],0.321],[[96,93,82],0.303],[[102,100,88],0.222],[[111,108,97],0.115],[[125,121,110],0.036],[[168,169,168],0.003]],"lum_sd":18.6,"stones":{"claras":{"dens":101.0,"d25":0.011,"d50":0.014,"d90":0.028,"col":[102.0,98.0,89.0],"cover":0.036},"oscuras":{"dens":171.1,"d25":0.011,"d50":0.013,"d90":0.023,"col":[57.0,53.0,44.0],"cover":0.05}},"lat":[[0.87,1.196],[1.019,0.921],[1.056,0.792],[1.099,0.791],[1.065,0.869],[1.019,0.914],[0.989,1.124],[0.954,1.247],[0.909,1.154]],"edge_ratio":1.369,"quality":"buena","wet_col":[46.0,44.0,40.0],"wet":0.044,"wet_blue":-5.0,"puddle":0.0,"verge":{"green":0.0,"dry":0.0,"col":[52.0,50.0,45.0],"green_col":null,"dry_col":null},"feats":["ripio","huellas","sectores húmedos","grava acumulada en los bordes"]},{"id":"7b7fa3fc","file":"7b7fa3fc-image.jpg","src":"Foto propia (iPhone), sin ubicación","status":"sin confirmar","desc":"Deshielo: tierra húmeda oscura, barro, nieve al costado","w":1512,"h":2016,"orient":"vertical","dup":[],"hash":"0010001100100011000010110000111100000010000100010111000011100011","mpp":0.0059,"road_px":393537,"albedo":[131,125,112],"shade":[94.0,88.0,74.0],"pal":[[[131,125,110],0.275],[[141,134,120],0.231],[[152,145,129],0.196],[[164,156,140],0.167],[[178,170,152],0.1],[[199,191,173],0.03]],"lum_sd":27.2,"stones":{"claras":{"dens":91.3,"d25":0.011,"d50":0.013,"d90":0.02,"col":[174.0,168.0,154.0],"cover":0.031},"oscuras":{"dens":205.7,"d25":0.011,"d50":0.013,"d90":0.021,"col":[79.0,73.0,60.0],"cover":0.059}},"lat":[[0.869,1.43],[0.967,1.177],[1.018,0.887],[1.026,0.826],[1.019,0.868],[1.0,0.944],[1.016,0.945],[1.016,0.956],[1.034,0.974]],"edge_ratio":1.367,"quality":"buena","wet_col":null,"wet":0.0,"wet_blue":0,"puddle":0.0,"verge":{"green":0.0,"dry":0.045,"col":[90.0,84.0,75.0],"green_col":[202.0,210.0,212.0],"dry_col":[137.0,128.0,109.0]},"feats":["ripio","huellas","grava acumulada en los bordes"]},{"id":"16301cc2","file":"16301cc2-image.jpg","src":"Foto propia (iPhone), sin ubicación","status":"sin confirmar","desc":"Tierra arcillosa beige clara con zanja (cuneta) cortada al costado","w":1512,"h":2016,"orient":"vertical","dup":[],"hash":"0001110110011100010011110011000000111000011010000000100010011001","mpp":0.0053,"road_px":574659,"albedo":[202,184,150],"shade":[91.0,73.0,47.0],"pal":[[[156,134,101],0.144],[[176,154,118],0.127],[[197,175,139],0.116],[[218,197,160],0.134],[[237,217,179],0.254],[[250,232,194],0.225]],"lum_sd":57.7,"stones":{"claras":{"dens":215.9,"d25":0.012,"d50":0.013,"d90":0.023,"col":[236.0,215.0,179.0],"cover":0.06},"oscuras":{"dens":199.8,"d25":0.01,"d50":0.012,"d90":0.021,"col":[99.0,76.0,44.0],"cover":0.055}},"lat":[[0.712,1.126],[0.691,1.14],[0.72,1.092],[0.754,1.186],[0.869,1.377],[1.128,1.285],[1.393,0.938],[1.475,0.513],[1.503,0.34]],"edge_ratio":0.571,"quality":"buena","wet_col":null,"wet":0.001,"wet_blue":-15.0,"puddle":0.0,"verge":{"green":0.0,"dry":0.892,"col":[121.0,102.0,75.0],"green_col":null,"dry_col":[129.0,109.0,81.0]},"feats":["ripio","huellas","pasto seco / tierra al borde"]},{"id":"944f2e2b","file":"944f2e2b-image.jpg","src":"Foto propia (iPhone), sin ubicación","status":"sin confirmar","desc":"Bajada entre lengas: dos huellas de tierra y lomo central con ripio, taludes de tierra","w":1512,"h":2016,"orient":"vertical","dup":["072eeb66"],"hash":"0110111100001111000001110000011111001111110011111100101111000011","mpp":0.009,"road_px":206661,"albedo":[130,118,97],"shade":[74.0,64.0,46.0],"pal":[[[127,114,92],0.29],[[141,128,105],0.28],[[155,142,119],0.219],[[172,159,135],0.13],[[195,183,160],0.058],[[231,221,200],0.022]],"lum_sd":34.7,"stones":{"claras":{"dens":82.0,"d25":0.018,"d50":0.02,"d90":0.035,"col":[189.0,178.0,158.0],"cover":0.062},"oscuras":{"dens":47.2,"d25":0.018,"d50":0.02,"d90":0.027,"col":[59.0,48.0,30.0],"cover":0.041}},"lat":[[0.868,1.266],[0.887,1.293],[0.946,1.252],[1.05,0.911],[1.122,0.717],[1.087,0.736],[0.981,0.885],[0.946,1.007],[0.948,0.952]],"edge_ratio":1.407,"quality":"buena","wet_col":null,"wet":0.0,"wet_blue":0,"puddle":0.0,"verge":{"green":0.007,"dry":0.703,"col":[116.0,103.0,80.0],"green_col":[48.0,56.0,23.0],"dry_col":[128.0,112.0,86.0]},"feats":["ripio","huellas","grava acumulada en los bordes","pasto seco / tierra al borde"]},{"id":"a1a56e3f","file":"a1a56e3f-image.png","src":"Captura de Street View 2019, sin ubicación","status":"sin confirmar","desc":"Entrada a camino de bosque: ripio gris claro, banquinas de pasto seco","w":897,"h":738,"orient":"horizontal","dup":[],"hash":"1110010011000100100100001000111010001111100001110001011101110101","mpp":0.0111,"road_px":77456,"albedo":[118,119,113],"shade":[115.0,114.0,105.0],"pal":[[[127,127,120],0.268],[[130,130,124],0.26],[[133,134,128],0.222],[[137,138,132],0.158],[[143,144,138],0.075],[[154,155,149],0.017]],"lum_sd":9.9,"stones":{"claras":{"dens":38.5,"d25":0.025,"d50":0.031,"d90":0.052,"col":[142.0,143.0,136.0],"cover":0.047},"oscuras":{"dens":33.3,"d25":0.025,"d50":0.031,"d90":0.052,"col":[114.0,115.0,108.0],"cover":0.043}},"lat":[[0.974,1.108],[0.992,0.885],[0.995,0.766],[1.0,0.835],[1.01,0.951],[1.028,0.99],[1.02,1.053],[0.988,1.013],[0.996,1.403]],"edge_ratio":1.357,"quality":"media (captura de pantalla)","wet_col":null,"wet":0.0,"wet_blue":0,"puddle":0.0,"verge":{"green":0.001,"dry":0.615,"col":[110.0,95.0,72.0],"green_col":[136.0,144.0,141.0],"dry_col":[104.0,89.0,63.0]},"feats":["ripio","grava acumulada en los bordes","pasto seco / tierra al borde"]},{"id":"7b74f407","file":"7b74f407-image.png","src":"Captura de video desde el auto, sin ubicación","status":"sin confirmar","desc":"Recta ancha entre lengas: ripio claro compactado","w":1917,"h":832,"orient":"horizontal","dup":[],"hash":"0110111101101111010011111001111110001111101011100000111100001111","mpp":0.0089,"road_px":54986,"albedo":[128,122,115],"shade":[59.0,56.0,48.0],"pal":[[[93,88,75],0.117],[[107,100,88],0.06],[[126,117,107],0.126],[[136,128,120],0.154],[[146,137,131],0.264],[[153,145,139],0.279]],"lum_sd":34.7,"stones":{"claras":{"dens":28.7,"d25":0.02,"d50":0.029,"d90":0.06,"col":[134.0,126.0,120.0],"cover":0.043},"oscuras":{"dens":23.2,"d25":0.023,"d50":0.029,"d90":0.051,"col":[71.0,64.0,60.0],"cover":0.051}},"lat":[[0.666,0.931],[0.587,1.177],[0.85,1.157],[1.259,0.889],[1.31,0.949],[1.355,0.605],[1.134,0.726],[0.761,1.143],[0.758,1.424]],"edge_ratio":1.446,"quality":"baja","wet_col":null,"wet":0.0,"wet_blue":-10.0,"puddle":0.013,"verge":{"green":0.0,"dry":0.024,"col":[80.0,79.0,69.0],"green_col":null,"dry_col":[93.0,87.0,66.0]},"feats":["ripio","huellas","grava acumulada en los bordes"]}],"excluded":[{"id":"43154cca","why":"estepa del norte de la isla (otro camino)"},{"id":"b4f90ecc","why":"estepa con zanja (otro camino)"},{"id":"353bc8f1","why":"estepa (otro camino)"},{"id":"1dce0bdd","why":"claro sin bosque de lengas, otro lugar"},{"id":"8270daf5","why":"campo nevado, no muestra el camino"},{"id":"IMG_4287.mov","why":"video con GPS -54.351, -67.301: estepa a 30 km de Aguas Blancas"}]};
+const PHOTOMAT = {
+  REF: AB_REF, CENTER: [-54.592, -67.230], RADIUS: 25000, on: false, mats: [], mix: null, sectors: [], dirty: true,
+  st: (() => { try { return JSON.parse(localStorage.getItem('abMat') || 'null'); } catch (e) { return null; } })() || { use: {}, p: { stones: 1, tone: 0, warm: 0, scale: 1, ruts: 1 }, ov: [] },
+  save() { try { localStorage.setItem('abMat', JSON.stringify(this.st)); } catch (e) { } this.dirty = true; },
+  used(p) { return this.st.use[p.id] ?? (p.status === 'confirmada'); },
+  usable() { return this.REF.photos.filter(p => this.used(p)); },
+  weight(p) { return (p.status === 'confirmada' ? 1 : 0.6) * (/^buena/.test(p.quality) ? 1 : /^media/.test(p.quality) ? 0.8 : 0.5); },
+  // paleta combinada de varias fotos (colores con su peso), reducida a 6 tonos ordenados de oscuro a claro
+  palette(list, pick = () => true) {
+    const all = [];
+    for (const p of list) { const L0 = lumOf(p.albedo); for (const [c, w] of p.pal) if (c[2] <= c[0] + 12 && lumOf(c) >= L0 * 0.72 && pick(c, L0, p)) all.push([c.map(v => v * 0.94), w * this.weight(p)]); } // sin el azul de la sombra; color propio ≈ 94% del color al sol
+    if (!all.length) return null;
+    all.sort((a, b) => lumOf(a[0]) - lumOf(b[0]));
+    const out = [], n = Math.min(6, all.length), tot = all.reduce((a, q) => a + q[1], 0);
+    for (let k = 0; k < n; k++) { const part = all.slice(Math.floor(k * all.length / n), Math.floor((k + 1) * all.length / n)), w = part.reduce((a, q) => a + q[1], 0);
+      out.push([[0, 1, 2].map(c => Math.round(part.reduce((a, q) => a + q[0][c] * q[1], 0) / w)), w / tot]); }
+    return out;
+  },
+  med(list, f) { const v = list.map(f).filter(x => x != null && isFinite(x)).sort((a, b) => a - b); return v.length ? v[v.length >> 1] : null; },
+  // materiales: solo los que las fotos respaldan
+  build() {
+    const U = this.usable(), M = [], ids = l => l.map(p => p.id);
+    const st = (l, k = 1, big = false) => { const c = l.map(p => p.stones.claras); return { dens: Math.min(260, (this.med(c, s => s.dens) || 60) * k), d0: Math.max(0.006, this.med(c, s => s.d25) || 0.008) * (big ? 1.4 : 1), d1: Math.max(0.014, this.med(c, s => s.d90) || 0.02) * (big ? 1.3 : 1),
+      light: avgCol(l.map(p => p.stones.claras.col).filter(c => c && c.length)), dark: avgCol(l.map(p => p.stones.oscuras.col).filter(c => c && c.length)) }; };
+    const fine = U.filter(p => p.stones.claras.dens >= 80 && p.stones.claras.d90 < 0.03);
+    if (fine.length) M.push({ id: 'AB_02', name: 'Ripio fino', from: ids(fine), pal: this.palette(fine), st: st(fine), rough: 0.88, note: 'Piedritas de 1 a 3 cm medidas en las fotos (tamaño estimado por el ancho del camino).' });
+    const trk = U.filter(p => p.feats.includes('huellas'));
+    if (trk.length) M.push({ id: 'AB_01', name: 'Tierra compactada (huellas)', from: ids(trk), pal: this.palette(trk, (c, L0) => lumOf(c) <= L0 * 1.02), st: st(trk, 0.22), rough: 0.8, note: 'Tonos de la franja que pisan las ruedas: más lisa y algo más oscura.' });
+    const loose = U.filter(p => p.stones.claras.dens >= 300);
+    if (loose.length) M.push({ id: 'AB_03', name: 'Grava suelta gris', from: ids(loose), pal: this.palette(loose), st: st(loose, 1.1), rough: 0.92, note: 'Grava densa y gris de los tramos de bosque con sombra.' });
+    const med_ = U.filter(p => p.feats.includes('piedra suelta mediana'));
+    if (med_.length) M.push({ id: 'AB_04', name: 'Tierra clara con piedra suelta', from: ids(med_), pal: this.palette(med_), st: st(med_, 1, true), rough: 0.9, note: 'Tierra beige con piedras sueltas de 3 a 7 cm (estimado).' });
+    const wet = U.filter(p => p.feats.includes('sectores húmedos') && p.wet_col);
+    if (wet.length && this.palette(wet, (c, L0) => lumOf(c) < L0 * 0.95)) M.push({ id: 'AB_05', name: 'Tierra húmeda', from: ids(wet), pal: this.palette(wet, (c, L0) => lumOf(c) < L0 * 0.95).map(([c, w]) => [c.map((v, i) => Math.round(v * 0.7 + avgCol(wet.map(p => p.wet_col))[i] * 0.3)), w]), st: st(wet, 0.3), rough: 0.55, note: 'Manchas oscuras y poco saturadas medidas en las fotos. No hay charcos medidos.' });
+    const edge = U.filter(p => p.edge_ratio > 1.12);
+    if (edge.length) M.push({ id: 'AB_06', name: 'Borde con grava acumulada', from: ids(edge), pal: this.palette(edge, (c, L0) => lumOf(c) >= L0 * 0.9), st: st(edge, Math.min(1.8, this.med(edge, p => p.edge_ratio))), rough: 0.93, note: 'Cordón de grava que tiran las ruedas a los costados (más textura en los bordes que en el centro).' });
+    const vg = U.filter(p => p.verge && (p.verge.green > 0.15 || p.verge.dry > 0.15));
+    this.verge = vg.length ? { from: ids(vg), green: avgCol(vg.map(p => p.verge.green_col).filter(c => c && c[1] > c[2] + 8)), dry: avgCol(vg.map(p => p.verge.dry_col).filter(Boolean)), share: this.med(vg, p => p.verge.green / (p.verge.green + p.verge.dry + 1e-6)) } : null;
+    if (this.verge) M.push({ id: 'AB_07', name: 'Banquina: tierra y pasto', from: this.verge.from, pal: [[this.verge.dry || [130, 120, 95], 1 - (this.verge.share ?? 0.5)], [this.verge.green || [96, 108, 64], this.verge.share ?? 0.5]].sort((a, b) => lumOf(a[0]) - lumOf(b[0])), st: { dens: 8, d0: 0.01, d1: 0.03, light: null, dark: null }, rough: 0.95, verge: true, note: 'Colores medidos al costado del camino en las fotos.' });
+    const P = this.st.p;
+    M.forEach((m, i) => { m.scale = 5; const r = abSynth(m, P, 1000 + i * 77); m.tex = 'ab_' + m.id.slice(3); TEX[m.tex] = r.c; TEX[m.tex + '_lo'] = r.lo; m.height = r.h; NMAP[m.tex] = normalFromCanvas(r.h, 3.2); m.texLo = m.tex + '_lo'; });
+    this.mats = M.filter(m => !m.verge); this.all = M; this.dirty = false;
+    if (this.verge && TEX.grass) { const g0 = TEX.grass, c = this.verge.dry && this.verge.green ? mixCol(this.verge.dry, this.verge.green, this.verge.share ?? 0.5) : (this.verge.dry || this.verge.green); TEX.grass = tint(g0, `rgb(${c.join(',')})`, 0.3); TEX.verge = makeVergeTex(); TEX.grass = g0; }
+    return M;
+  },
+  active(B, res) {
+    const mode = ($('#photoMat') && $('#photoMat').value) || 'auto';
+    if (mode === 'off' || !this.REF) return false; if (mode === 'on') return true;
+    const C = res.C[res.C.length >> 1], [la, lo] = B.P.inv(C[0], C[1]);
+    return Math.hypot((la - this.CENTER[0]) * 111320, (lo - this.CENTER[1]) * 111320 * Math.cos(la * D2R)) < this.RADIUS;
+  },
+  // reparto a lo largo del recorrido (cada 20 m) según el satélite: más claro → ripio y tierra clara;
+  // bosque cerrado → grava gris; más oscuro → tierra compactada o húmeda. Cambios suaves (~400 m).
+  distribute(total) {
+    const M = this.mats, n = Math.ceil(total / 20) + 1, idx = Object.fromEntries(M.map((m, i) => [m.id, i])), A = this.mix = [];
+    const SA = S.autoSurf && S.autoSurf.at, lums = SA ? Array.from({ length: n }, (_, k) => (SA(k * 20) || {}).lum).filter(v => v != null).sort((a, b) => a - b) : [], lmed = lums.length ? lums[lums.length >> 1] : 128;
+    const base = { AB_02: 1, AB_01: 0.8, AB_03: 0.35, AB_04: 0.35, AB_05: 0.12, AB_06: 0 };
+    for (let k = 0; k < n; k++) {
+      const q = SA ? SA(k * 20) : null, w = new Float32Array(M.length);
+      const fo = q ? q.forest : 0.3 + 0.3 * Math.sin(k * 20 / 900 + 1.3), ln = q && q.lum != null ? Math.max(-1.5, Math.min(1.5, (q.lum - lmed) / 25)) : Math.sin(k * 20 / 650) * 0.6, cl = q ? q.clay : 0.4;
+      for (const m of M) { let v = base[m.id] ?? 0.3;
+        if (m.id === 'AB_03') v *= fo > 0.6 ? 1.7 : fo < 0.3 ? 0.5 : 1;
+        if (m.id === 'AB_04') v *= (fo < 0.3 ? 1.6 : fo > 0.6 ? 0.7 : 1) * (1 + Math.max(0, ln) * 0.8);
+        if (m.id === 'AB_02') v *= (fo < 0.3 ? 1.2 : 1) * (1 + Math.max(0, ln) * 0.3);
+        if (m.id === 'AB_01') v *= (1 + Math.max(0, -ln) * 0.5) * (0.8 + cl * 0.6);
+        if (m.id === 'AB_05') v *= Math.max(0, -ln) * (fo > 0.5 ? 1.5 : 0.6);
+        // variación propia y lenta (para no repetir lo mismo en 15 km), reproducible
+        v *= 0.75 + 0.5 * hashU(Math.floor(k / 25), idx[m.id], 41) * 0.5 + 0.25 * hashU(Math.floor(k / 9), idx[m.id], 43);
+        w[idx[m.id]] = v; }
+      A.push(w);
+    }
+    // suavizado ±200 m
+    const R = 10, sm = A.map((_, k) => { const o = new Float32Array(M.length); let ws = 0; for (let j = -R; j <= R; j++) { const q = A[Math.max(0, Math.min(n - 1, k + j))], g = Math.exp(-(j * j) / (2 * (R / 2) ** 2)); ws += g; for (let i = 0; i < M.length; i++) o[i] += q[i] * g; } for (let i = 0; i < M.length; i++) o[i] /= ws; return o; });
+    // correcciones a mano por kilómetro (con 30 m de transición)
+    for (const ov of this.st.ov) { const i = idx[ov.mat]; if (i == null) continue; for (let k = 0; k < n; k++) { const d = k * 20, t = Math.max(0, Math.min(1, Math.min(d - ov.a * 1000, ov.b * 1000 - d) / 30 + 0.5)); if (t > 0) { const o = sm[k]; for (let j = 0; j < M.length; j++) o[j] *= 1 - t; o[i] += t * 2; } } }
+    sm.forEach(o => { let s = 0; for (const v of o) s += v; for (let i = 0; i < o.length; i++) o[i] /= s || 1; });
+    this.mix = sm;
+    // resumen por sector de 500 m
+    this.sectors = []; for (let a = 0; a < total; a += 500) { const acc = new Float32Array(M.length); let c = 0; for (let d = a; d < Math.min(total, a + 500); d += 20) { const o = sm[Math.min(n - 1, Math.round(d / 20))]; for (let i = 0; i < M.length; i++) acc[i] += o[i]; c++; }
+      const top = [...acc].map((v, i) => [M[i].id, v / c]).sort((p, q) => q[1] - p[1]); this.sectors.push({ a, b: Math.min(total, a + 500), top }); }
+    this.total = total;
+  },
+  // los dos materiales principales en d y la proporción del segundo
+  at(d) { const n = this.mix.length, f = Math.max(0, Math.min(n - 1.001, d / 20)), k = Math.floor(f), u = f - k, a = this.mix[k], b = this.mix[k + 1];
+    let i1 = 0, i2 = -1, v1 = -1, v2 = -1; for (let i = 0; i < a.length; i++) { const v = a[i] * (1 - u) + b[i] * u; if (v > v1) { i2 = i1; v2 = v1; i1 = i; v1 = v; } else if (v > v2) { i2 = i; v2 = v; } }
+    return { a: i1, b: i2, pb: i2 < 0 ? 0 : v2 / (v1 + v2) }; },
+  prepare(B, res) {
+    this.on = this.active(B, res); if (!this.on) return false;
+    if (this.dirty || !this.mats.length) this.build();
+    this.distribute(res.total); return true;
+  },
+};
+function lumOf(c) { return 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]; }
+function avgCol(l) { return l.length ? [0, 1, 2].map(i => Math.round(l.reduce((a, c) => a + c[i], 0) / l.length)) : null; }
+function mixCol(a, b, t) { return [0, 1, 2].map(i => Math.round(a[i] * (1 - t) + b[i] * t)); }
+function rngOf(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function noiseFieldS(N, cells, rng) { const g = new Float32Array(cells * cells).map(() => rng() * 2 - 1);
+  return (x, y) => { const bx = x / N * cells, by = y / N * cells, i0 = Math.floor(bx), j0 = Math.floor(by), fx = bx - i0, fy = by - j0, G = (i, j) => g[((j % cells + cells) % cells) * cells + ((i % cells + cells) % cells)], sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+    return G(i0, j0) * (1 - sx) * (1 - sy) + G(i0 + 1, j0) * sx * (1 - sy) + G(i0, j0 + 1) * (1 - sx) * sy + G(i0 + 1, j0 + 1) * sx * sy; }; }
+// genera un material de 5 m × 5 m que se repite sin cortes: base con la paleta medida + piedras con volumen (luz, sombra y
+// oclusión) + mapa de relieve. Determinista: el mismo material sale igual cada vez (no hace falta guardarlo).
+function abSynth(m, P, seed) {
+  const N = 512, S = m.scale * (P.scale || 1), ppm = N / S, rng = rngOf(seed), c = document.createElement('canvas'); c.width = c.height = N;
+  const x = c.getContext('2d'), img = x.createImageData(N, N), o = img.data, H = new Float32Array(N * N);
+  const n1 = noiseFieldS(N, 3, rng), n2 = noiseFieldS(N, 11, rng), n3 = noiseFieldS(N, 40, rng), n4 = noiseFieldS(N, 120, rng);
+  const pal = m.pal, cum = []; let acc = 0; for (const [, w] of pal) { acc += w; cum.push(acc); } cum.forEach((v, i) => cum[i] = v / acc);
+  const colAt = t => { let i = 0; while (i < cum.length - 1 && cum[i] < t) i++; const c0 = pal[Math.max(0, i - 1)][0], c1 = pal[i][0], lo = i ? cum[i - 1] : 0, u = Math.max(0, Math.min(1, (t - lo) / Math.max(1e-6, cum[i] - lo)));
+    const s = u * u * (3 - 2 * u); return [c0[0] + (c1[0] - c0[0]) * s, c0[1] + (c1[1] - c0[1]) * s, c0[2] + (c1[2] - c0[2]) * s]; };
+  const br = 1 + (P.tone || 0) / 100, wm = P.warm || 0;
+  for (let y = 0; y < N; y++) for (let x2 = 0; x2 < N; x2++) {
+    const k = y * N + x2, f = n1(x2, y) * 0.16 + n2(x2, y) * 0.12 + n3(x2, y) * 0.22 + n4(x2, y) * 0.34 + (rng() - 0.5) * 0.5, t = Math.max(0, Math.min(1, 0.5 + f * 0.8)), cc = colAt(t); // la variación es de grano (piedrita a piedrita), no manchones
+    H[k] = 0.5 + n2(x2, y) * 0.12 + n3(x2, y) * 0.08 + n4(x2, y) * 0.05;
+    o[k * 4] = (cc[0] + wm) * br; o[k * 4 + 1] = cc[1] * br; o[k * 4 + 2] = (cc[2] - wm) * br; o[k * 4 + 3] = 255;
+  }
+  // piedras: tamaño entre d0 y d1 (más chicas que grandes), color de las piedras claras u oscuras medidas
+  const st = m.st, cnt = Math.min(14000, Math.round(st.dens * (P.stones ?? 1) * S * S)), L = [-0.5, -0.62, 0.6];
+  const light = st.light || pal[pal.length - 1][0], dark = st.dark || pal[0][0];
+  for (let i = 0; i < cnt; i++) {
+    const d = st.d0 * Math.pow(st.d1 / st.d0, Math.pow(rng(), 1.8)), rx = Math.max(0.85, d / 2 * ppm * (0.8 + rng() * 0.5)), ry = rx * (0.55 + rng() * 0.45), th = rng() * Math.PI, ct = Math.cos(th), sn = Math.sin(th);
+    const cx = rng() * N, cy = rng() * N, isL = rng() < 0.68, base = mixCol(isL ? light : dark, pal[Math.floor(rng() * pal.length)][0], 0.25 + rng() * 0.25).map(v => v * (0.9 + rng() * 0.2));
+    const R = Math.ceil(Math.max(rx, ry) * 1.6) + 1, hgt = Math.min(1, d / 0.05) * 0.45;
+    for (let yy = -R; yy <= R; yy++) for (let xx = -R; xx <= R; xx++) {
+      const u = (xx * ct + yy * sn) / rx, v = (-xx * sn + yy * ct) / ry, q = u * u + v * v, px = ((Math.floor(cx + xx) % N) + N) % N, py = ((Math.floor(cy + yy) % N) + N) % N, k = py * N + px;
+      if (q <= 1) { const z = Math.sqrt(1 - q), nl = Math.hypot(u * 0.8, v * 0.8, z) || 1, sh = 0.62 + 0.5 * Math.max(0, (u * 0.8 * L[0] + v * 0.8 * L[1] + z * L[2]) / nl);
+        o[k * 4] = (base[0] + wm) * sh * br; o[k * 4 + 1] = base[1] * sh * br; o[k * 4 + 2] = (base[2] - wm) * sh * br; H[k] = Math.max(H[k], 0.5 + hgt * z); }
+      else if (q <= 2.2 && rx > 0.9) { const a = 1 - 0.2 * (1 - (q - 1) / 1.2) * (u * 0.3 + v * 0.5 + 0.8 > 0 ? 1 : 0.5); o[k * 4] *= a; o[k * 4 + 1] *= a; o[k * 4 + 2] *= a; } // sombra de contacto (oclusión)
+    }
+  }
+  x.putImageData(img, 0, 0);
+  const hc = document.createElement('canvas'); hc.width = hc.height = N; const hx = hc.getContext('2d'), hi = hx.createImageData(N, N);
+  for (let k = 0; k < N * N; k++) { const v = Math.max(0, Math.min(255, H[k] * 255)); hi.data[k * 4] = hi.data[k * 4 + 1] = hi.data[k * 4 + 2] = v; hi.data[k * 4 + 3] = 255; } hx.putImageData(hi, 0, 0);
+  const lo = document.createElement('canvas'); lo.width = lo.height = 256; const lx = lo.getContext('2d'); lx.imageSmoothingQuality = 'high'; lx.drawImage(c, 0, 0, 256, 256);
+  return { c, h: hc, lo };
+}
+function renderPhotoMatPanel() {
+  const el = $('#abPanel'); if (!el || !PHOTOMAT.REF) return; const R = PHOTOMAT.REF, P = PHOTOMAT.st.p;
+  if (PHOTOMAT.dirty || !PHOTOMAT.all) PHOTOMAT.build();
+  const sw = c => `<span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:rgb(${c.join(',')});vertical-align:middle"></span>`;
+  const loc = id => REFS.list.find(r => r.a && r.a.hash && PHOTOMAT.REF.photos.find(p => p.id === id) && [...r.a.hash].filter((b, i) => b !== PHOTOMAT.REF.photos.find(p => p.id === id).hash[i]).length <= 10);
+  const usedBy = id => PHOTOMAT.all.filter(m => m.from.includes(id)).map(m => m.id).join(', ');
+  const kmOf = mid => { const s = PHOTOMAT.sectors.filter(q => q.top[0][0] === mid); return s.length ? s.map(q => (q.a / 1000).toFixed(1) + '–' + (q.b / 1000).toFixed(1)).join(', ') : (PHOTOMAT.sectors.length ? 'solo mezclado con otros' : 'se ve al generar'); };
+  el.innerHTML = `<div style="margin:4px 0"><b>${R.name}</b>: ${R.photos.length} fotos analizadas (${R.photos.filter(p => p.status === 'confirmada').length} confirmadas del camino, ${R.photos.filter(p => p.status !== 'confirmada').length} sin ubicación confirmada) · ${R.excluded.length} descartadas por ser de otro lugar. Estado: ${PHOTOMAT.on ? 'aplicado al último tramo' : 'se aplica al generar un tramo de Aguas Blancas'}.</div>
+  <details><summary>Fotos de referencia</summary>${R.photos.map(p => `<div style="margin:6px 0;font-size:12px;border-left:3px solid ${p.status === 'confirmada' ? '#22c55e' : '#eab308'};padding-left:6px">
+    <div><b>${p.file}</b> · ${p.w}×${p.h} ${p.orient} · ${p.src}</div><div class="mut">${p.desc}. GPS: no tiene · sector: sin km (referencia general del camino) · confianza: ${p.status === 'confirmada' ? 'alta (entregada para este tramo)' : 'baja (no se sabe si es de Aguas Blancas)'} · calidad ${p.quality}</div>
+    <div>${p.pal.map(q => sw(q[0])).join(' ')} · detectado: ${p.feats.join(', ')} · piedras claras ~${p.stones.claras.dens}/m², hasta ${Math.round(p.stones.claras.d90 * 100)} cm (estimado)</div>
+    <div>${usedBy(p.id) ? 'Usada en ' + usedBy(p.id) : 'No se usa'} · <label><input type="checkbox" data-abuse="${p.id}" ${PHOTOMAT.used(p) ? 'checked' : ''}> ${p.status === 'confirmada' ? 'usar' : 'es de Aguas Blancas (usar)'}</label> ${loc(p.id) ? `<button class="b" data-abview="${p.id}">Ver foto</button>` : ''}</div></div>`).join('')}
+    <div class="mut">Descartadas: ${R.excluded.map(e => `${e.id} (${e.why})`).join(' · ')}</div></details>
+  <div style="margin:6px 0"><b>Materiales generados</b> (5 m × 5 m, se repiten sin cortes)</div>
+  ${PHOTOMAT.all.map(m => `<div style="display:flex;gap:8px;align-items:center;margin:4px 0;font-size:12px"><canvas data-absw="${m.tex}" width="72" height="72" style="border-radius:4px;flex:none"></canvas>
+    <div><b>${m.id} – ${m.name}</b><div class="mut">De: ${m.from.join(', ')} · ${m.note}</div><div class="mut">${m.verge ? 'Se aplica a las banquinas' : 'Kilómetros donde predomina: ' + kmOf(m.id)}</div>${m.verge ? '' : `<button class="b" data-abcmp="${m.id}">Comparar</button>`}</div></div>`).join('')}
+  <div style="margin:8px 0"><b>Ajustes</b> (sin tocar trazado, geometría ni alturas)</div>
+  ${[['stones', 'Cantidad de piedras', 0, 2, 0.1], ['tone', 'Brillo (%)', -25, 25, 1], ['warm', 'Tono cálido / frío', -15, 15, 1], ['scale', 'Escala de la textura', 0.6, 1.6, 0.05], ['ruts', 'Intensidad de huellas', 0, 2, 0.1]].map(([k, n, a, b, s]) => `<label style="display:flex;gap:6px;align-items:center;font-size:12px">${n}<input type="range" min="${a}" max="${b}" step="${s}" value="${P[k]}" data-abp="${k}" style="flex:1"><span data-abv="${k}">${P[k]}</span></label>`).join('')}
+  <div style="margin:8px 0;font-size:12px">Asignar a mano: km <input id="abA" type="number" step="0.1" min="0" style="width:56px"> a <input id="abB" type="number" step="0.1" min="0" style="width:56px"> <select id="abM">${PHOTOMAT.mats.map(m => `<option value="${m.id}">${m.id} ${m.name}</option>`).join('')}</select> <button class="b" id="abAdd">Asignar</button>
+    ${PHOTOMAT.st.ov.map((v, i) => `<div>km ${v.a}–${v.b}: ${v.mat} <button class="b" data-abdel="${i}">quitar</button></div>`).join('')}</div>
+  <button class="b" id="abRegen" style="margin:4px 0">REGENERAR TEXTURAS DESDE FOTOGRAFÍAS REALES</button> <button class="b" id="abRegenSec">Regenerar solo esos km</button> <button class="b" id="abLib">Descargar materiales</button>
+  ${PHOTOMAT.sectors.length ? `<details><summary>Reparto por sector</summary><div class="mut" style="font-size:12px">${PHOTOMAT.sectors.map(q => `km ${(q.a / 1000).toFixed(1)}–${(q.b / 1000).toFixed(1)}: ${q.top.slice(0, 3).map(([id, v]) => `${id} ${Math.round(v * 100)}%`).join(' · ')}`).join('<br>')}</div></details>` : ''}`;
+  el.querySelectorAll('[data-absw]').forEach(cv => cv.getContext('2d').drawImage(TEX[cv.dataset.absw], 0, 0, 512, 512, 0, 0, 72, 72));
+  el.querySelectorAll('[data-abuse]').forEach(b => b.onchange = () => { PHOTOMAT.st.use[b.dataset.abuse] = b.checked; PHOTOMAT.save(); renderPhotoMatPanel(); });
+  el.querySelectorAll('[data-abp]').forEach(b => { b.oninput = () => { el.querySelector(`[data-abv="${b.dataset.abp}"]`).textContent = b.value; }; b.onchange = () => { PHOTOMAT.st.p[b.dataset.abp] = +b.value; PHOTOMAT.save(); renderPhotoMatPanel(); }; });
+  el.querySelectorAll('[data-abdel]').forEach(b => b.onclick = () => { PHOTOMAT.st.ov.splice(+b.dataset.abdel, 1); PHOTOMAT.save(); renderPhotoMatPanel(); });
+  $('#abAdd').onclick = () => { const a = +$('#abA').value, b = +$('#abB').value; if (!(b > a)) return log('Poné el km inicial y final.', 'err'); PHOTOMAT.st.ov.push({ a, b, mat: $('#abM').value }); PHOTOMAT.save(); renderPhotoMatPanel(); log(`km ${a}–${b} → ${$('#abM').value}. Tocá "Regenerar" para verlo.`); };
+  $('#abRegen').onclick = () => regenRoadTextures();
+  $('#abRegenSec').onclick = () => { const a = +$('#abA').value, b = +$('#abB').value; if (!(b > a)) return log('Poné el km inicial y final.', 'err'); regenRoadTextures([a * 1000, b * 1000]); };
+  $('#abLib').onclick = async () => { const z = new JSZip(); await addPhotoMatFiles(z); const blob = await z.generateAsync({ type: 'blob' }), a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'materiales_aguas_blancas.zip'; a.click(); };
+  el.querySelectorAll('[data-abview]').forEach(b => b.onclick = () => showAbCompare(null, b.dataset.abview));
+  el.querySelectorAll('[data-abcmp]').forEach(b => b.onclick = () => showAbCompare(b.dataset.abcmp));
+}
+// comparación: foto real (si está cargada en este navegador) · material generado · vista 3D del sector donde predomina
+function showAbCompare(mid, pid) {
+  const m = mid && PHOTOMAT.all.find(q => q.id === mid), photos = m ? m.from : [pid], R = S.result;
+  const local = photos.map(id => { const p = PHOTOMAT.REF.photos.find(q => q.id === id); return REFS.list.find(r => r.a && r.a.hash && [...r.a.hash].filter((b, i) => b !== p.hash[i]).length <= 10); }).filter(Boolean);
+  if (m && R && R.res && PHOTOMAT.sectors.length) { const s = PHOTOMAT.sectors.find(q => q.top[0][0] === mid) || PHOTOMAT.sectors.slice().sort((p, q) => (q.top.find(t => t[0] === mid) || [0, 0])[1] - (p.top.find(t => t[0] === mid) || [0, 0])[1])[0];
+    const k = $('#navKm'); if (k && s) { k.value = Math.round((s.a + s.b) / 2 / R.res.total * 1000); k.dispatchEvent(new Event('input', { bubbles: true })); } }
+  let cmp = $('#cmpPhoto'); if (!cmp) { cmp = document.createElement('div'); cmp.id = 'cmpPhoto'; cmp.style.cssText = 'position:absolute;left:10px;top:60px;z-index:6;width:min(46%,560px);background:#0b1220e6;padding:6px;border-radius:8px;color:#e8eef7;font:12px system-ui'; ($('#viewer3d') || document.body).appendChild(cmp); }
+  const sw = m ? TEX[m.tex].toDataURL('image/jpeg', 0.85) : null;
+  cmp.innerHTML = `<div style="display:flex;gap:6px">${local.length ? `<img src="${URL.createObjectURL(local[0].blob)}" style="width:50%;object-fit:cover;border-radius:4px">` : `<div style="width:50%;padding:6px" class="mut">Las fotos originales no están en este navegador (no se publican en la página). Para verlas acá, cargalas una vez en "Agregar fotos para comparar": se reconocen solas.<br>${photos.map(id => { const p = PHOTOMAT.REF.photos.find(q => q.id === id); return `${p.file}: ${p.pal.map(q => `<span style="display:inline-block;width:12px;height:12px;background:rgb(${q[0].join(',')})"></span>`).join('')}`; }).join('<br>')}</div>`}
+    ${sw ? `<img src="${sw}" style="width:50%;border-radius:4px">` : ''}</div><div style="display:flex;justify-content:space-between;margin-top:4px"><span>${m ? `Foto real · ${m.id} generado (5 m) · el 3D va al sector donde predomina` : 'Foto real (referencia general, sin km)'}</span><button class="b" id="cmpClose">Cerrar</button></div>`;
+  $('#cmpClose').onclick = () => cmp.remove();
+}
+async function addPhotoMatFiles(z) {
+  if (PHOTOMAT.dirty || !PHOTOMAT.all) PHOTOMAT.build();
+  const f = z.folder('materiales_aguas_blancas'), rows = [];
+  for (const m of PHOTOMAT.all) { f.file(m.id + '_albedo.png', await canvasBlob(TEX[m.tex])); f.file(m.id + '_normal.png', await canvasBlob(NMAP[m.tex])); f.file(m.id + '_altura.png', await canvasBlob(m.height));
+    rows.push(`${m.id} – ${m.name}\n  Fotos de referencia: ${m.from.join(', ')}\n  Escala: 512 px = ${m.scale * (PHOTOMAT.st.p.scale || 1)} m (se repite sin cortes)\n  Rugosidad aproximada: ${m.rough}\n  Piedras: ~${Math.round(m.st.dens * (PHOTOMAT.st.p.stones ?? 1))}/m², de ${Math.round(m.st.d0 * 1000)} a ${Math.round(m.st.d1 * 1000)} mm (estimado visual)\n  ${m.note}\n`); }
+  f.file('materiales.txt', `${PHOTOMAT.REF.name}\nMateriales generados a partir de medidas de fotos reales (colores, piedras, huellas, humedad, bordes).\nLas fotos no se incluyen. Alturas de piedras y huellas: estimación visual, no medida.\n\nAssetto Corsa: el .kn5 ya trae el camino con color + mapa normal (shader ksPerPixelNM). Con CSP se puede sumar la rugosidad.\nRichard Burns Rally (BTB): usa solo el color (albedo); el relieve ya va pintado en el color (luces y sombras de las piedras).\nLos mapas normal y de altura son para AC, Blender u otros motores: RBR no los usa.\n\n` + rows.join('\n'));
+  if (PHOTOMAT.sectors.length) f.file('zonas_materiales.csv', 'desde_m,hasta_m,material_1,porcentaje_1,material_2,porcentaje_2\n' + PHOTOMAT.sectors.map(q => `${q.a.toFixed(0)},${q.b.toFixed(0)},${q.top[0][0]},${Math.round(q.top[0][1] * 100)},${(q.top[1] || ['', 0])[0]},${Math.round((q.top[1] || ['', 0])[1] * 100)}`).join('\n'));
+}
+// vuelve a pintar las texturas del camino (todas o las de un rango de metros) sin tocar la geometría
+async function regenRoadTextures(range) {
+  const C = S.stripCtx, R = S.result; if (!C || !R) return log('Primero generá el tramo.', 'err');
+  const gh = () => { let h = 0; for (const m of R.meshes) for (const v of m.v) h = (h * 31 + Math.round(v[0] * 100) + Math.round(v[1] * 100) * 7 + Math.round(v[2] * 100) * 13) | 0; return h; };
+  const h0 = gh(), t0 = performance.now(); log('Regenerando texturas del camino desde las fotos reales…'); await tick();
+  PHOTOMAT.dirty = true; if (!PHOTOMAT.prepare(C.B, C.res)) { log('Los materiales de fotos reales están apagados para este tramo.', 'err'); return; }
+  let n = 0;
+  for (let k = 0; k < C.strips.length; k++) { const s = C.strips[k]; if (range && (s.d0 + STRIP_LEN < range[0] || s.d0 > range[1])) continue;
+    C.paint(k, TEX[s.name]); delete NMAP[s.name]; n++;
+    const mat = PV.mats && PV.mats[s.name]; if (mat && mat.map) { mat.map.needsUpdate = true; if (mat.normalMap) { mat.normalMap.image = normalOf(s.name); mat.normalMap.needsUpdate = true; } }
+    if (n % 20 === 0) await tick(); }
+  if (PV.mats) for (const m of PHOTOMAT.all) { const pm = PV.mats.verge; if (pm && pm.map && m.verge) { pm.map.image = TEX.verge; pm.map.needsUpdate = true; } }
+  const same = gh() === h0;
+  log(`Texturas regeneradas: ${n} tramo(s) de ${STRIP_LEN} m en ${((performance.now() - t0) / 1000).toFixed(1)} s. Geometría, trazado y alturas: ${same ? 'sin cambios ✓' : 'CAMBIARON (revisar)'}.`, same ? 'ok' : 'err');
+  renderPhotoMatPanel();
+  return { n, same };
+}
+
 const STRIP_LEN = 80, STRIP_W = 256, STRIP_H = 2048;
 function hashU(a, b, s) { const v = Math.sin(a * 127.1 + b * 311.7 + s * 74.7) * 43758.5453; return v - Math.floor(v); }
 function buildRoadStrips(B, res, o = {}) {
@@ -3481,13 +3696,26 @@ function buildRoadStrips(B, res, o = {}) {
   const at = d => { const f = Math.max(0, Math.min(r.n - 1.001, d / (total / (r.n - 1)))); let i = Math.floor(f); while (i > 0 && r.dist[i] > d) i--; while (i < r.n - 2 && r.dist[i + 1] < d) i++; const t = Math.max(0, Math.min(1, (d - r.dist[i]) / ((r.dist[i + 1] - r.dist[i]) || 1)));
     return { x: r.C[i][0] + (r.C[i + 1][0] - r.C[i][0]) * t, y: r.C[i][1] + (r.C[i + 1][1] - r.C[i][1]) * t, nx: -r.T[i][1], ny: r.T[i][0], hw: (r.W[i] + (r.W[i + 1] - r.W[i]) * t) / 2 }; };
   const strips = []; let realPx = 0, allPx = 0;
-  for (let k = 0; k < nSeg; k++) {
-    const d0 = k * STRIP_LEN, d1 = Math.min(total, d0 + STRIP_LEN); let hwMax = 0;
-    for (let d = d0; d <= d1; d += 4) hwMax = Math.max(hwMax, at(d).hw);
-    const HW = hwMax + 0.15, cv = document.createElement('canvas'); cv.width = STRIP_W; cv.height = STRIP_H; const cx = cv.getContext('2d'), img = cx.createImageData(STRIP_W, STRIP_H), od = img.data;
+  // materiales reconstruidos desde las fotos reales (Aguas Blancas): el satélite los reparte a lo largo del camino
+  const AB = PHOTOMAT.prepare(B, r) ? PHOTOMAT : null, ABT = AB ? AB.mats.map(m => tdat(m.texLo)) : null, ABI = AB ? Object.fromEntries(AB.mats.map((m, i) => [m.id, i])) : {}, ABP = PHOTOMAT.st.p;
+  const vn = (x, y) => { const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy), a = hashU(i, j, 7), b = hashU(i + 1, j, 7), c = hashU(i, j + 1, 7), e = hashU(i + 1, j + 1, 7); return a + (b - a) * sx + (c - a) * sy + (a - b - c + e) * sx * sy; };
+  // muestra una textura en parches de 2,5 m que cambian de lugar y se espejan (sin patrón repetido); sc = metros por repetición
+  const samp = (D, s, d, sc) => {
+    const fu = s / 2.5, fv = d / 2.5, i0 = Math.floor(fu), j0 = Math.floor(fv), ax = Math.min(1, Math.max(0, (fu - i0 - 0.15) / 0.7)), ay = Math.min(1, Math.max(0, (fv - j0 - 0.15) / 0.7)), wxs = ax * ax * (3 - 2 * ax), wys = ay * ay * (3 - 2 * ay);
+    let rr = 0, gg = 0, bb = 0;
+    for (const [di, dj, wgt] of [[0, 0, (1 - wxs) * (1 - wys)], [1, 0, wxs * (1 - wys)], [0, 1, (1 - wxs) * wys], [1, 1, wxs * wys]]) {
+      if (wgt < 0.001) continue; const cu = i0 + di, cvv = j0 + dj, fl = hashU(cu, cvv, 2) > 0.5, fl2 = hashU(cu, cvv, 4) > 0.5;
+      const lu = ((fl ? -s : s) / sc + hashU(cu, cvv, 1) * 7) * D.w, lv = ((fl2 ? -d : d) / sc + hashU(cu, cvv, 3) * 7) * D.h;
+      const tx = ((Math.floor(lu) % D.w) + D.w) % D.w, ty = ((Math.floor(lv) % D.h) + D.h) % D.h, k0 = (ty * D.w + tx) * 4;
+      rr += D.d[k0] * wgt; gg += D.d[k0 + 1] * wgt; bb += D.d[k0 + 2] * wgt;
+    }
+    return [rr, gg, bb];
+  };
+  const paint = (k, cv) => {
+    const d0 = k * STRIP_LEN, HW = strips[k].HW, cx = cv.getContext('2d'), img = cx.createImageData(STRIP_W, STRIP_H), od = img.data, sc = 5 * (ABP.scale || 1), br = 1;
     for (let py = 0; py < STRIP_H; py++) {
       const v = 1 - (py + 0.5) / STRIP_H, d = d0 + v * STRIP_LEN, P = at(Math.min(total, d)), mat = matAt[Math.max(0, Math.min(matAt.length - 1, Math.round(d / 2)))] || 'gravel', D = tdat(mat === 'clay' ? 'clay' : mat), E = tdat('loose'), dirt = mat !== 'asphalt' && mat !== 'snow' && mat !== 'ice' && mat !== 'wet', clayD = !dirt ? 0 : o.clay === 'auto' ? (S.autoSurf ? S.autoSurf.clay(d) : 0.4) : +(o.clay ?? 0.4);
-      const [la0, lo0] = B.P.inv(P.x, P.y);
+      const [la0, lo0] = B.P.inv(P.x, P.y), ab = AB && dirt ? AB.at(d) : null;
       for (let px = 0; px < STRIP_W; px++) {
         const s = ((px + 0.5) / STRIP_W * 2 - 1) * HW, o = (py * STRIP_W + px) * 4; allPx++;
         let col = null;
@@ -3495,6 +3723,20 @@ function buildRoadStrips(B, res, o = {}) {
         // en el bosque la foto aérea muestra las copas que tapan el camino: esos píxeles no son suelo y no se usan
         if (col) { const l = 0.3 * col[0] + 0.59 * col[1] + 0.11 * col[2], veg = (col[1] > col[0] + 6 && col[1] >= col[2]) || l < 45; if (veg) col = null; }
         if (col) { od[o] = col[0]; od[o + 1] = col[1]; od[o + 2] = col[2]; od[o + 3] = 255; realPx++; continue; }
+        if (ab) { // superficie desde las fotos reales: mezcla de los dos materiales del sector con manchas naturales de ~3 m
+          const nm = vn(s / 3.2 + 17, d / 3.2) * 0.7 + vn(s / 1.1, d / 1.1 + 5) * 0.3, t = ab.b < 0 ? 0 : Math.max(0, Math.min(1, (ab.pb - nm) / 0.16 + 0.5));
+          let c = samp(ABT[ab.a], s, d, sc); if (t > 0.01) { const c2 = samp(ABT[ab.b], s, d, sc); c = t > 0.99 ? c2 : [c[0] + (c2[0] - c[0]) * t, c[1] + (c2[1] - c[1]) * t, c[2] + (c2[2] - c[2]) * t]; }
+          const h1 = hashU(Math.floor(d / 2.5), 0, 1), tw = P.hw * 0.42 + Math.sin(d * 0.013 + h1) * 0.15, tr = Math.exp(-((Math.abs(s) - tw) ** 2) / (2 * 0.38 ** 2)) * (0.8 + 0.2 * Math.sin(d * 0.05 + h1)) * (ABP.ruts ?? 1);
+          if (tr > 0.02 && ABI.AB_01 != null) { const c2 = samp(ABT[ABI.AB_01], s + 31, d, sc), q = Math.min(1, tr * 0.75); c = [c[0] + (c2[0] - c[0]) * q, c[1] + (c2[1] - c[1]) * q, c[2] + (c2[2] - c[2]) * q]; }
+          const groove = 1 - Math.min(0.12, 0.06 * tr) * (0.5 + 0.5 * Math.sin(s * 41 + hashU(Math.floor(d / 7), 0, 5) * 6));
+          const ridge = Math.exp(-(s * s) / (2 * (P.hw * 0.16) ** 2)) * 0.5, iR = ABI.AB_02 ?? ABI.AB_06;
+          if (ridge > 0.05 && iR != null) { const c2 = samp(ABT[iR], s + 57, d, sc); c = [c[0] + (c2[0] - c[0]) * ridge, c[1] + (c2[1] - c[1]) * ridge, c[2] + (c2[2] - c[2]) * ridge]; }
+          const edge = Math.max(0, Math.min(1, (Math.abs(s) - (P.hw - 0.8)) / 0.8)) * (0.6 + 0.4 * vn(d / 6, s > 0 ? 3 : 9));
+          if (edge > 0.02 && ABI.AB_06 != null) { const c2 = samp(ABT[ABI.AB_06], s, d + 13, sc), q = edge * 0.85; c = [c[0] + (c2[0] - c[0]) * q, c[1] + (c2[1] - c[1]) * q, c[2] + (c2[2] - c[2]) * q]; }
+          let [rr, gg, bb] = c; const dk = (1 - 0.05 * Math.min(1, tr)) * groove; rr *= dk; gg *= dk; bb *= dk;
+          if (Math.abs(s) > P.hw) { rr *= 0.9; gg *= 0.92; bb *= 0.85; }
+          od[o] = rr; od[o + 1] = gg; od[o + 2] = bb; od[o + 3] = 255; continue;
+        }
         // ripio sin patrón repetido: cada parche de 2,5 m toma la textura desde otro lugar y con otra orientación
         // mezcla suave entre los 4 parches vecinos (sin cortes visibles)
         const fu = s / 2.5, fv = d / 2.5, i0 = Math.floor(fu), j0 = Math.floor(fv), ax = Math.min(1, Math.max(0, (fu - i0 - 0.15) / 0.7)), ay = Math.min(1, Math.max(0, (fv - j0 - 0.15) / 0.7));
@@ -3528,9 +3770,14 @@ function buildRoadStrips(B, res, o = {}) {
       }
     }
     cx.putImageData(img, 0, 0);
-    const name = 'rs_' + k; TEX[name] = cv; TEX[name].__dxt = true; TEX[name].__normal = true;
-    strips.push({ name, d0, HW });
+  };
+  for (let k = 0; k < nSeg; k++) {
+    const d0 = k * STRIP_LEN, d1 = Math.min(total, d0 + STRIP_LEN); let hwMax = 0;
+    for (let d = d0; d <= d1; d += 4) hwMax = Math.max(hwMax, at(d).hw);
+    const HW = hwMax + 0.15, cv = document.createElement('canvas'); cv.width = STRIP_W; cv.height = STRIP_H;
+    const name = 'rs_' + k; strips.push({ name, d0, HW }); paint(k, cv); TEX[name] = cv; TEX[name].__dxt = true; TEX[name].__normal = true;
   }
+  S.stripCtx = { paint, strips, total, B, res: r };
   // partir las mallas del camino por tramo y mapear la textura (u: a lo ancho, v: a lo largo)
   const out = []; let nn = 0;
   for (const m of roads) {
@@ -3543,7 +3790,7 @@ function buildRoadStrips(B, res, o = {}) {
     for (const P of parts.values()) out.push(P.m);
   }
   r.meshes = r.meshes.filter(m => !(m.road && m.ds)).concat(out);
-  return { n: strips.length, real: realPx / (allPx || 1) };
+  return { n: strips.length, real: realPx / (allPx || 1), ab: !!AB };
 }
 // mapa de normales (relieve fino de la superficie) a partir de la textura: es generado, no medido
 function normalFromCanvas(cv, strength = 2.2, scale = 1) {
@@ -3620,6 +3867,7 @@ async function rebuild(keepCam) {
       if (c) { log(`Materiales calibrados con ${c.n} foto(s) del camino, km a km: color del piso, banquina y piedras sueltas.`, 'ok'); if (c.verge && TEX.grass) { TEX.grass = tint(TEX_DEFAULT.grass, `rgb(${c.verge.join(',')})`, 0.3); TEX.verge = makeVergeTex(); TEX.ditchside = makeDitchTex(); } }
       renderPhotoPanel(); PHOTOS.showOnMap();
     }
+
     if (!REFS.area) REFS.cal = null;
     S.water = o.water ? collectWaterways(B) : { ww: [], bridgesOSM: [] };
     S.crossings = o.water ? findCrossings(rPts, S.water) : [];
@@ -3651,6 +3899,7 @@ async function rebuild(keepCam) {
     res.zone = useZ ? { pres: ZPRE - 30, start: ZPRE, finish: res.total - ZPOST, stop: res.total - ZPOST + 30 } : null;
     if (useZ) log('Largada y llegada: se tomaron 30 m antes de la largada para la presentación (control horario) y 30 m después de la llegada para el control stop, donde se entrega el carnet y los tiempos. El reloj corre desde la largada hasta la llegada.');
     if (o.roadTex) { try { log('Armando la textura continua del camino…'); await tick(); const st = buildRoadStrips(B, res, o);
+      if (st && st.ab) { const M = PHOTOMAT.all, U = PHOTOMAT.usable(); log(`Materiales desde fotos reales de Aguas Blancas: ${U.length} fotos usadas (${U.filter(p => p.status === 'confirmada').length} confirmadas), ${M.length} materiales (${M.map(m => m.id).join(', ')}). El satélite los reparte por sector; detalle en "Reconstrucción de materiales desde fotos reales".`, 'ok'); }
       if (st) log(`Textura del camino: ${st.n} tramos de ${STRIP_LEN} m · ${Math.round(st.real * 100)}% de ortofoto real, ${Math.round((1 - st.real) * 100)}% generado (ripio sin patrón repetido, huellas y piedras en los bordes).`); } catch (e) { log('Textura del camino: ' + e.message, 'err'); } }
     meshes.push(...res.meshes, ...cattleMeshes(res)); length = res.total; outline = [res.C];
     res.sideJ = [];
@@ -3787,6 +4036,7 @@ async function rebuild(keepCam) {
   const vcount = meshes.reduce((a, m) => a + m.v.length, 0), fcount = meshes.reduce((a, m) => a + m.f.length, 0);
   $('#prog').textContent = '';
   S.result = { o, meshes, spawnList, outline, length, P: B.P, h0: B.h0, bbox: B.bbox, ter, info, res, lat0: B.lat0, lon0: B.lon0, mode: B.mode, closed: B.closed };
+  try { renderPhotoMatPanel(); } catch (e) { console.warn(e); }
   showPreview(S.result, keepCam);
   $('#editor').style.display = B.mode === 'route' ? '' : 'none';
   if (B.mode === 'route') { drawProfile(); drawHeat(); renderCrit(); renderEdits(); drawSel(); renderNotes(); edRefresh(); }
@@ -4063,6 +4313,7 @@ async function buildZip(R) {
     for (const m of usedMats) src.file(m + '.png', await canvasBlob(TEX[m]));
     src.file('blender_a_fbx.py', blenderScript(R));
   }
+  if (PHOTOMAT.on) { $('#prog').textContent = 'Agregando materiales de fotos reales…'; await tick(); await addPhotoMatFiles(ref); }
   $('#prog').textContent = 'Creando el modelo .kn5 para Assetto Corsa…'; await tick();
   tr.file(slug + '.kn5', await buildKN5(R, slug, $('#invertSpawn').checked));
   const data = tr.folder('data');
