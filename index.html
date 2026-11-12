@@ -141,7 +141,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <label class="f">Textura continua del camino <span><input type="checkbox" id="roadTex" checked></span></label>
         <label class="f">Piso arcilloso <select id="clay"><option value="auto" selected>Automático (por tramo)</option><option value="0.15">Poco (ripio suelto)</option><option value="0.4">Medio</option><option value="0.65">Mucho (tierra/arcilla)</option></select></label>
         <label class="f">Texturas reales del terreno <select id="realTex"><option value="s2_2016" selected>Sentinel-2 2016 (libre, CC BY)</option><option value="s2_2024">Sentinel-2 2024 (no comercial)</option><option value="none">No (texturas generadas)</option></select></label>
-        <details class="texbox"><summary>Referencias: fotos desde el camino</summary><div class="mut">La app busca sola fotos libres tomadas desde el camino y mide sus colores. Nunca se incluyen en la pista exportada.</div><label class="f">Fotos desde el camino automáticas (Mapillary) <span><input type="checkbox" id="refCal" checked></span></label><label class="f">Token de Mapillary (gratis) <input id="mlyToken" placeholder="MLY|…" style="width:160px"></label><label class="b gpsbtn">📷 Agregar fotos para comparar<input type="file" id="refFile" accept="image/*" multiple hidden></label><div id="refList"></div></details>
+        <details class="texbox"><summary>Referencias: fotos desde el camino</summary><div class="mut">La app busca sola fotos libres tomadas desde el camino y mide sus colores. Nunca se incluyen en la pista exportada.</div><label class="f">Fotos del lugar automáticas (Commons, Panoramax, Mapillary) <span><input type="checkbox" id="refCal" checked></span></label><label class="f">Token de Mapillary (gratis) <input id="mlyToken" placeholder="MLY|…" style="width:160px"></label><label class="b gpsbtn">📷 Agregar fotos para comparar<input type="file" id="refFile" accept="image/*" multiple hidden></label><div id="refList"></div></details>
         <label class="f">Buscar imágenes libres del recorrido <span><input type="checkbox" id="freeImg" checked></span></label>
         <label class="f">Materiales del suelo <select id="matSrc"><option value="auto" selected>Automático (biblioteca libre si está guardada)</option><option value="lib">Biblioteca libre (Poly Haven, CC0)</option><option value="app">Fotos de la app</option></select></label>
         <details class="texbox"><summary>Biblioteca de materiales libres</summary><div id="libInfo" class="mut"></div><div style="margin-top:6px"><button class="b" id="libDl">Descargar biblioteca básica (una sola vez)</button> <button class="b" id="libExp">Exportar</button> <label class="b">Importar<input type="file" id="libImp" accept=".zip" hidden></label> <button class="b" id="cacheClr">Vaciar caché de descargas</button></div></details>
@@ -2129,14 +2129,16 @@ const REFS = {
     const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(bmp, 0, 0, W, H); const d = x.getImageData(0, 0, W, H).data;
     const px = (x0, y0, x1, y1, f) => { const out = []; for (let yy = Math.floor(y0 * H); yy < y1 * H; yy++) for (let xx = Math.floor(x0 * W); xx < x1 * W; xx++) { const k = (yy * W + xx) * 4, p = [d[k], d[k + 1], d[k + 2]]; if (!f || f(p)) out.push(p); } return out; };
     const L = p => 0.3 * p[0] + 0.59 * p[1] + 0.11 * p[2], med = A => { if (!A.length) return null; return [0, 1, 2].map(c => { const v = A.map(p => p[c]).sort((a, b) => a - b); return Math.round(v[v.length >> 1]); }); };
-    const road = px(0.25, 0.72, 0.75, 0.97, p => Math.max(...p) - Math.min(...p) < 45 && L(p) > 50 && L(p) < 240);
-    if (road.length < 200) return { ok: false };
+    const band = px(0.25, 0.72, 0.75, 0.97), road = band.filter(p => Math.max(...p) - Math.min(...p) < 45 && L(p) > 50 && L(p) < 240);
+    const water = band.filter(p => p[2] > p[0] + 15 && p[2] >= p[1]).length / band.length, roadShare = road.length / band.length;
+    // tiene que verse un camino abajo al centro (no un lago, una montaña o una persona)
+    if (road.length < 200 || roadShare < 0.45 || water > 0.15) return { ok: false, roadShare, water };
     const ls = road.map(L).sort((a, b) => a - b), cut = ls[Math.floor(ls.length * 0.55)], sun = med(road.filter(p => L(p) >= cut)), shade = med(road.filter(p => L(p) < ls[Math.floor(ls.length * 0.3)]));
     const sunL = L(sun), stones = road.filter(p => L(p) > sunL + 40).length / road.length;
     const verge = med([...px(0, 0.5, 0.2, 0.72), ...px(0.8, 0.5, 1, 0.72)].filter(p => p[1] > p[0] + 4 && p[1] > p[2]));
     const dry = [...px(0, 0.5, 0.2, 0.72), ...px(0.8, 0.5, 1, 0.72)].filter(p => p[0] > p[2] + 30 && Math.abs(p[0] - p[1]) < 25 && L(p) > 110).length / (0.4 * 0.22 * W * H);
     const forest = px(0, 0.1, 1, 0.45, p => p[1] > p[0] + 4 && p[1] > p[2] + 4).length / (0.35 * W * H);
-    return { ok: true, road: sun, shade, verge, stones: Math.min(0.05, stones * 0.35), dry: Math.min(1, dry), forest: Math.min(1, forest) };
+    return { ok: true, roadShare, road: sun, shade, verge, stones: Math.min(0.05, stones * 0.35), dry: Math.min(1, dry), forest: Math.min(1, forest) };
   },
   // búsqueda automática de fotos tomadas desde el camino (Mapillary: libres, CC BY-SA 4.0) a lo largo del recorrido
   async autoFetch(routeLL, token, onProgress) {
@@ -2172,6 +2174,36 @@ const REFS = {
     if (near && !added && permErr) throw new Error(`hay fotos sobre el recorrido, pero Mapillary no deja bajarlas con este token ("${permErr}"). En mapillary.com → Dashboard → Developers, editá tu aplicación y marcá el permiso de lectura (Read)`);
     await this.load(); return { added, near, points: pts.length };
   },
+  // fotos libres sin token: Wikimedia Commons (fotos geolocalizadas, muchas de Panoramio) y Panoramax (fotos tomadas desde el camino)
+  async autoFetchFree(routeLL, onProgress) {
+    const pts = [], step = Math.max(1, Math.floor(routeLL.length / 20)); for (let i = 0; i < routeLL.length; i += step) pts.push(routeLL[i]);
+    const have = new Set(this.list.filter(r => r.auto).map(r => r.src + ':' + r.srcId)), cands = new Map(); let done = 0;
+    const distTo = (la, lo) => Math.min(...pts.map(([a, b]) => Math.hypot((a - la) * 111320, (b - lo) * 111320 * Math.cos(a * D2R))));
+    for (const [la, lo] of pts) {
+      done++; onProgress && onProgress(done / pts.length / 2);
+      try { const j = await (await fetch(`https://commons.wikimedia.org/w/api.php?action=query&list=geosearch&gscoord=${la}%7C${lo}&gsradius=250&gslimit=10&gsnamespace=6&format=json&origin=*`)).json();
+        for (const g of (j.query && j.query.geosearch) || []) if (!cands.has('wm:' + g.title)) cands.set('wm:' + g.title, { src: 'wm', srcId: g.title, ll: [g.lat, g.lon] }); } catch (e) { }
+      try { const d = 0.0015, j = await (await fetch(`https://api.panoramax.xyz/api/search?bbox=${lo - d / Math.cos(la * D2R)},${la - d},${lo + d / Math.cos(la * D2R)},${la + d}&limit=3`)).json();
+        for (const f of j.features || []) { const href = f.assets && (f.assets.sd || f.assets.thumb || {}).href; if (href && !cands.has('px:' + f.id)) cands.set('px:' + f.id, { src: 'px', srcId: f.id, ll: [f.geometry.coordinates[1], f.geometry.coordinates[0]], img: href, date: (f.properties.datetime || '').slice(0, 10), license: ((f.links || []).find(l => l.rel === 'license') || {}).title || 'CC BY-SA 4.0', author: (f.providers && f.providers[0] && f.providers[0].name) || '', url: `https://api.panoramax.xyz/#focus=pic&pic=${f.id}` }); } } catch (e) { }
+    }
+    // datos de Commons (miniatura, licencia, autor) de a 20
+    const wm = [...cands.values()].filter(c => c.src === 'wm');
+    for (let i = 0; i < wm.length; i += 20) {
+      try { const titles = wm.slice(i, i + 20).map(c => c.srcId).join('|'), j = await (await fetch(`https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent(titles)}&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=1024&format=json&origin=*`)).json();
+        for (const pg of Object.values((j.query && j.query.pages) || {})) { const c = cands.get('wm:' + pg.title), ii = pg.imageinfo && pg.imageinfo[0]; if (!c || !ii) continue; const m = ii.extmetadata || {};
+          c.img = ii.thumburl || ii.url; c.url = ii.descriptionurl; c.license = (m.LicenseShortName && m.LicenseShortName.value) || 'ver en Commons'; c.author = ((m.Artist && m.Artist.value) || '').replace(/<[^>]+>/g, '').trim(); c.date = ((m.DateTimeOriginal && m.DateTimeOriginal.value) || '').replace(/<[^>]+>/g, '').slice(0, 10); c.free = !!(m.LicenseShortName && /CC|Public domain|PD/i.test(m.LicenseShortName.value)); } } catch (e) { }
+    }
+    let added = 0, tried = 0, roads = 0; const list = [...cands.values()].filter(c => c.img && (c.src !== 'wm' || c.free)).sort((a, b) => distTo(...a.ll) - distTo(...b.ll)).slice(0, 30);
+    for (const c of list) {
+      tried++; onProgress && onProgress(0.5 + tried / list.length / 2);
+      if (have.has(c.src + ':' + c.srcId)) { roads++; continue; }
+      try { const blob = await (await fetch(c.img)).blob(), a = await this.analyze(blob); if (!a.ok) continue; roads++;
+        const id = c.src + '_' + String(c.srcId).replace(/[^\w]+/g, '_').slice(0, 60);
+        await LOCAL.put('refs', id, { id, src: c.src, srcId: c.srcId, auto: true, name: `${c.src === 'wm' ? 'Wikimedia Commons' : 'Panoramax'}${c.author ? ' — ' + c.author.slice(0, 40) : ''}`, blob, added: Date.now(), ll: c.ll.map(v => +(+v).toFixed(6)), use: true, a, date: c.date || '', url: c.url, license: c.license });
+        added++; } catch (e) { }
+    }
+    await this.load(); return { found: cands.size, tried, roads, added };
+  },
   async add(file) {
     const blob = file, a = await this.analyze(blob), id = 'ref_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     const rec = { id, name: file.name, blob, added: Date.now(), ll: null, note: '', use: false, a }; // las fotos cargadas a mano solo sirven para comparar
@@ -2195,7 +2227,7 @@ async function renderRefs() {
     <img data-thumb="${r.id}" style="width:96px;height:48px;object-fit:cover;border-radius:4px;opacity:${r.use ? 1 : 0.4}">
     <div style="flex:1;min-width:0;font-size:12px"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
     <div class="mut">${r.a && r.a.ok ? `piso ${sw(r.a.road)} sombra ${sw(r.a.shade)} banquina ${sw(r.a.verge)} · piedras ${Math.round(r.a.stones * 1000) / 10}%` : 'no se reconoció el camino en la foto'}</div>
-    <input data-ll="${r.id}" placeholder="lat, lon (de Google Maps)" value="${r.ll ? r.ll.join(', ') : ''}" style="width:170px;margin-top:2px"> <button class="b" data-go="${r.id}" title="Ver ese punto en el 3D">Ir</button> ${r.auto ? `<button class="b" data-use="${r.id}">${r.use ? 'Usar ✓' : 'No usar'}</button> <a href="${r.url}" target="_blank" rel="noopener">ver</a> ${r.date || ''}` : '<span class="mut">solo para comparar</span>'} <button class="b" data-del="${r.id}">✕</button></div></div>`).join('');
+    <input data-ll="${r.id}" placeholder="lat, lon (de Google Maps)" value="${r.ll ? r.ll.join(', ') : ''}" style="width:170px;margin-top:2px"> <button class="b" data-go="${r.id}" title="Ver ese punto en el 3D">Ir</button> ${r.auto ? `<button class="b" data-use="${r.id}">${r.use ? 'Usar ✓' : 'No usar'}</button> <a href="${r.url}" target="_blank" rel="noopener">ver</a> ${r.date || ''} <span class="mut">${r.license || ''}</span>` : '<span class="mut">solo para comparar</span>'} <button class="b" data-del="${r.id}">✕</button></div></div>`).join('');
   for (const r of REFS.list) { const im = el.querySelector(`[data-thumb="${r.id}"]`); if (im) im.src = URL.createObjectURL(r.blob); }
   el.querySelectorAll('[data-ll]').forEach(i => i.onchange = async () => { const r = REFS.list.find(q => q.id === i.dataset.ll), ll = parseLL(i.value); r.ll = ll; await LOCAL.put('refs', r.id, r); });
   el.querySelectorAll('[data-use]').forEach(b => b.onclick = async () => { const r = REFS.list.find(q => q.id === b.dataset.use); r.use = !r.use; await LOCAL.put('refs', r.id, r); renderRefs(); });
@@ -2208,7 +2240,7 @@ async function renderRefs() {
     const k = $('#navKm'); if (k) { k.value = Math.round(R.res.dist[bi] / R.res.total * 1000); k.dispatchEvent(new Event('input', { bubbles: true })); }
     log(`Foto "${r.name}": km ${(R.res.dist[bi] / 1000).toFixed(2)} del tramo, a ${Math.round(bd)} m del eje. Compará la vista "a ras del piso" con la foto.`, 'ok'); });
   const c = REFS.cal;
-  if (c) el.insertAdjacentHTML('beforeend', `<div class="mut" style="margin:4px 0">Calibración con ${c.n} foto(s): piso ${sw(c.road)} · banquina ${sw(c.verge)} · piedras sueltas ${Math.round(c.stones * 1000) / 10}% · pasto seco ${Math.round(c.dry * 100)}%. Fuente: Mapillary (CC BY-SA 4.0).</div>`);
+  if (c) el.insertAdjacentHTML('beforeend', `<div class="mut" style="margin:4px 0">Calibración con ${c.n} foto(s): piso ${sw(c.road)} · banquina ${sw(c.verge)} · piedras sueltas ${Math.round(c.stones * 1000) / 10}% · pasto seco ${Math.round(c.dry * 100)}%. Fuentes: fotos libres de Wikimedia Commons, Panoramax o Mapillary (cada una con su licencia, ver "ver").</div>`);
 }
 if ($('#refFile')) $('#refFile').onchange = async ev => { for (const f of ev.target.files) { try { const r = await REFS.add(f); log(`Referencia "${f.name}": ${r.a.ok ? 'camino reconocido, colores medidos.' : 'no se reconoció el camino (sirve igual para comparar).'}`, r.a.ok ? 'ok' : ''); } catch (e) { log('No se pudo leer ' + f.name, 'err'); } } ev.target.value = ''; renderRefs(); };
 if ($('#refCal')) $('#refCal').onchange = () => renderRefs();
@@ -3465,18 +3497,20 @@ async function rebuild(keepCam) {
     // fotos tomadas desde el camino (Mapillary) para calibrar colores: solas, sin cargar nada a mano
     const tok = (localStorage.getItem('mlyToken') || '').trim();
     REFS.area = null;
-    if (o.autoRefs && tok) {
+    if (o.autoRefs) {
+      const routeLL = []; { let acc = 0; for (let i = 0; i < rPts.length; i++) { if (i) acc += Math.hypot(rPts[i][0] - rPts[i - 1][0], rPts[i][1] - rPts[i - 1][1]); if (!i || acc >= 50) { routeLL.push(B.P.inv(rPts[i][0], rPts[i][1])); acc = 0; } } }
+      REFS.area = ll => { const [x, y] = B.P.fwd(ll[0], ll[1]); let m = Infinity; for (let i = 0; i < rPts.length; i += 4) m = Math.min(m, Math.hypot(rPts[i][0] - x, rPts[i][1] - y)); return m < 300; };
       try {
-        log('Buscando fotos tomadas desde el camino (Mapillary)…'); await tick();
-        const routeLL = []; { let acc = 0; for (let i = 0; i < rPts.length; i++) { if (i) acc += Math.hypot(rPts[i][0] - rPts[i - 1][0], rPts[i][1] - rPts[i - 1][1]); if (!i || acc >= 50) { routeLL.push(B.P.inv(rPts[i][0], rPts[i][1])); acc = 0; } } }
-        const st = await REFS.autoFetch(routeLL, tok);
-        REFS.area = ll => { const [x, y] = B.P.fwd(ll[0], ll[1]); let m = Infinity; for (let i = 0; i < rPts.length; i += 4) m = Math.min(m, Math.hypot(rPts[i][0] - x, rPts[i][1] - y)); return m < 120; };
-        const c = REFS.calibrate(true);
-        log(st.near ? `Fotos desde el camino: hay en ${st.near} de ${st.points} puntos del recorrido (${st.added} nuevas guardadas). ${c ? `Colores medidos en ${c.n} foto(s): piso, banquina y piedras sueltas.` : ''}` : 'Mapillary no tiene fotos de este camino: los colores salen del satélite y de los materiales.', st.near ? 'ok' : '');
-        if (c && c.verge && TEX.grass) { TEX.grass = tint(TEX_DEFAULT.grass, `rgb(${c.verge.join(',')})`, 0.3); TEX.verge = makeVergeTex(); TEX.ditchside = makeDitchTex(); }
-        renderRefs();
-      } catch (e) { log('Fotos desde el camino: ' + e.message + '.', 'err'); }
-    } else if (o.autoRefs && !tok) log('Fotos desde el camino: falta el token gratuito de Mapillary (en "Referencias"). Sin él, los colores salen del satélite.');
+        log('Buscando fotos del lugar (Wikimedia Commons, Panoramax)…'); await tick();
+        const st = await REFS.autoFetchFree(routeLL);
+        log(st.found ? `Fotos libres del lugar: ${st.found} cerca del recorrido; ${st.roads} muestran un camino y sirven para medir colores (${st.added} nuevas).` : 'No hay fotos libres geolocalizadas cerca de este recorrido en Wikimedia Commons ni en Panoramax.', st.roads ? 'ok' : '');
+      } catch (e) { log('Fotos libres del lugar: ' + e.message + '.'); }
+      if (tok) { try { log('Buscando fotos tomadas desde el camino (Mapillary)…'); await tick(); const st = await REFS.autoFetch(routeLL, tok); if (st.near) log(`Mapillary: fotos en ${st.near} de ${st.points} puntos del recorrido (${st.added} nuevas).`, 'ok'); } catch (e) { log('Mapillary: ' + e.message + '.'); } }
+      const c = REFS.calibrate(true);
+      if (c) { log(`Colores medidos en ${c.n} foto(s) del lugar: piso, banquina y piedras sueltas (las fotos no se incluyen en la pista).`, 'ok'); if (c.verge && TEX.grass) { TEX.grass = tint(TEX_DEFAULT.grass, `rgb(${c.verge.join(',')})`, 0.3); TEX.verge = makeVergeTex(); TEX.ditchside = makeDitchTex(); } }
+      else log('Sin fotos del lugar que muestren el camino: los colores salen del satélite y de la biblioteca de materiales.');
+      renderRefs();
+    }
     if (!REFS.area) REFS.cal = null;
     S.water = o.water ? collectWaterways(B) : { ww: [], bridgesOSM: [] };
     S.crossings = o.water ? findCrossings(rPts, S.water) : [];
@@ -4676,7 +4710,7 @@ const HELP = {
   demSrc: 'Elevación base: Copernicus GLO-30 es el modelo de elevación libre más preciso con cobertura mundial (30 m por píxel, radar 2011–2015). Se descarga gratis del catálogo abierto de HOT y queda guardado en la compu. Donde no hay dato, se completa con Terrarium (SRTM y otras). Los dos son modelos de 30 m: no reproducen cunetas ni baches.',
   freeImg: 'Imágenes libres del recorrido: busca sola en OpenAerialMap y en los datos abiertos de Maxar imágenes de drones o satélites con licencia libre (de 3 cm a 1 m por píxel). Si cubren el camino, se usan para la textura del camino y sus costados, con su atribución en LICENCIAS_DATOS.txt. Si no hay (lo más común en zonas rurales), sigue con Sentinel-2. Costo: cero.',
   refFile: 'Fotos cargadas a mano: solo para comparar con el 3D (no calibran nada). Pegá sus coordenadas para ir a ese punto. Nunca se incluyen en la pista.',
-  refCal: 'Fotos desde el camino automáticas: al generar, busca en Mapillary (fotos libres tomadas desde autos y bicis, licencia CC BY-SA) la foto más cercana cada ~500 m del recorrido, y mide el color del piso, la banquina y las piedras sueltas. Necesita un token gratuito de Mapillary.',
+  refCal: 'Fotos del lugar automáticas: al generar, busca fotos libres geolocalizadas cerca del recorrido en Wikimedia Commons y Panoramax (sin registrarse), y en Mapillary si cargaste su token. Solo usa las que muestran un camino, y mide el color del piso, la banquina y las piedras sueltas. Las fotos nunca se incluyen en la pista.',
   mlyToken: 'Token gratuito de Mapillary: entrá a mapillary.com, creá una cuenta, andá a Dashboard → Developers → Register application y copiá el "Client Token" (empieza con MLY|). Queda guardado solo en esta compu.',
   matSrc: 'Materiales del suelo: la biblioteca libre usa fotos de materiales reales de Poly Haven (licencia CC0: uso libre, también comercial), con su escala real en metros. Se descarga una sola vez y sirve para todos los caminos del mundo. "Fotos de la app" usa las texturas tomadas en Tierra del Fuego.',
   libDl: 'Baja una sola vez unos 20 materiales (tierra compactada, ripio fino y grueso, grava, barro, arena, asfalto, pasto, suelo de bosque, hojarasca, roca, turba, nieve) y los guarda en esta compu. Los próximos proyectos no vuelven a descargarlos.',
