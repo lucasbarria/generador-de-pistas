@@ -278,8 +278,19 @@ const Core = (() => {
 
     // en horquillas cerradas, el borde interno no puede pasar el centro de la curva (evita que la malla se pliegue)
     const pos = (i, s) => { const nx = -T[i][1], ny = T[i][0], k = K[i]; if (s * k > 0) { const lim = 0.85 / Math.abs(k); if (Math.abs(s) > lim) s = Math.sign(s) * lim; } return [C[i][0] + nx * s, C[i][1] + ny * s]; };
-    const sec = (i, j, dOff) => {
+    // huellones (o.rutAt): dos surcos con bordes de barro levantado, tallados en la malla del camino (física real)
+    const rutOff = (r, s) => { const x = Math.abs(Math.abs(s) - r.tw), rw = 0.23;
+      if (x <= rw) { const t = x / rw; return -r.D * (1 - t * t); }                    // canal del surco (fondo redondeado)
+      if (x <= rw + 0.16) { const t = (x - rw) / 0.16; return r.D * 0.35 * Math.sin(t * Math.PI); } // labio de barro empujado
+      return Math.abs(s) < r.tw - rw - 0.16 ? r.D * 0.12 : 0; };                         // lomo central algo más alto
+    const sec = (i, j, dOff, rutMode) => {
       const hw = W[i] / 2;
+      if (rutMode) { // todas las secciones del tramo con la misma cantidad de columnas (la malla no se rompe)
+        let r = o.rutAt(dist[i]) || { D: 0, tw: 0.78 }; if (hw < r.tw + 0.5) r = { D: 0, tw: Math.max(0.45, hw - 0.5) };
+        const T0 = r.tw, cl = v => Math.min(hw - 0.02, v), side = [T0 + 0.39, T0 + 0.31, T0 + 0.23, T0 + 0.12, T0, T0 - 0.12, T0 - 0.23, T0 - 0.31, T0 - 0.39].map(cl);
+        const S2 = [-hw, ...side.map(v => -v), 0, ...side.slice().reverse(), hw];
+        return { cols: S2.map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s) + rutOff(r, s), u: (s + hw) / W[i], s, i, sc: s }; }), d: dist[i] + dOff, step };
+      }
       return { cols: [-hw, -hw * 0.5, 0, hw * 0.5, hw].map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s), u: (s + hw) / W[i], s, i, sc: s }; }), d: dist[i] + dOff, step };
     };
     // tramos consecutivos con la misma superficie
@@ -291,7 +302,8 @@ const Core = (() => {
     const cnt = counters(), meshes = [];
     for (const run of runs) {
       const secs = [];
-      for (let i = run.i0; i <= run.i1 + 1; i++) secs.push(sec(i % n, 0, i >= n ? total : 0));
+      let rutMode = false; if (o.rutAt && run.key === 'MUD') for (let i = run.i0; i <= run.i1 + 1 && !rutMode; i++) if (o.rutAt(dist[i % n])) rutMode = true;
+      for (let i = run.i0; i <= run.i1 + 1; i++) secs.push(sec(i % n, 0, i >= n ? total : 0, rutMode));
       for (const m of ribbonMeshes(secs, false, run.key, MAT[run.key], 7, { next: () => cnt(run.key) })) { m.road = true; meshes.push(m); }
     }
     // costados: berma, cuneta y contratalud (o banquina y terraplén donde no hay cuneta)
