@@ -105,6 +105,44 @@ const Core = (() => {
   function counters() { const c = {}; return k => { c[k] = (c[k] || 0) + 1; return c[k]; }; }
   const MAT = { DITCH: 'ditch', ROAD: 'asphalt', GRAVEL: 'gravel', WET: 'wet', LOOSE: 'loose', MUD: 'mud', SNOW: 'snow', ICE: 'ice', GRASS: 'grass', POWDER: 'powder' };
 
+  // ---------- Perfil por puntos de control ----------
+  // pts: [{d, h, gin?, gout?}] ordenados por d. mode: 'linear' | 'pchip' (suave, sin pasarse) | 'spline' (curva) |
+  // 'parabola' (rectas de pendiente unidas con curvas verticales parabólicas de largo vc, como en el diseño vial).
+  // gin / gout: pendiente forzada (m/m) al llegar y al salir de cada punto (en los modos suaves); si difieren hay quiebre.
+  function profileInterp(pts, mode, vc) {
+    const n = pts.length; if (!n) return () => 0; if (n === 1) return () => pts[0].h;
+    const D = pts.map(p => p.d), Hh = pts.map(p => p.h), G = [];
+    for (let i = 0; i < n - 1; i++) G.push((Hh[i + 1] - Hh[i]) / Math.max(1e-6, D[i + 1] - D[i]));
+    const seg = d => { let lo = 0, hi = n - 1; if (d <= D[0]) return 0; if (d >= D[n - 1]) return n - 2; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (D[m] <= d) lo = m; else hi = m; } return lo; };
+    if (mode === 'linear') return d => { if (d <= D[0]) return Hh[0]; if (d >= D[n - 1]) return Hh[n - 1]; const i = seg(d); return Hh[i] + G[i] * (d - D[i]); };
+    if (mode === 'parabola') {
+      // largo de cada curva vertical: no más que el 90% del tramo recto más corto de los dos lados
+      const Lv = pts.map((p, i) => i === 0 || i === n - 1 ? 0 : Math.min(vc || 30, 0.9 * (D[i] - D[i - 1]), 0.9 * (D[i + 1] - D[i])));
+      return d => {
+        if (d <= D[0]) return Hh[0]; if (d >= D[n - 1]) return Hh[n - 1];
+        const i = seg(d);
+        for (const k of [i, i + 1]) if (k > 0 && k < n - 1 && Lv[k] > 0 && Math.abs(d - D[k]) <= Lv[k] / 2) {
+          const x = d - (D[k] - Lv[k] / 2); return Hh[k] - G[k - 1] * Lv[k] / 2 + G[k - 1] * x + (G[k] - G[k - 1]) * x * x / (2 * Lv[k]);
+        }
+        return Hh[i] + G[i] * (d - D[i]);
+      };
+    }
+    // tangentes (Hermite cúbico): pchip = Fritsch-Carlson (no sobrepasa los puntos), spline = Catmull-Rom
+    const Tin = new Array(n), Tout = new Array(n);
+    for (let i = 0; i < n; i++) {
+      let m;
+      if (i === 0) m = G[0]; else if (i === n - 1) m = G[n - 2];
+      else if (mode === 'spline') m = (Hh[i + 1] - Hh[i - 1]) / (D[i + 1] - D[i - 1]);
+      else { const a = G[i - 1], b = G[i]; if (a * b <= 0) m = 0; else { const w1 = 2 * (D[i + 1] - D[i]) + (D[i] - D[i - 1]), w2 = (D[i + 1] - D[i]) + 2 * (D[i] - D[i - 1]); m = (w1 + w2) / (w1 / a + w2 / b); } }
+      Tin[i] = pts[i].gin != null ? pts[i].gin : m; Tout[i] = pts[i].gout != null ? pts[i].gout : (pts[i].gin != null && pts[i].gout == null ? pts[i].gin : m);
+    }
+    return d => {
+      if (d <= D[0]) return Hh[0]; if (d >= D[n - 1]) return Hh[n - 1];
+      const i = seg(d), L = D[i + 1] - D[i], t = (d - D[i]) / L, t2 = t * t, t3 = t2 * t;
+      return (2 * t3 - 3 * t2 + 1) * Hh[i] + (t3 - 2 * t2 + t) * L * Tout[i] + (-2 * t3 + 3 * t2) * Hh[i + 1] + (t3 - t2) * L * Tin[i + 1];
+    };
+  }
+
   // ---------- Modo RUTA (tramo / circuito) ----------
   // o: pts, closed, width, hSmooth, height(x,y), lines,
   //    widthAt(d), bankAt(d,k)->grados (con signo de la curva aplicado afuera), offsetAt(d), smoothSecs[{d0,d1}], surfaceAt(d,hLocal)->KEY
@@ -159,6 +197,7 @@ const Core = (() => {
         return h * (1 - wgt) + strong[i] * wgt;
       });
     }
+    if (o.profileApply) hs = hs.map((h, i) => o.profileApply(dist[i], h)); // perfiles por puntos de control
     if (o.offsetAt) hs = hs.map((h, i) => h + o.offsetAt(dist[i]));
     if (o.raise) hs = hs.map((h, i) => h + o.raise(C[i][0], C[i][1])); // rampas de acceso a puentes
     // ancho, peralte, superficie
@@ -627,6 +666,6 @@ const Core = (() => {
     return mats.map(([name, tex, kd]) => `newmtl ${name}\nKa 1 1 1\nKd ${kd}\nKs 0 0 0\nd 1\nillum 1\nmap_Kd ${tex}\n`).join('\n');
   }
 
-  return { MAT, buildTrees, buildRocks, roadDistFn, patchTerrain, terrainHeightFn, makeProj, resample, smooth1D, buildRoute, buildArea, buildSideRoads, buildTerrain, toOBJ, toMTL, computeNormals };
+  return { MAT, profileInterp, buildTrees, buildRocks, roadDistFn, patchTerrain, terrainHeightFn, makeProj, resample, smooth1D, buildRoute, buildArea, buildSideRoads, buildTerrain, toOBJ, toMTL, computeNormals };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

@@ -1193,7 +1193,8 @@ function editFns(o, total, closed) {
           const x = wrap(d, e.d), land = e.land != null ? e.land : e.len * 0.3;
           if (x <= 0 && x > -e.len) s += e.h * ss(1 + x / e.len);
           else if (x > 0 && x < land) s += e.h * ss(1 - x / land);
-        } else if (e.kind === 'cattle') {
+        } else if (e.kind === 'rasante') s += rasanteAt(e, wrap(d, e.d));
+        else if (e.kind === 'cattle') {
           // guardaganado: foso poco profundo con bordes casi verticales (las barras se dibujan aparte)
           const x = Math.abs(wrap(d, e.d)), half = (e.len || 2.6) / 2;
           if (x < half + 0.6) s -= (e.h != null ? e.h : 0.08) * Math.min(1, (half + 0.6 - x) / 0.6);
@@ -1209,12 +1210,59 @@ function editFns(o, total, closed) {
       return o.surface === 'gravel' ? 'GRAVEL' : 'ROAD';
     },
     smoothSecs: S.edits.filter(e => e.kind === 'smooth'),
+    // perfiles por puntos de control: reemplazan la altura base (antes de saltos, lomadas, etc.)
+    profileApply: (() => {
+      const P = S.edits.filter(e => e.kind === 'profile' && e.pts && e.pts.length > 1).map(e => {
+        const q = e.pts, n = q.length, ga = (q[1].h - q[0].h) / Math.max(1e-6, q[1].d - q[0].d), gz = (q[n - 1].h - q[n - 2].h) / Math.max(1e-6, q[n - 1].d - q[n - 2].d);
+        return { e, f: Core.profileInterp(q, e.interp || 'pchip', e.vc || 30), b: Math.max(0.5, e.blend != null ? e.blend : 15), ga: q[0].gin != null ? q[0].gin : ga, gz: q[n - 1].gout != null ? q[n - 1].gout : gz };
+      });
+      if (!P.length) return null;
+      return (d, h) => {
+        for (const { e, f, b, ga, gz } of P) {
+          const a = e.pts[0].d, z = e.pts[e.pts.length - 1].d; if (d < a - b || d > z + b) continue;
+          let w = d < a ? 1 - (a - d) / b : d > z ? 1 - (d - z) / b : 1; w = w * w * (3 - 2 * w);
+          // fuera de los extremos se sigue la pendiente del último tramo mientras se funde con el camino (sin escalones)
+          const t = d < a ? e.pts[0].h - ga * (a - d) : d > z ? e.pts[e.pts.length - 1].h + gz * (d - z) : f(d);
+          h = h * (1 - w) + t * w;
+        }
+        return h;
+      };
+    })(),
     shapeAt: S.edits.some(e => e.kind === 'shape') ? d => {
       let x = 0, y = 0;
       for (const e of S.edits) if (e.kind === 'shape') { const w = bell(wrap(d, e.d), e.r); x += e.dx * w; y += e.dy * w; }
       return [x, y];
     } : null,
   };
+}
+
+// ---------- Rasantes: crestas, valles, compresiones, depresiones y ondulaciones ----------
+// x = distancia al centro. Aproximación (lenIn) con forma pIn, zona superior (top) plana o redondeada (round),
+// salida (lenOut) con forma pOut. Las formas son continuas en altura y pendiente (sin quiebres artificiales).
+const RAS_DEF = {
+  cresta: { h: 1.5, lenIn: 40, top: 8, lenOut: 40, pIn: 1, pOut: 1, round: 0.4 },
+  valle: { h: -1.5, lenIn: 45, top: 6, lenOut: 45, pIn: 1, pOut: 1, round: 0.4 },
+  compresion: { h: -0.7, lenIn: 14, top: 0, lenOut: 12, pIn: 1.4, pOut: 0.8, round: 0.6 },
+  depresion: { h: -1, lenIn: 18, top: 14, lenOut: 18, pIn: 1, pOut: 1, round: 0 },
+  ondulacion: { h: 0.35, n: 4, wl: 22, lenIn: 0, top: 0, lenOut: 0 },
+};
+const RAS_NAME = { cresta: 'Cresta', valle: 'Valle', compresion: 'Compresión', depresion: 'Depresión', ondulacion: 'Ondulaciones' };
+function rasEase(t, p) { t = Math.max(0, Math.min(1, t)); const u = Math.pow(t, Math.max(0.5, Math.min(3, p || 1))); return u * u * (3 - 2 * u); }
+function rasanteExtent(e) {
+  if (e.type === 'ondulacion') { const L = (e.n || 4) * (e.wl || 22); return [e.d - L / 2, e.d + L / 2]; }
+  return [e.d - (e.top || 0) / 2 - e.lenIn, e.d + (e.top || 0) / 2 + e.lenOut];
+}
+function rasanteAt(e, x) {
+  if (e.type === 'ondulacion') {
+    const L = (e.n || 4) * (e.wl || 22), u = x + L / 2; if (u <= 0 || u >= L) return 0;
+    const env = Math.min(1, u / (e.wl / 2), (L - u) / (e.wl / 2)), ev = env * env * (3 - 2 * env);
+    return e.h * Math.sin(2 * Math.PI * u / e.wl) * ev;
+  }
+  const t2 = (e.top || 0) / 2;
+  if (x < -t2) return e.h * rasEase(1 - (-t2 - x) / Math.max(0.5, e.lenIn), e.pIn);
+  if (x > t2) return e.h * rasEase(1 - (x - t2) / Math.max(0.5, e.lenOut), e.pOut);
+  // zona superior: plana (round 0) o abombada hacia el mismo lado del cambio (round 1)
+  return e.h * (1 + (e.round || 0) * 0.25 * (t2 > 0 ? 0.5 + 0.5 * Math.cos(Math.PI * x / t2) : 1));
 }
 
 // ---------- Objetos reales: casas/estancias, alambrados y tranqueras ----------
@@ -1839,6 +1887,7 @@ function renderCrit() {
 // ---------- Herramientas de edición ----------
 const EDIT_TXT = {
   raise: e => e.h1 != null && e.d1 - e.d0 >= 1 && Math.abs(e.h1 - e.h) > 0.005 ? `Pendiente ${fmtH(e.h)} → ${fmtH(e.h1)} m` : `${e.h > 0 ? 'Subir' : 'Bajar'} ${Math.abs(+e.h.toFixed(2))} m`,
+  profile: e => `Perfil por puntos (${e.pts.length})`, rasante: e => `${RAS_NAME[e.type] || 'Rasante'} ${fmtH(+(+e.h).toFixed(2))} m`,
   smooth: () => 'Suavizar', bump: e => `Lomada ${+e.h.toFixed(2)} m`, jump: e => `Salto ${+e.h.toFixed(2)} m`, cattle: () => 'Guardaganado',
   shape: e => `Curva movida ${Math.hypot(e.dx, e.dy).toFixed(1)} m`, pothole: e => `Bache ${+e.h.toFixed(2)} m`, width: e => `Ancho ${+e.w.toFixed(1)} m`,
   bank: e => e.abs ? `Inclinación ${+e.deg.toFixed(1)}°` : `Peralte ${+e.deg.toFixed(1)}°`, surface: e => SURF[e.key].name,
@@ -2682,6 +2731,7 @@ async function loadProject(st) {
   try { $('#season').onchange(); $('#grassType').onchange(); await $('#gravelStyle').onchange(); } catch (e) { }
   setMode(st.mode || 'route');
   S.edits = st.edits || []; S.base = null; S.sel = null; S.gpsTrack = st.gps || null;
+  ED.active = null; ED.cpSel = null; ED.undo = []; ED.redo = [];
   S.wps.forEach((p, i) => map.removeLayer(S.markers[i])); S.wps = []; S.markers = [];
   G.path = st.pick?.path || []; G.steps = st.pick?.steps || []; G.virtual = st.pick?.virtual || [];
   S.side = st.side || []; drawSide();

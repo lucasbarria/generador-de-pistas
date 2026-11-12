@@ -4,9 +4,11 @@
 // Mientras se arrastra solo se mueven los vértices del camino que cambian; al soltar se ajusta el terreno
 // únicamente alrededor de la zona editada. El perfil del panel y el de la vista 3D muestran lo mismo.
 
-const ED = { tool: 'height', active: null, undo: [], redo: [], drag: null, pending: false, gz: [], hover: null, anchor: null, keys: new Set(), commitT: null };
-const ED_KIND = { height: 'raise', bank: 'bank', jump: 'jump', bump: 'bump', pothole: 'pothole', cattle: 'cattle', width: 'width', curve: 'shape', smooth: 'smooth' };
+const ED = { prec: 0.01, cpSel: null, cpSpacing: 10, cpInterp: 'pchip', rasType: 'cresta', tool: 'height', active: null, undo: [], redo: [], drag: null, pending: false, gz: [], hover: null, anchor: null, keys: new Set(), commitT: null };
+const ED_KIND = { profile: 'profile', rasante: 'rasante', height: 'raise', bank: 'bank', jump: 'jump', bump: 'bump', pothole: 'pothole', cattle: 'cattle', width: 'width', curve: 'shape', smooth: 'smooth' };
 const ED_TOOLS = [
+  ['profile', '📈 Puntos de control', 'Altimetría por puntos: cada punto se edita solo (altura al centímetro, pendiente de entrada y salida, bloqueo). Entre dos extremos fijos: recta, suavizar, cresta o valle.'],
+  ['rasante', '⛰ Rasante', 'Cresta, valle, compresión, depresión u ondulaciones con aproximación, zona superior y salida configurables.'],
   ['height', '⇕ Altura / pendiente', 'Punto: subir o bajar. Tramo: manijas al inicio y al final para armar la pendiente; las naranjas alargan la transición.'],
   ['bank', '⟋ Peralte', 'Subí o bajá un borde del camino para inclinarlo (también invertido o en rectas).'],
   ['jump', '⤴ Salto', 'Crea o edita un salto: altura, rampa de entrada y recepción.'],
@@ -29,7 +31,9 @@ const ED_PARAMS = {
   width: () => [['w', 'Ancho', 'm', 0.1, 3, 25], ['d0', 'Desde', 'm', 1], ['d1', 'Hasta', 'm', 1]],
   shape: () => [['dx', 'Mover al este', 'm', 0.5], ['dy', 'Mover al norte', 'm', 0.5], ['r', 'Alcance', 'm', 5, 8, 500]],
   smooth: () => [['d0', 'Desde', 'm', 1], ['d1', 'Hasta', 'm', 1]],
-  width_: null,
+  rasante: e => e.type === 'ondulacion' ? [['h', 'Amplitud', 'm', 0.01, -3, 3], ['n', 'Cantidad de ondas', '', 1, 1, 60], ['wl', 'Largo de cada onda', 'm', 0.5, 2, 200], ['d', 'Centro en', 'm', 1]]
+    : [['h', e.h >= 0 ? 'Altura' : 'Profundidad (−)', 'm', 0.01, -20, 20], ['lenIn', 'Aproximación', 'm', 1, 1, 400], ['top', 'Zona superior', 'm', 0.5, 0, 300], ['lenOut', 'Salida', 'm', 1, 1, 400],
+      ['pIn', 'Forma de entrada (0,5 temprana · 3 tardía)', '', 0.1, 0.5, 3], ['pOut', 'Forma de salida', '', 0.1, 0.5, 3], ['round', 'Zona superior: 0 plana · 1 redonda', '', 0.05, 0, 1], ['d', 'Centro en', 'm', 1]],
 };
 
 // ---------- utilidades de la ruta ----------
@@ -55,6 +59,8 @@ function edNearestD(x, y) {
 
 // ---------- extensión de cada edición (para encontrarla al hacer clic) ----------
 function edExtent(e) {
+  if (e.kind === 'profile') { const b = e.blend != null ? e.blend : 15; return [e.pts[0].d - b, e.pts[e.pts.length - 1].d + b]; }
+  if (e.kind === 'rasante') return rasanteExtent(e);
   if (e.d !== undefined) {
     if (e.kind === 'jump') return [e.d - e.len, e.d + (e.land != null ? e.land : e.len * 0.3)];
     if (e.kind === 'shape') return [e.d - e.r, e.d + e.r];
@@ -73,7 +79,8 @@ function edTarget() {
   if (kind === 'raise') return S.edits.find(e => e.kind === 'raise' && (pt ? e.d1 - e.d0 < 1 && Math.abs(e.d0 - s.d0) < 1.5 : Math.abs(e.d0 - s.d0) < 1.5 && Math.abs(e.d1 - s.d1) < 1.5)) || null;
   if (kind === 'bank' || kind === 'width' || kind === 'smooth') { const q = edSecSel(); return S.edits.find(e => e.kind === kind && Math.abs(e.d0 - q.d0) < 1.5 && Math.abs(e.d1 - q.d1) < 1.5) || null; }
   if (kind === 'shape') return null;
-  const c = (s.d0 + s.d1) / 2; return S.edits.find(e => e.kind === kind && c >= edExtent(e)[0] && c <= edExtent(e)[1]) || null;
+  const c = (s.d0 + s.d1) / 2;
+  if (kind === 'profile') { for (let k = S.edits.length - 1; k >= 0; k--) { const e = S.edits[k]; if (e.kind === 'profile' && c >= e.pts[0].d && c <= e.pts[e.pts.length - 1].d) return e; } return null; } return S.edits.find(e => e.kind === kind && c >= edExtent(e)[0] && c <= edExtent(e)[1]) || null;
 }
 function edMake(kind) {
   const s = S.sel, c = (s.d0 + s.d1) / 2, r = edR();
@@ -85,7 +92,43 @@ function edMake(kind) {
   if (kind === 'bump') return { kind, d: c, h: 0.5, len: 10 };
   if (kind === 'pothole') return { kind, d: c, h: 0.3, len: 6 };
   if (kind === 'cattle') return { kind, d: c, h: 0.08, len: 2.6 };
+  if (kind === 'rasante') return { kind, type: ED.rasType, d: c, ...RAS_DEF[ED.rasType] };
+  if (kind === 'profile') { const q = s.d1 - s.d0 < 10 ? { d0: Math.max(0, c - 100), d1: Math.min(r.total, c + 100) } : s; return edProfileFromRoad(q.d0, q.d1, ED.cpSpacing); }
   return null;
+}
+// ---------- perfil por puntos de control ----------
+// alturas base del camino (sin saltos, lomadas ni rampas de puentes): sobre eso se ponen los puntos
+function edBaseHeights() {
+  const R = S.result, L = S.live;
+  const pr = Core.buildRoute({ ...L.routeArgs, ...editFns(R.o, S.lastTotal, S.base.closed), cache: L.cache, profileOnly: true, offsetAt: null, raise: null });
+  return d => { let i = Math.max(0, Math.min(pr.n - 2, Math.floor(d / 2))); while (i > 0 && pr.dist[i] > d) i--; while (i < pr.n - 2 && pr.dist[i + 1] <= d) i++; const t = Math.max(0, Math.min(1, (d - pr.dist[i]) / (pr.dist[i + 1] - pr.dist[i] || 1))); return pr.hs[i] + (pr.hs[i + 1] - pr.hs[i]) * t; };
+}
+function edProfileFromRoad(d0, d1, sp) {
+  const f = edBaseHeights(), pts = [], q = v => +v.toFixed(3);
+  for (let d = d0; d < d1 - sp * 0.3; d += sp) pts.push({ d: q(d), h: q(f(d)) });
+  pts.push({ d: q(d1), h: q(f(d1)) });
+  return edProfSync({ kind: 'profile', pts, interp: ED.cpInterp, vc: 30, blend: 15 });
+}
+function edProfSync(e) { e.pts.sort((a, b) => a.d - b.d); e.d0 = e.pts[0].d; e.d1 = e.pts[e.pts.length - 1].d; return e; }
+const fmtG = g => `${g >= 0 ? '+' : ''}${(g * 100).toFixed(2)} % (${(Math.atan(g) / D2R).toFixed(2)}°)`;
+// operaciones entre dos extremos fijos (la selección): los puntos del medio cambian, los extremos no
+function edProfOp(op, amp) {
+  const s = S.sel; if (!s || s.d1 - s.d0 < 4) { edHint('Elegí un tramo (Shift+clic) para operar entre dos extremos.'); return; }
+  edPushUndo();
+  let e = edTarget(); if (!e || e.pts[0].d > s.d0 + 0.5 || e.pts[e.pts.length - 1].d < s.d1 - 0.5) { e = edProfileFromRoad(s.d0, s.d1, ED.cpSpacing); S.edits.push(e); }
+  ED.active = e;
+  // un punto exacto en cada extremo (si no hay uno a menos de 25 cm): así su altura no puede cambiar
+  const f = Core.profileInterp(e.pts, e.interp || 'pchip', e.vc), ends = [s.d0, s.d1].map(d => { let q = e.pts.find(p => Math.abs(p.d - d) <= 0.25); if (!q) { q = { d: +d.toFixed(3), h: +f(d).toFixed(4) }; e.pts.push(q); } return q; });
+  edProfSync(e);
+  const [A, Bq] = ends, ha = A.h, hb = Bq.h, L = Bq.d - A.d;
+  const inner = e.pts.filter(p => p.d > A.d && p.d < Bq.d && !p.lock);
+  if (op === 'recta') inner.forEach(p => { p.h = +(ha + (hb - ha) * (p.d - A.d) / L).toFixed(4); });
+  else if (op === 'cresta' || op === 'valle') inner.forEach(p => { p.h = +(p.h + (op === 'cresta' ? 1 : -1) * Math.abs(amp) * Math.sin(Math.PI * (p.d - A.d) / L)).toFixed(4); });
+  else if (op === 'suavizar') {
+    const all = e.pts, idx = inner.map(p => all.indexOf(p));
+    for (let pass = 0; pass < 4; pass++) { const nh = idx.map(i => (all[i - 1].h + 2 * all[i].h + all[i + 1].h) / 4); idx.forEach((i, k) => { all[i].h = +nh[k].toFixed(4); }); }
+  }
+  editsChanged();
 }
 function edEnsure() { let e = edTarget(); if (!e) { e = edMake(ED_KIND[ED.tool]); if (e) S.edits.push(e); } if (e) ED.active = e; return e; }
 
@@ -265,12 +308,34 @@ function cattleMeshes(r) {
 
 // ---------- manipuladores (gizmos) ----------
 // tipo: 'up' = arrastre vertical, 'along' = a lo largo del camino, 'side' = hacia los costados, 'plane' = libre en planta
-const GZ_COL = { up: 0xff5c8a, both: 0xc77dff, along: 0xffb020, side: 0x2ecc71, plane: 0xffd200, move: 0xffffff };
+const GZ_COL = { cp: 0xff5c8a, cpSel: 0x00e5ff, lock: 0x7d848c, up: 0xff5c8a, both: 0xc77dff, along: 0xffb020, side: 0x2ecc71, plane: 0xffd200, move: 0xffffff };
 function edGizmoDefs() {
   const r = edR(); if (!r || !S.sel) return [];
   const e = edTarget(), kind = ED_KIND[ED.tool], s = S.sel, out = [];
   const G = (type, d, lat, yOff, drag, tip, col) => out.push({ type, d: edClampD(d), lat, yOff, drag, tip, col: col || type });
   const clampMin = (v, m) => Math.max(m, v);
+  if (kind === 'profile' && e) {
+    const c = (s.d0 + s.d1) / 2, half = Math.max(220, (s.d1 - s.d0) / 2 + 60);
+    e.pts.forEach((pt, k) => {
+      if (pt.d < c - half || pt.d > c + half) return;
+      out.push({ type: 'up', d: pt.d, lat: 0, yOff: 1.0, cp: k, locked: !!pt.lock, col: pt.lock ? 'lock' : k === ED.cpSel ? 'cpSel' : 'cp',
+        tip: `Punto ${k + 1}/${e.pts.length}${pt.lock ? ' (bloqueado)' : ''}: arrastrá para subir o bajar · clic para editarlo`,
+        drag: (e0, x, e) => { e.pts[k].h = +(e0.pts[k].h + x).toFixed(4); } });
+    });
+    return out;
+  }
+  if (kind === 'rasante' && e) {
+    const [a, b] = rasanteExtent(e);
+    G('up', e.d, 0, 1.4, (e0, x, e) => { e.h = e0.h + x; }, e.type === 'ondulacion' ? 'Amplitud de las ondas' : 'Altura (arriba) o profundidad (abajo)');
+    if (e.type === 'ondulacion') G('along', b, 0, 0.4, (e0, x, e) => { e.wl = Math.max(2, e0.wl + 2 * x / (e0.n || 4)); }, 'Largo de las ondas');
+    else {
+      G('along', a, 0, 0.4, (e0, x, e) => { e.lenIn = Math.max(1, e0.lenIn - x); }, 'Comienzo de la aproximación');
+      G('along', b, 0, 0.4, (e0, x, e) => { e.lenOut = Math.max(1, e0.lenOut + x); }, 'Final de la salida');
+      G('along', e.d + (e.top || 0) / 2 + 0.01, 0, 0.9, (e0, x, e) => { e.top = Math.max(0, (e0.top || 0) + 2 * x); }, 'Largo de la zona superior', 'both');
+    }
+    G('move', e.d, edAt(e.d).hw + 1.2, 0.3, (e0, x, e) => { e.d = edClampD(e0.d + x); }, 'Mover por el camino');
+    return out;
+  }
   if (kind === 'raise') {
     if (s.d1 - s.d0 < 1) {
       const rr = e ? e.r || 30 : 30;
@@ -411,6 +476,8 @@ function edDragDelta(ev) {
 function edStartDrag(g, src) {
   edPushUndo();
   let e;
+  if (g.cp != null) ED.cpSel = g.cp;
+  if (g.locked) { ED.undo.pop(); edHint('Ese punto está bloqueado: desbloquealo en el panel para moverlo.'); edRefresh(); return false; }
   if (g.type === 'plane') { e = { kind: 'shape', d: g.d, dx: 0, dy: 0, r: +$('#dragR').value }; S.edits.push(e); ED.active = e; }
   else { e = edEnsure(); if (!e) { ED.undo.pop(); return false; } }
   const a = edAt(g.d);
@@ -420,6 +487,7 @@ function edStartDrag(g, src) {
 function edApplyDrag(x, fine) {
   const D = ED.drag; if (x == null) return;
   if (fine) x = Array.isArray(x) ? x.map(v => v * 0.25) : x * 0.25;
+  if (D.g.type === 'up') x = Math.round(x / ED.prec) * ED.prec; // precisión de altura elegida
   if (D.g.type === 'plane') { D.e.dx = +(D.e0.dx + x[0]).toFixed(3); D.e.dy = +(D.e0.dy + x[1]).toFixed(3); }
   else D.g.drag(JSON.parse(JSON.stringify(D.e0)), x, D.e);
   D.moved = true; edSchedule(); edLiveReadout();
@@ -427,10 +495,11 @@ function edApplyDrag(x, fine) {
 function edEndDrag() {
   const D = ED.drag; ED.drag = null; if (PV.controls) PV.controls.enabled = true;
   if (!D) return;
-  if (!D.moved) { ED.undo.pop(); if (D.g.type === 'plane') { S.edits.splice(S.edits.indexOf(D.e), 1); ED.active = null; } edRefresh(); return; }
+  if (!D.moved) { ED.undo.pop(); if (D.g.type === 'plane') { S.edits.splice(S.edits.indexOf(D.e), 1); ED.active = null; } if (D.g.cp != null) { S.sel = { d0: D.g.d, d1: D.g.d }; ED.anchor = D.g.d; selInfo(); drawSel(); } edRefresh(); drawProfile(); return; }
+  if (D.e.kind === 'profile') edProfSync(D.e);
   if (D.e.kind === 'shape' && Math.hypot(D.e.dx, D.e.dy) < 0.2) { S.edits.splice(S.edits.indexOf(D.e), 1); ED.active = null; }
   // si la selección era la de la edición, que la siga
-  if (D.e.d0 !== undefined && D.e.kind !== 'raise') S.sel = { d0: D.e.d0, d1: D.e.d1 };
+  if (D.e.d0 !== undefined && D.e.kind !== 'raise' && D.e.kind !== 'profile') S.sel = { d0: D.e.d0, d1: D.e.d1 };
   liveCommit(); selInfo();
 }
 function edLiveReadout() {
@@ -449,8 +518,9 @@ function edSelect(d, extend) {
   if (extend && ED.anchor != null) S.sel = { d0: Math.min(ED.anchor, d), d1: Math.max(ED.anchor, d) };
   else { S.sel = { d0: d, d1: d }; ED.anchor = d; }
   // si hay un salto, lomada, bache o guardaganado ahí, queda elegido para editarlo
-  if (!extend) {
-    const hit = S.edits.filter(e => ['jump', 'bump', 'pothole', 'cattle'].includes(e.kind)).find(e => { const [a, b] = edExtent(e); return d >= a && d <= b; });
+  if (ED.tool === 'profile') { const e = edTarget(); ED.cpSel = null; if (e) { ED.active = e; let bk = null; e.pts.forEach((p, k) => { if (Math.abs(p.d - d) < 3 && (bk == null || Math.abs(p.d - d) < Math.abs(e.pts[bk].d - d))) bk = k; }); ED.cpSel = bk; } }
+  else if (!extend) {
+    const hit = S.edits.filter(e => ['jump', 'bump', 'pothole', 'cattle', 'rasante'].includes(e.kind)).find(e => { const [a, b] = edExtent(e); return d >= a && d <= b; });
     if (hit) { ED.active = hit; ED.tool = Object.keys(ED_KIND).find(k => ED_KIND[k] === hit.kind); }
     else if (ED.active && !(ED.active.d0 !== undefined && d >= ED.active.d0 && d <= ED.active.d1)) ED.active = null;
   }
@@ -501,7 +571,8 @@ function edPanel(light) {
   const rows = [];
   if (s.d1 - s.d0 < 1) {
     $('#vpSel').textContent = `Punto en ${(d / 1000).toFixed(3)} km`;
-    rows.push(['Altura', `${(p.hs + h0).toFixed(2)} m`], ['Pendiente', `${grade >= 0 ? '+' : ''}${grade.toFixed(1)} %`], ['Peralte', bankTxt], ['Curva', rad ? `radio ${rad.toFixed(0)} m, ${k > 0 ? 'izquierda' : 'derecha'}` : 'recta'], ['Ancho', `${(p.hw * 2).toFixed(1)} m`], ['Superficie', SURF[r.SURF[i]].name]);
+    const dg = ((hAt(d + 10) - hAt(d)) / 10 - (hAt(d) - hAt(d - 10)) / 10) * 100;
+    rows.push(['Altura', `${(p.hs + h0).toFixed(2)} m`], ['Pendiente', fmtG(grade / 100)], ['Cambio de pendiente', `${dg >= 0 ? '+' : ''}${dg.toFixed(2)} % en 10 m ${dg > 0.5 ? '(valle)' : dg < -0.5 ? '(cresta)' : ''}`], ['Peralte', bankTxt], ['Curva', rad ? `radio ${rad.toFixed(0)} m, ${k > 0 ? 'izquierda' : 'derecha'}` : 'recta'], ['Ancho', `${(p.hw * 2).toFixed(1)} m`], ['Superficie', SURF[r.SURF[i]].name]);
     if (g && g.V) rows.push(['Vel. segura', `≈ ${g.V[i].toFixed(0)} km/h`]);
     const nb = [-50, -20, 20, 50].filter(o => d + o >= 0 && d + o <= r.total).map(o => `<span class="${o < 0 ? 'pv' : 'nx'}">${o > 0 ? '+' : ''}${o} m: <b>${(hAt(d + o) + h0).toFixed(1)}</b> (${fmtH(+(hAt(d + o) - p.hs).toFixed(2))})</span>`).join('');
     rows.push(['Antes / después', `<div class="nbh">${nb}</div>`]);
@@ -509,22 +580,26 @@ function edPanel(light) {
     const a = edAt(s.d0), b = edAt(s.d1); let mx = -Infinity, mn = Infinity, gmax = 0;
     for (let x = s.d0; x <= s.d1; x += 2) { const h = hAt(x); mx = Math.max(mx, h); mn = Math.min(mn, h); if (x + 4 <= s.d1) gmax = Math.max(gmax, Math.abs(hAt(x + 4) - h) / 4 * 100); }
     $('#vpSel').textContent = `Tramo ${(s.d0 / 1000).toFixed(3)}–${(s.d1 / 1000).toFixed(3)} km (${(s.d1 - s.d0).toFixed(0)} m)`;
-    rows.push(['Altura inicio / fin', `${(a.hs + h0).toFixed(1)} → ${(b.hs + h0).toFixed(1)} m`], ['Desnivel', `${fmtH(+(b.hs - a.hs).toFixed(2))} m`], ['Pendiente media', `${((b.hs - a.hs) / (s.d1 - s.d0) * 100).toFixed(1)} %`],
+    rows.push(['Altura inicio / fin', `${(a.hs + h0).toFixed(1)} → ${(b.hs + h0).toFixed(1)} m`], ['Desnivel', `${fmtH(+(b.hs - a.hs).toFixed(2))} m`], ['Pendiente media', fmtG((b.hs - a.hs) / (s.d1 - s.d0))],
       ['Pendiente máxima', `${gmax.toFixed(1)} %`], ['Mín / máx', `${(mn + h0).toFixed(1)} / ${(mx + h0).toFixed(1)} m`], ['Peralte al medio', bankTxt]);
   }
   rows.push(['Desde el inicio', `${(d / 1000).toFixed(3)} km de ${(r.total / 1000).toFixed(2)}`]);
-  $('#vpData').innerHTML = rows.map(([k, v]) => `<div class="vr"><span>${k}</span><span>${v}</span></div>`).join('');
+  $('#vpData').innerHTML = rows.map(([k, v]) => `<div class="vr"><span>${k}</span><span>${v}</span></div>`).join('') +
+    `<label class="vp-p" style="margin-top:6px">Precisión de altura <select id="vpPrec">${[0.01, 0.02, 0.05, 0.1, 0.25, 0.5].map(v => `<option value="${v}"${v === ED.prec ? ' selected' : ''}>${String(v).replace('.', ',')} m</option>`).join('')}</select></label>`;
+  $('#vpPrec').onchange = ev => { ED.prec = +ev.target.value; edPanel(); };
   // parámetros de la edición elegida (se pueden escribir: precisión)
   const e = edTarget(), kind = ED_KIND[ED.tool];
-  if (!light || !ED.drag) {
+  if (kind === 'profile' && (!light || !ED.drag)) { edProfilePanel(e); }
+  else if (!light || !ED.drag) {
     const ps = e && ED_PARAMS[e.kind] ? ED_PARAMS[e.kind](e) : [];
     let html = `<div class="vp-t">${ED_TOOLS.find(t => t[0] === ED.tool)[2]}</div>`;
+    if (kind === 'rasante') html += `<label class="vp-p">Tipo <select id="vpRas">${Object.keys(RAS_DEF).map(k => `<option value="${k}"${(e ? e.type : ED.rasType) === k ? ' selected' : ''}>${RAS_NAME[k]}</option>`).join('')}</select></label>`;
     if (e) {
       html += `<div class="vp-e"><b>${EDIT_TXT[e.kind](e)}</b> <button class="b sm" id="vpDel" title="Eliminar este cambio (Supr)">🗑 Eliminar</button></div>`;
       html += ps.map(([key, name, unit, step, mn, mx]) => { const val = e[key] != null ? e[key] : (key === 'h1' ? e.h : key === 'f0' || key === 'f1' ? 25 : key === 'r' ? 30 : key === 'land' ? e.len * 0.3 : 0);
         return `<label class="vp-p">${name} <span><input type="number" data-k="${key}" value="${+(+val).toFixed(3)}" step="${step}"${mn != null ? ` min="${mn}"` : ''}${mx != null ? ` max="${mx}"` : ''}> ${unit}</span></label>`; }).join('');
       const tr = edTransInfo(e); if (tr) html += `<div class="mut">${tr}</div>`;
-    } else if (['jump', 'bump', 'pothole', 'cattle'].includes(kind)) html += `<button class="b wide" id="vpMake">Crear ${ED_TOOLS.find(t => t[0] === ED.tool)[1].slice(2)} acá</button>`;
+    } else if (['jump', 'bump', 'pothole', 'cattle', 'rasante'].includes(kind)) html += `<button class="b wide" id="vpMake">Crear ${ED_TOOLS.find(t => t[0] === ED.tool)[1].slice(2)} acá</button>`;
     else if (kind === 'smooth') html += `<button class="b wide" id="vpMake">Suavizar ${s.d1 - s.d0 < 10 ? 'alrededor del punto (±25 m)' : 'el tramo elegido'}</button>`;
     else if (kind === 'shape') html += '<div class="mut">Arrastrá un punto amarillo.</div>';
     else html += '<div class="mut">Arrastrá una manija para crear el cambio.</div>';
@@ -536,6 +611,7 @@ function edPanel(light) {
       inp.oninput = () => { const v = parseFloat(inp.value); if (!isFinite(v)) return; if (!inp._undo) { edPushUndo(); inp._undo = true; } e[inp.dataset.k] = v; if (e.d1 !== undefined && e.d1 < e.d0) [e.d0, e.d1] = [e.d1, e.d0]; edSchedule(); clearTimeout(ED.commitT); ED.commitT = setTimeout(() => { liveCommit(); }, 350); };
     });
     const del = $('#vpDel'); if (del) del.onclick = () => edDelete(e);
+    const ras = $('#vpRas'); if (ras) ras.onchange = () => { ED.rasType = ras.value; if (e) { edPushUndo(); const d = e.d; for (const k of ['h', 'lenIn', 'top', 'lenOut', 'pIn', 'pOut', 'round', 'n', 'wl']) delete e[k]; Object.assign(e, RAS_DEF[ras.value], { type: ras.value, d }); editsChanged(); } else edPanel(); };
     const mk = $('#vpMake'); if (mk) mk.onclick = () => { edPushUndo(); const ne = edMake(kind); S.edits.push(ne); ED.active = ne; editsChanged(); };
     $('#vpSurfGo').onclick = () => { edPushUndo(); const ne = { kind: 'surface', ...edSecSel(), key: $('#vpSurf').value }; S.edits.push(ne); editsChanged(); };
   }
@@ -544,10 +620,70 @@ function edPanel(light) {
   $('#vpNear').innerHTML = near.length ? '<div class="vp-t">Cambios cercanos</div>' + near.map(x => `<div class="vp-n${x === ED.active ? ' on' : ''}" data-k="${S.edits.indexOf(x)}">${EDIT_TXT[x.kind](x)} <span class="mut">· ${where(x)}${edTransInfo(x) ? ' · ' + edTransInfo(x) : ''}</span></div>`).join('') : '';
   $('#vpNear').querySelectorAll('.vp-n').forEach(div => div.onclick = () => edFocusEdit(S.edits[+div.dataset.k], true));
 }
+function edProfilePanel(e) {
+  const s = S.sel, h0 = S.result.h0, R = S.result;
+  let html = `<div class="vp-t">${ED_TOOLS[0][2]}</div>`;
+  const opts = (list, cur) => list.map(([v, t]) => `<option value="${v}"${String(cur) === String(v) ? ' selected' : ''}>${t}</option>`).join('');
+  const INTERP = [['pchip', 'Suave (no se pasa de los puntos)'], ['spline', 'Curva (más redondeada)'], ['parabola', 'Parabólica (diseño vial)'], ['linear', 'Lineal (rectas)']];
+  if (!e) {
+    html += `<label class="vp-p">Un punto cada <select id="cpSp">${opts([[1, '1 m'], [2, '2 m'], [5, '5 m'], [10, '10 m'], [20, '20 m'], [50, '50 m'], [100, '100 m']], ED.cpSpacing)}</select></label>
+      <label class="vp-p">Interpolación <select id="cpIn">${opts(INTERP, ED.cpInterp)}</select></label>
+      <button class="b wide" id="cpMake">Crear puntos ${s.d1 - s.d0 < 10 ? 'alrededor del punto (±100 m)' : 'en el tramo elegido'}</button>
+      <button class="b wide" id="cpAll">Crear puntos en todo el recorrido</button>`;
+  } else {
+    const k = ED.cpSel != null && e.pts[ED.cpSel] ? ED.cpSel : null, sp = (e.pts[e.pts.length - 1].d - e.pts[0].d) / Math.max(1, e.pts.length - 1);
+    html += `<div class="vp-e"><b>Perfil por puntos · ${e.pts.length} puntos (cada ~${sp.toFixed(1)} m)</b> <button class="b sm" id="vpDel">🗑</button></div>
+      <label class="vp-p">Interpolación <select id="cpIn">${opts(INTERP, e.interp || 'pchip')}</select></label>
+      ${e.interp === 'parabola' ? `<label class="vp-p">Curva vertical <span><input type="number" id="cpVc" value="${e.vc || 30}" step="1" min="2"> m</span></label>` : ''}
+      <label class="vp-p">Unión con el camino <span><input type="number" id="cpBl" value="${e.blend != null ? e.blend : 15}" step="1" min="0"> m</span></label>
+      <div class="row"><button class="b sm" id="cpAdd">＋ Punto en la selección</button></div>
+      <div class="row"><button class="b sm" id="cpRe">Repartir los puntos</button> cada <select id="cpSp" style="width:auto">${opts([[1, '1 m'], [2, '2 m'], [5, '5 m'], [10, '10 m'], [20, '20 m'], [50, '50 m']], ED.cpSpacing)}</select></div>`;
+    if (k != null) {
+      const pt = e.pts[k], prev = e.pts[k - 1], next = e.pts[k + 1];
+      const gi = prev ? (pt.h - prev.h) / (pt.d - prev.d) : null, go = next ? (next.h - pt.h) / (next.d - pt.d) : null;
+      html += `<div class="vp-cp"><div class="vp-e"><b>Punto ${k + 1} de ${e.pts.length}</b><span><button class="b sm" id="cpPrev"${k ? '' : ' disabled'}>◀</button> <button class="b sm" id="cpNext"${next ? '' : ' disabled'}>▶</button></span></div>
+        <label class="vp-p">Altura <span><input type="number" id="cpH" value="${(pt.h + h0).toFixed(3)}" step="${ED.prec}"${pt.lock ? ' disabled' : ''}> m</span></label>
+        <label class="vp-p">Distancia <span><input type="number" id="cpD" value="${pt.d.toFixed(2)}" step="0.5"${pt.lock || !prev || !next ? ' disabled' : ''}> m</span></label>
+        <label class="vp-p">Pendiente de entrada <span><input type="number" id="cpGi" value="${pt.gin != null ? +(pt.gin * 100).toFixed(3) : ''}" placeholder="auto" step="0.1"${pt.lock ? ' disabled' : ''}> %</span></label>
+        <label class="vp-p">Pendiente de salida <span><input type="number" id="cpGo" value="${pt.gout != null ? +(pt.gout * 100).toFixed(3) : ''}" placeholder="auto" step="0.1"${pt.lock ? ' disabled' : ''}> %</span></label>
+        <div class="mut">Recta desde el anterior: ${gi != null ? fmtG(gi) : '—'}<br>Recta hasta el siguiente: ${go != null ? fmtG(go) : '—'}</div>
+        <div class="row"><label><input type="checkbox" id="cpLock"${pt.lock ? ' checked' : ''}> Bloqueado</label><button class="b sm" id="cpDelPt"${pt.lock || e.pts.length < 3 ? ' disabled' : ''}>Quitar punto</button></div></div>`;
+    } else html += '<div class="mut">Tocá un punto rosa (en 3D o en el perfil) para editarlo con números.</div>';
+  }
+  html += `<div class="vp-t">Entre los dos extremos del tramo elegido (los extremos no cambian)</div>
+    <div class="row"><button class="b sm" data-op="recta">Recta</button><button class="b sm" data-op="suavizar">Suavizar</button><button class="b sm" data-op="cresta">Cresta</button><button class="b sm" data-op="valle">Valle</button><span><input type="number" id="cpAmp" value="1" step="0.1" style="width:60px"> m</span></div>`;
+  $('#vpParams').innerHTML = html;
+  const on = (id, ev, fn) => { const el = $('#' + id); if (el) el[ev] = fn; };
+  on('cpSp', 'onchange', ev => { ED.cpSpacing = +ev.target.value; });
+  on('cpMake', 'onclick', () => { edPushUndo(); const ne = edMake('profile'); S.edits.push(ne); ED.active = ne; ED.cpSel = null; editsChanged(); });
+  on('cpAll', 'onclick', () => { edPushUndo(); const ne = edProfileFromRoad(0, edR().total, ED.cpSpacing); S.edits.push(ne); ED.active = ne; ED.cpSel = null; editsChanged(); });
+  on('cpIn', 'onchange', ev => { ED.cpInterp = ev.target.value; if (e) { edPushUndo(); e.interp = ev.target.value; editsChanged(); } });
+  if (!e) return;
+  const num = (id, fn) => on(id, 'onchange', ev => { const v = ev.target.value === '' ? null : parseFloat(ev.target.value); edPushUndo(); fn(v); edProfSync(e); editsChanged(); });
+  num('cpVc', v => { if (v > 0) e.vc = v; }); num('cpBl', v => { if (v >= 0) e.blend = v; });
+  on('vpDel', 'onclick', () => edDelete(e));
+  on('cpAdd', 'onclick', () => { const d = (s.d0 + s.d1) / 2; if (d < e.pts[0].d - 0.5 || d > e.pts[e.pts.length - 1].d + 0.5 || e.pts.some(p => Math.abs(p.d - d) < 0.3)) return; edPushUndo(); const h = Core.profileInterp(e.pts, e.interp, e.vc)(d); e.pts.push({ d: +d.toFixed(3), h: +h.toFixed(3) }); edProfSync(e); ED.cpSel = e.pts.findIndex(p => Math.abs(p.d - d) < 0.01); editsChanged(); });
+  on('cpRe', 'onclick', () => { edPushUndo(); const f = Core.profileInterp(e.pts, e.interp, e.vc), a = e.pts[0].d, b = e.pts[e.pts.length - 1].d, locked = e.pts.filter(p => p.lock), pts = [];
+    for (let d = a; d < b - ED.cpSpacing * 0.3; d += ED.cpSpacing) if (!locked.some(p => Math.abs(p.d - d) < ED.cpSpacing / 2)) pts.push({ d: +d.toFixed(3), h: +f(d).toFixed(3) });
+    pts.push({ d: b, h: e.pts[e.pts.length - 1].h }, ...locked.filter(p => p.d < b)); e.pts = pts; edProfSync(e); ED.cpSel = null; editsChanged(); });
+  const k = ED.cpSel; if (k == null || !e.pts[k]) return;
+  const pt = e.pts[k];
+  on('cpPrev', 'onclick', () => { ED.cpSel = k - 1; edFocusCp(e); }); on('cpNext', 'onclick', () => { ED.cpSel = k + 1; edFocusCp(e); });
+  num('cpH', v => { if (v != null) pt.h = +(v - h0).toFixed(4); });
+  num('cpD', v => { if (v != null && v > e.pts[k - 1].d + 0.2 && v < e.pts[k + 1].d - 0.2) pt.d = v; });
+  num('cpGi', v => { if (v == null) delete pt.gin; else pt.gin = v / 100; });
+  num('cpGo', v => { if (v == null) delete pt.gout; else pt.gout = v / 100; });
+  on('cpLock', 'onchange', ev => { edPushUndo(); if (ev.target.checked) pt.lock = true; else delete pt.lock; edRefresh(); drawProfile(); });
+  on('cpDelPt', 'onclick', () => { edPushUndo(); e.pts.splice(k, 1); ED.cpSel = null; edProfSync(e); editsChanged(); });
+}
+function edFocusCp(e) { const pt = e.pts[ED.cpSel]; S.sel = { d0: pt.d, d1: pt.d }; ED.anchor = pt.d; selInfo(); drawSel(); edRefresh(); drawProfile(); }
+document.addEventListener('click', ev => { const b = ev.target.closest && ev.target.closest('#vpParams [data-op]'); if (b) edProfOp(b.dataset.op, parseFloat($('#cpAmp').value) || 1); });
 function edTransInfo(e) {
   if (e.kind === 'raise') return e.d1 - e.d0 < 1 ? `transición ±${(e.r || 30).toFixed(0)} m` : `transiciones ${(e.f0 != null ? e.f0 : 25).toFixed(0)} / ${(e.f1 != null ? e.f1 : 25).toFixed(0)} m`;
   if (e.kind === 'jump') { const land = e.land != null ? e.land : e.len * 0.3; return `entrada ${(e.h / e.len * 100).toFixed(0)}% en ${e.len.toFixed(0)} m · recepción ${(e.h / land * 100).toFixed(0)}% en ${land.toFixed(1)} m`; }
   if (e.kind === 'bump' || e.kind === 'pothole') return `largo ${(+e.len).toFixed(1)} m`;
+  if (e.kind === 'rasante') return e.type === 'ondulacion' ? `${e.n} ondas de ${(+e.wl).toFixed(1)} m` : `aprox. ${(+e.lenIn).toFixed(0)} m (${fmtG(e.h / e.lenIn * 1.5)}) · arriba ${(+(e.top || 0)).toFixed(0)} m · salida ${(+e.lenOut).toFixed(0)} m`;
+  if (e.kind === 'profile') return `${e.pts.length} puntos · ${e.interp || 'pchip'}`;
   return '';
 }
 function edDelete(e) {
@@ -619,7 +755,7 @@ function makeProf(cv, opt) {
       }
       ctx.fillStyle = '#8b939c'; ctx.fillText('sup.', 4, sy + 6); ctx.fillText('agarre', 2, gy + 6);
     }
-    if (opt.dock && P.hover != null) { const i = fixIdx(P.hover); ctx.fillStyle = '#fff'; ctx.fillText(`${(P.hover / 1000).toFixed(3)} km · ${(r.hs[i] + h0).toFixed(2)} m`, p.l + 6, p.t + 11); }
+    if (opt.dock && P.hover != null) { const hh = x => edAt(x).hs, g = (hh(P.hover + 2) - hh(P.hover - 2)) / 4; ctx.fillStyle = '#fff'; ctx.fillText(`${(P.hover / 1000).toFixed(3)} km · ${(hh(P.hover) + h0).toFixed(2)} m · ${fmtG(g)}`, p.l + 6, p.t + 11); }
   };
   const handleAt = (x, y) => { let best = null; for (const h of P.handles || []) { const d = Math.hypot(h.x - x, h.y - y); if (d < 10 && (!best || d < best.d)) best = { d, h }; } return best && best.h; };
   cv.addEventListener('pointerdown', ev => {
@@ -655,6 +791,12 @@ function makeProf(cv, opt) {
     else { const a = Math.min(P.down, d), b = Math.max(P.down, d); ED.anchor = P.down; S.sel = { d0: a, d1: tiny ? a : b }; if (ED.active && !(ED.active.d0 !== undefined && Math.abs(ED.active.d0 - a) < 1.5)) ED.active = null; selInfo(); drawSel(); drawProfile(); edRefresh(); renderEdits(); }
     P.down = null;
   });
+  // doble clic en el perfil con "Puntos de control": agrega un punto ahí
+  cv.addEventListener('dblclick', ev => {
+    if (ED.tool !== 'profile' || !edR()) return; const e = edTarget(), d = P.inv(ev.offsetX);
+    if (!e || d < e.pts[0].d || d > e.pts[e.pts.length - 1].d || e.pts.some(q => Math.abs(q.d - d) < 0.3)) return;
+    edPushUndo(); e.pts.push({ d: +d.toFixed(3), h: +Core.profileInterp(e.pts, e.interp, e.vc)(d).toFixed(3) }); edProfSync(e); ED.cpSel = e.pts.findIndex(q => Math.abs(q.d - d) < 0.01); editsChanged();
+  });
   cv.addEventListener('pointerleave', () => { P.hover = null; if (opt.leave) opt.leave(); drawProfile(); });
   return P;
 }
@@ -671,8 +813,8 @@ const PROF3 = makeProf($('#vprof'), {
   dock: true,
   window: r => {
     if (!S.sel) return [0, r.total];
-    const c = (S.sel.d0 + S.sel.d1) / 2, ext = ED.active ? edExtent(ED.active) : [S.sel.d0, S.sel.d1];
-    const half = Math.max(120, (Math.max(S.sel.d1, ext[1]) - Math.min(S.sel.d0, ext[0])) / 2 * 1.35 + 40);
+    const c = (S.sel.d0 + S.sel.d1) / 2, ext = ED.active && ED.active.kind !== 'profile' ? edExtent(ED.active) : [S.sel.d0, S.sel.d1];
+    const half = Math.max(ED.tool === 'profile' ? Math.max(40, ED.cpSpacing * 9) : 120, (Math.max(S.sel.d1, ext[1]) - Math.min(S.sel.d0, ext[0])) / 2 * 1.35 + 40);
     let a = c - half, b = c + half; if (a < 0) { b -= a; a = 0; } if (b > r.total) { a -= b - r.total; b = r.total; } return [Math.max(0, a), b];
   },
 });
@@ -686,7 +828,7 @@ $('#vpTools').innerHTML = ED_TOOLS.map(([k, name, tip]) => `<button class="b" da
 $('#vpTools').querySelectorAll('button').forEach(b => b.onclick = () => {
   const t = b.dataset.tool; ED.tool = t; if (ED.active && ED.active.kind !== ED_KIND[t]) ED.active = null;
   // salto, lomada, bache, guardaganado: se crean al tocar la herramienta (en el punto elegido)
-  if (S.sel && ['jump', 'bump', 'pothole', 'cattle'].includes(t) && !edTarget()) { edPushUndo(); const e = edMake(ED_KIND[t]); S.edits.push(e); ED.active = e; editsChanged(); return; }
+  if (S.sel && ['jump', 'bump', 'pothole', 'cattle', 'rasante'].includes(t) && !edTarget()) { edPushUndo(); const e = edMake(ED_KIND[t]); S.edits.push(e); ED.active = e; editsChanged(); return; }
   edRefresh(); drawProfile();
 });
 $('#dragR').onchange = () => edRefresh();
