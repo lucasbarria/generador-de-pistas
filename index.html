@@ -570,7 +570,7 @@ const Core = (() => {
       const a = fi - i, b = fj - j;
       return { h: H[k] * (1 - a) * (1 - b) + H[k + 1] * a * (1 - b) + H[k + nx] * (1 - a) * b + H[k + nx + 1] * a * b, slope: Math.hypot(H[k + 1] - H[k], H[k + nx] - H[k]) / res };
     };
-    const rd = roadDistFn(o.segs, true), base = 4, cand = [], CL = o.clear || 3;
+    const rd = roadDistFn(o.segs, true), base = o.base || 4, cand = [], CL = o.clear || 3;
     for (let gy = Math.floor(bbox.miny / base); gy <= Math.ceil(bbox.maxy / base); gy++)
       for (let gx = Math.floor(bbox.minx / base); gx <= Math.ceil(bbox.maxx / base); gx++) {
         const r0 = hash2(gx, gy, 1), x = (gx + hash2(gx, gy, 2)) * base, y = (gy + hash2(gx, gy, 3)) * base;
@@ -1246,19 +1246,30 @@ const DEM = {
   z: 14, tiles: new Map(),
   px(lat, lon) { const n = 2 ** this.z * 256; return [(lon + 180) / 360 * n, (1 - Math.log(Math.tan(lat * D2R) + 1 / Math.cos(lat * D2R)) / Math.PI) / 2 * n]; },
   async load(s, w, n, e, z) {
-    this.z = z; this.tiles = new Map();
+    this.z = z; this.tiles = new Map(); this.spikes = 0;
     const [x0, y0] = this.px(n, w).map(v => Math.floor(v / 256)), [x1, y1] = this.px(s, e).map(v => Math.floor(v / 256));
     const jobs = []; for (let y = y0 - 1; y <= y1 + 1; y++) for (let x = x0 - 1; x <= x1 + 1; x++) jobs.push([x, y]);
-    let done = 0; const cv = document.createElement('canvas'); cv.width = cv.height = 256; const ctx = cv.getContext('2d', { willReadFrequently: true });
+    let done = 0; const cv = document.createElement('canvas'); cv.width = cv.height = 256; const ctx = cv.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     const worker = async () => {
       while (jobs.length) {
         const [x, y] = jobs.pop();
         for (let tries = 0; tries < 3; tries++) {
           try {
             const r = await fetch(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`);
-            const bmp = await createImageBitmap(await r.blob());
-            ctx.drawImage(bmp, 0, 0); const d = ctx.getImageData(0, 0, 256, 256).data, a = new Float32Array(65536);
+            // sin conversión de color: un byte rojo corrido 1 valor = 256 m de error (picos gigantes)
+            const bmp = await createImageBitmap(await r.blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+            ctx.clearRect(0, 0, 256, 256); ctx.drawImage(bmp, 0, 0); const d = ctx.getImageData(0, 0, 256, 256).data, a = new Float32Array(65536);
             for (let i = 0; i < 65536; i++) a[i] = d[i * 4] * 256 + d[i * 4 + 1] + d[i * 4 + 2] / 256 - 32768;
+            // quitar picos: un punto que se aparta más de 25 m de la mediana de sus vecinos se reemplaza por la mediana
+            const fix = new Float32Array(a); let nfix = 0;
+            for (let yy = 1; yy < 255; yy++) for (let xx = 1; xx < 255; xx++) {
+              const nb = []; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) nb.push(a[(yy + dy) * 256 + xx + dx]);
+              nb.sort((p, q) => p - q); const med = (nb[3] + nb[4]) / 2, v = a[yy * 256 + xx];
+              if (Math.abs(v - med) > 25 && Math.abs(v - med) > 3 * (nb[6] - nb[1] + 1)) { fix[yy * 256 + xx] = med; nfix++; }
+            }
+            for (let yy = 0; yy < 256; yy += 255) for (let xx = 0; xx < 256; xx++) { const k = yy * 256 + xx, k2 = (yy ? 254 : 1) * 256 + xx; if (Math.abs(a[k] - fix[k2]) > 60) { fix[k] = fix[k2]; nfix++; } }
+            for (let xx = 0; xx < 256; xx += 255) for (let yy = 0; yy < 256; yy++) { const k = yy * 256 + xx, k2 = yy * 256 + (xx ? 254 : 1); if (Math.abs(a[k] - fix[k2]) > 60) { fix[k] = fix[k2]; nfix++; } }
+            a.set(fix); if (nfix) DEM.spikes = (DEM.spikes || 0) + nfix;
             this.tiles.set(x + ',' + y, a); break;
           } catch (err) { if (tries === 2) log(`Tile de elevación ${x},${y} falló`, 'err'); }
         }
@@ -1770,6 +1781,7 @@ async function fetchBase(o, key) {
   if (z !== o.z) log(`Zona grande: uso detalle de elevación z${z}.`);
   log(`Descargando elevación (${DEM.tileCount(s, w, n, e, z)} tiles)…`);
   await DEM.load(s, w, n, e, z);
+  if (DEM.spikes) log(`Elevación: se corrigieron ${DEM.spikes} picos erróneos del satélite.`);
   const lat0 = (s + n) / 2, lon0 = (w + e) / 2, P = Core.makeProj(lat0, lon0);
   let h0 = Infinity; for (let i = 0; i <= 20; i++) for (let j = 0; j <= 20; j++) h0 = Math.min(h0, DEM.sample(s + (n - s) * i / 20, w + (e - w) * j / 20));
   h0 = Math.floor(h0);
@@ -2253,16 +2265,16 @@ async function rebuild(keepCam) {
   }
   if (o.veg) {
     log('Plantando vegetación…'); await tick();
-    const SP = { wood: 6, wetland: 14, grass: 45, urban: 28, farmland: 150, rock: 70, none: 90 };
+    const SP = { wood: 3.6, wetland: 12, grass: 45, urban: 28, farmland: 150, rock: 70, none: 90 };
     const frac = (x, y) => { const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453; return s - Math.floor(s); };
     const tr = Core.buildTrees({
       trunkDist: o.treeHit ? 30 : 0, wallCounter, clear: o.treeClear,
-      ter, bbox: B.bbox, res: o.res, segs: res.segs, maxTrees: { 0.5: 20000, 1: 40000, 1.8: 65000 }[o.density] || 40000,
+      ter, bbox: B.bbox, res: o.res, segs: res.segs, base: 3, maxTrees: { 0.5: 30000, 1: 60000, 1.8: 100000 }[o.density] || 60000,
       spacingAt: (x, y) => { if (CARVE && CARVE(x, y) > 0.3) return 0; if (OCC.some(q => Math.abs(q.c[0] - x) < q.R && Math.abs(q.c[1] - y) < q.R)) return 0; const sp = SP[B.landAt(x, y)]; return sp ? sp / Math.sqrt(o.density) : 0; },
       kindAt: (x, y, h) => {
         const lc = B.landAt(x, y); if (lc === 'wetland') return 2;
         const alt = h + B.h0, r = frac(x, y);
-        const pine = o.forest === 'broad' ? 0.03 : o.forest === 'pine' ? 0.9 : alt > 1800 ? 0.9 : alt > 900 ? 0.55 : lc === 'wood' ? 0.25 : 0.1;
+        const pine = o.forest === 'broad' ? 0.03 : o.forest === 'pine' ? 0.9 : B.lat0 < -45 ? 0.02 /* Patagonia sur: lenga, ñire y guindo, casi sin coníferas */ : alt > 1800 ? 0.9 : alt > 900 ? 0.55 : lc === 'wood' ? 0.25 : 0.1;
         return r < pine ? 0 : (lc === 'grass' || lc === 'none') && r > 0.75 ? 2 : 1;
       },
     });

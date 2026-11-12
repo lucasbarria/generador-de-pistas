@@ -385,7 +385,7 @@ const Core = (() => {
       const a = fi - i, b = fj - j;
       return { h: H[k] * (1 - a) * (1 - b) + H[k + 1] * a * (1 - b) + H[k + nx] * (1 - a) * b + H[k + nx + 1] * a * b, slope: Math.hypot(H[k + 1] - H[k], H[k + nx] - H[k]) / res };
     };
-    const rd = roadDistFn(o.segs, true), base = 4, cand = [], CL = o.clear || 3;
+    const rd = roadDistFn(o.segs, true), base = o.base || 4, cand = [], CL = o.clear || 3;
     for (let gy = Math.floor(bbox.miny / base); gy <= Math.ceil(bbox.maxy / base); gy++)
       for (let gx = Math.floor(bbox.minx / base); gx <= Math.ceil(bbox.maxx / base); gx++) {
         const r0 = hash2(gx, gy, 1), x = (gx + hash2(gx, gy, 2)) * base, y = (gy + hash2(gx, gy, 3)) * base;
