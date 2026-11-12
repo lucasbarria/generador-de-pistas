@@ -638,7 +638,7 @@ function makeTex(mat) {
   ctx.putImageData(img, 0, 0); return c;
 }
 const canvasBlob = c => new Promise(r => c.toBlob(r, 'image/png'));
-const LAND_SURF = { grass: ['GRASS', 'grass'], farmland: ['GRASS', 'farmland'], wood: ['GRASS', 'forest'], wetland: ['MUD', 'wetland'], rock: ['ROCK', 'rock'], sand: ['SAND', 'sand'], ice: ['ICE', 'ice'], urban: ['GRASS', 'urban'] };
+const LAND_SURF = { scrub: ['GRASS', 'grass'], grass: ['GRASS', 'grass'], farmland: ['GRASS', 'farmland'], wood: ['GRASS', 'forest'], wetland: ['MUD', 'wetland'], rock: ['ROCK', 'rock'], sand: ['SAND', 'sand'], ice: ['ICE', 'ice'], urban: ['GRASS', 'urban'] };
 // árboles: pino, árbol de hoja y arbusto, con fondo transparente
 function makeTreeTex() {
   const W = 768, H = 256, c = document.createElement('canvas'); c.width = W; c.height = H;
@@ -1515,8 +1515,8 @@ async function rebuild(keepCam) {
         const lc = B.osmLandAt(x, y); if (lc === 'water' || lc === 'wetland' || lc === 'urban' || lc === 'rock' || lc === 'ice') return lc;
         const f = SV(x, y); if (f < 0) return lc;
         if (f > 0.42) return 'wood';
-        if (lc === 'wood' && f < 0.08) return 'grass'; // claro dentro del bosque
-        return lc === 'none' ? 'grass' : lc;
+        if (f > 0.22) return 'scrub'; // monte abierto: árboles sueltos y matas
+        return lc === 'farmland' ? lc : 'grass'; // claro, baldío o campo: sin bosque aunque el mapa diga bosque
       };
       log(`Bosque según satélite: ${(SV.cover * 100).toFixed(0)}% de la zona.`);
       await applyAutoBiome(SV);
@@ -1564,7 +1564,7 @@ async function rebuild(keepCam) {
   }
   if (o.veg) {
     log('Plantando vegetación…'); await tick();
-    const SP = { wood: 3.6, wetland: 12, grass: 45, urban: 28, farmland: 150, rock: 70, none: 90 };
+    const SP = { wood: 3.6, scrub: 11, wetland: 12, grass: 70, urban: 28, farmland: 150, rock: 70, none: 90 };
     const frac = (x, y) => { const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453; return s - Math.floor(s); };
     const tr = Core.buildTrees({
       trunkDist: o.treeHit ? 30 : 0, wallCounter, clear: o.treeClear,
@@ -1574,7 +1574,7 @@ async function rebuild(keepCam) {
         const lc = B.landAt(x, y); if (lc === 'wetland') return 2;
         const alt = h + B.h0, r = frac(x, y);
         const pine = o.forest === 'broad' ? 0.03 : o.forest === 'pine' ? 0.9 : B.lat0 < -45 ? 0.02 /* Patagonia sur: lenga, ñire y guindo, casi sin coníferas */ : alt > 1800 ? 0.9 : alt > 900 ? 0.55 : lc === 'wood' ? 0.25 : 0.1;
-        return r < pine ? 0 : (lc === 'grass' || lc === 'none') && r > 0.75 ? 2 : 1;
+        return r < pine ? 0 : ((lc === 'grass' || lc === 'none') && r > 0.75) || (lc === 'scrub' && r > 0.5) ? 2 : 1;
       },
     });
     meshes.push(...tr.meshes);
@@ -2171,7 +2171,7 @@ async function satVegMask(B) {
   const b = B.bbox, P = B.P, [n, w] = P.inv(b.minx, b.maxy), [s, e] = P.inv(b.maxx, b.miny);
   const tp = (lat, lon, z) => [(lon + 180) / 360 * 2 ** z, (1 - Math.log(Math.tan(lat * D2R) + 1 / Math.cos(lat * D2R)) / Math.PI) / 2 * 2 ** z];
   let z = 16, X0, Y0, X1, Y1;
-  for (; z > 11; z--) { [X0, Y0] = tp(n, w, z); [X1, Y1] = tp(s, e, z); if ((Math.floor(X1) - Math.floor(X0) + 1) * (Math.floor(Y1) - Math.floor(Y0) + 1) <= 90) break; }
+  for (; z > 11; z--) { [X0, Y0] = tp(n, w, z); [X1, Y1] = tp(s, e, z); if ((Math.floor(X1) - Math.floor(X0) + 1) * (Math.floor(Y1) - Math.floor(Y0) + 1) <= 160) break; }
   const tx0 = Math.floor(X0), ty0 = Math.floor(Y0), tx1 = Math.floor(X1), ty1 = Math.floor(Y1), TW = tx1 - tx0 + 1, TH = ty1 - ty0 + 1;
   const cv = document.createElement('canvas'); cv.width = TW * 256; cv.height = TH * 256;
   const ctx = cv.getContext('2d', { willReadFrequently: true }), jobs = [], got = new Uint8Array(TW * TH);
@@ -2185,7 +2185,7 @@ async function satVegMask(B) {
   if (!got.some(v => v)) return null;
   const px = ctx.getImageData(0, 0, cv.width, cv.height).data, PW = cv.width, PH = cv.height;
   // píxel de copa: oscuro y verdoso/oliva (o marrón oscuro en invierno), no azul (agua)
-  const isTree = k => { const r = px[k], g = px[k + 1], bl = px[k + 2], l = 0.3 * r + 0.59 * g + 0.11 * bl; return px[k + 3] > 0 && l < 92 && bl <= g + 6 && !(bl > r + 12 && bl > g) && (g >= r * 0.8 || l < 60); };
+  const isTree = k => { const r = px[k], g = px[k + 1], bl = px[k + 2], l = 0.3 * r + 0.59 * g + 0.11 * bl; return px[k + 3] > 0 && l < 92 && bl <= g + 6 && !(bl > r + 12 && bl > g) && ((g >= r * 0.95 && g >= bl) || l < 45); }; // copa: verde u oliva oscuro (la turba y la tierra marrón no)
   const C = 8, nx = Math.ceil((b.maxx - b.minx) / C) + 1, ny = Math.ceil((b.maxy - b.miny) / C) + 1, M = new Float32Array(nx * ny);
   const mpp = 156543.03 * Math.cos(((n + s) / 2) * D2R) / 2 ** z, rad = Math.max(1, Math.round(5 / mpp));
   let sum = 0, cnt = 0, gr = 0, gg = 0, gb = 0, gn = 0;
@@ -2193,13 +2193,16 @@ async function satVegMask(B) {
     const [la, lo] = P.inv(b.minx + i * C, b.miny + j * C), [fx, fy] = tp(la, lo, z);
     const X = Math.floor((fx - tx0) * 256), Y = Math.floor((fy - ty0) * 256), ti = Math.floor(X / 256), tj = Math.floor(Y / 256);
     if (X < 0 || Y < 0 || X >= PW || Y >= PH || !got[tj * TW + ti]) { M[j * nx + i] = -1; continue; }
-    let t = 0, c = 0;
+    let t = 0, c = 0, sl = 0, sl2 = 0;
     for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) {
       const xx = X + dx, yy = Y + dy; if (xx < 0 || yy < 0 || xx >= PW || yy >= PH) continue; c++; const k = (yy * PW + xx) * 4;
+      const lk = 0.3 * px[k] + 0.59 * px[k + 1] + 0.11 * px[k + 2]; sl += lk; sl2 += lk * lk;
       if (isTree(k)) t++;
       else if (((i + j) & 3) === 0) { const r = px[k], g = px[k + 1], bl = px[k + 2], l = 0.3 * r + 0.59 * g + 0.11 * bl; if (l > 45 && l < 215 && bl < r + 10) { gr += r; gg += g; gb += bl; gn++; } }
     }
-    const f = c ? t / c : -1; M[j * nx + i] = f; if (f >= 0) { sum += f > 0.42 ? 1 : 0; cnt++; }
+    // una copa de árbol tiene textura (luces y sombras); el agua y el pasto parejo no
+    const sd = c ? Math.sqrt(Math.max(0, sl2 / c - (sl / c) ** 2)) : 0;
+    const f = c ? (sd < 10 ? 0 : t / c) : -1; M[j * nx + i] = f; if (f >= 0) { sum += f > 0.42 ? 1 : 0; cnt++; }
   }
   const fn = (x, y) => { const i = Math.round((x - b.minx) / C), j = Math.round((y - b.miny) / C); if (i < 0 || j < 0 || i >= nx || j >= ny) return -1; return M[j * nx + i]; };
   // techos de chapa (rojos/azules) en la foto: casas, galpones y estancias que no estén en el mapa
