@@ -138,6 +138,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <label class="b gpsbtn">📐 Importar elevación (GeoTIFF: MDE-Ar del IGN, LiDAR…)<input type="file" id="demFile" accept=".tif,.tiff" multiple hidden></label>
         <details class="texbox"><summary>Fuentes de elevación y precisión</summary><div id="elevInfo" class="mut"></div></details>
         <label class="f">Textura continua del camino <span><input type="checkbox" id="roadTex" checked></span></label>
+        <label class="f">Piso arcilloso <select id="clay"><option value="0.15">Poco (ripio suelto)</option><option value="0.4" selected>Medio</option><option value="0.65">Mucho (tierra/arcilla)</option></select></label>
         <label class="f">Texturas reales del terreno <select id="realTex"><option value="s2_2016" selected>Sentinel-2 2016 (libre, CC BY)</option><option value="s2_2024">Sentinel-2 2024 (no comercial)</option><option value="none">No (texturas generadas)</option></select></label>
         <label class="b gpsbtn">🛰️ Importar ortofoto (GeoTIFF RGB: dron, IGN…)<input type="file" id="orthoFile" accept=".tif,.tiff" multiple hidden></label>
         <details class="texbox"><summary>Fuentes de imágenes y licencias</summary><div id="imgInfo" class="mut"></div></details>
@@ -162,14 +163,14 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <label class="f">Líneas pintadas <span><input type="checkbox" id="lines" checked></span></label>
         <label class="f">Terreno a cada lado (m) <input id="margin" type="number" value="150" min="20" max="1000" step="10"></label>
         <label class="f">Suavizado de pendiente (m) <input id="hsmooth" type="number" value="40" min="0" max="200" step="5"></label>
-        <label class="f">Cunetas <select id="ditch"><option value="none" selected>Sin cunetas</option><option value="auto">Automática (ambos lados, más honda arriba)</option><option value="both">Ambos lados</option></select></label>
+        <label class="f">Cunetas <select id="ditch"><option value="none">Sin cunetas</option><option value="auto" selected>Automática (ambos lados, más honda arriba)</option><option value="both">Ambos lados</option></select></label>
         <label class="f">Piedras al costado <select id="rocks"><option value="0">Ninguna</option><option value="0.6">Pocas</option><option value="1" selected>Según el terreno</option><option value="1.8">Muchas</option></select></label>
         <label class="f">Peralte automático máx. (°) <input id="autobank" type="number" value="0" min="0" max="20" step="1"></label>
       </div>
       <label class="f">Vegetación y suelos reales <span><input type="checkbox" id="veg" checked></span></label>
       <label class="f">Árboles con choque <span><input type="checkbox" id="treeHit" checked></span></label>
       <label class="f">Tipo de bosque <select id="forest"><option value="auto" selected>Automático (según altura)</option><option value="broad">De hoja (lenga, ñire, eucalipto)</option><option value="pine">Pinos / coníferas</option></select></label>
-      <label class="f">Árboles desde el borde (m) <input id="treeClear" type="number" value="1.5" min="0.5" max="20" step="0.5"></label>
+      <label class="f">Árboles desde el borde (m) <input id="treeClear" type="number" value="0.8" min="0.3" max="20" step="0.5"></label>
       <label class="f">Densidad de árboles <select id="density"><option value="0.5">Baja</option><option value="1" selected>Media</option><option value="1.8">Alta</option></select></label>
       <label class="f">Tipo de ripio <select id="gravelStyle"><option value="auto" selected>Automático según la zona (satélite)</option><option value="forest">Bosque (marrón, con huellas)</option><option value="steppe">Estepa (gris, canto rodado)</option><option value="ab">Aguas Blancas (húmedo)</option></select></label>
       <label class="f" title="Usa grupos de árboles recortados de fotos. Se ven como paneles de cerca: solo para fondos lejanos">Árboles de fotos (experimental) <span><input type="checkbox" id="photoTrees"></span></label>
@@ -2014,11 +2015,11 @@ function opt() {
   return {
     name: $('#tname').value.trim() || 'Mi pista', width: +$('#width').value, surface: $('#surface').value,
     lines: $('#lines').checked, margin: +$('#margin').value, res: +$('#res').value, hSmooth: +$('#hsmooth').value,
-    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, bridgeRamp: $('#bridgeRamp') ? $('#bridgeRamp').value : 'steep', autoWidth: !$('#autoWidth') || $('#autoWidth').checked, edgeFix: !$('#edgeFix') || $('#edgeFix').checked, realTex: $('#realTex') ? $('#realTex').value : 'none', roadTex: !$('#roadTex') || $('#roadTex').checked, gpsAlt: !$('#gpsAlt') || $('#gpsAlt').checked, fences: $('#fences') ? $('#fences').value : 'auto',
+    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, bridgeRamp: $('#bridgeRamp') ? $('#bridgeRamp').value : 'steep', autoWidth: !$('#autoWidth') || $('#autoWidth').checked, edgeFix: !$('#edgeFix') || $('#edgeFix').checked, realTex: $('#realTex') ? $('#realTex').value : 'none', roadTex: !$('#roadTex') || $('#roadTex').checked, clay: $('#clay') ? +$('#clay').value : 0.4, gpsAlt: !$('#gpsAlt') || $('#gpsAlt').checked, fences: $('#fences') ? $('#fences').value : 'auto',
     autoBank: Math.max(0, Math.min(20, +$('#autobank').value || 0)),
     snow: $('#snow').checked, snowAlt: +$('#snowAlt').value, snowRoad: $('#snowRoad').checked,
     veg: $('#veg').checked, density: +$('#density').value, treeHit: $('#treeHit').checked,
-    treeClear: Math.max(0.5, +$('#treeClear').value || 3), forest: $('#forest').value,
+    treeClear: Math.max(0.3, +$('#treeClear').value || 0.8), forest: $('#forest').value,
     ditch: $('#ditch') ? $('#ditch').value : 'none', rocks: +$('#rocks').value,
   };
 }
@@ -2837,7 +2838,7 @@ function dxt1Encode(img, w, h) {
 // si no, se arma con el ripio (sin repetir el patrón), huellas de las ruedas y piedras sueltas en los bordes (generado).
 const STRIP_LEN = 80, STRIP_W = 256, STRIP_H = 2048;
 function hashU(a, b, s) { const v = Math.sin(a * 127.1 + b * 311.7 + s * 74.7) * 43758.5453; return v - Math.floor(v); }
-function buildRoadStrips(B, res) {
+function buildRoadStrips(B, res, o = {}) {
   const r = res, total = r.total, nSeg = Math.max(1, Math.ceil(total / STRIP_LEN)), roads = r.meshes.filter(m => m.road && m.ds);
   if (!roads.length) return null;
   // superficie (material) en cada punto del camino
@@ -2875,8 +2876,15 @@ function buildRoadStrips(B, res) {
         const edge = Math.max(0, (Math.abs(s) - (P.hw - 0.9)) / 0.9);
         if (edge > 0 && mat === 'gravel') { const ex = ((Math.floor(s / 5 * E.w) % E.w) + E.w) % E.w, ey = ((Math.floor(d / 5 * E.h) % E.h) + E.h) % E.h, e0 = (ey * E.w + ex) * 4, w = Math.min(1, edge); rr = rr * (1 - w) + E.d[e0] * w; gg = gg * (1 - w) + E.d[e0 + 1] * w; bb = bb * (1 - w) + E.d[e0 + 2] * w; }
         // huellas de las ruedas: más lisas y algo más oscuras
-        const tw = P.hw * 0.42, tr = Math.exp(-((Math.abs(s) - tw) ** 2) / (2 * 0.28 ** 2)) * (0.75 + 0.25 * Math.sin(d * 0.05 + h1));
-        const f = 1 - 0.13 * tr, mean = (rr + gg + bb) / 3; rr = (rr * (1 - tr * 0.35) + mean * tr * 0.35) * f; gg = (gg * (1 - tr * 0.35) + mean * tr * 0.35) * f; bb = (bb * (1 - tr * 0.35) + mean * tr * 0.35) * f;
+        // huellas de las ruedas: tierra arcillosa apisonada, lisa y más oscura, con surcos finos a lo largo
+        const tw = P.hw * 0.42 + Math.sin(d * 0.013 + h1) * 0.15, tr = Math.exp(-((Math.abs(s) - tw) ** 2) / (2 * 0.38 ** 2)) * (0.8 + 0.2 * Math.sin(d * 0.05 + h1));
+        const groove = 1 - 0.08 * tr * (0.5 + 0.5 * Math.sin(s * 41 + hashU(Math.floor(d / 7), 0, 5) * 6)), mean = (rr + gg + bb) / 3, smooth = tr * 0.55;
+        rr = (rr * (1 - smooth) + mean * smooth) * (1 - 0.34 * tr) * groove; gg = (gg * (1 - smooth) + mean * smooth) * (1 - 0.36 * tr) * groove; bb = (bb * (1 - smooth) + mean * smooth) * (1 - 0.38 * tr) * groove;
+        // lomo central y bordes con ripio suelto y más claro (lo que las ruedas no pisan)
+        const ridge = Math.exp(-(s * s) / (2 * (P.hw * 0.16) ** 2)) * 0.18; rr *= 1 + ridge; gg *= 1 + ridge; bb *= 1 + ridge * 0.9;
+        // tono arcilloso (tierra marrón entre el ripio), con manchas de barro seco
+        const clay = (o.clay ?? 0.4) * (0.75 + 0.5 * hashU(Math.floor(s / 1.5), Math.floor(d / 4), 9)), cl = [150, 118, 86], lum = (rr + gg + bb) / 3 / 128;
+        rr = rr * (1 - clay) + cl[0] * lum * clay; gg = gg * (1 - clay) + cl[1] * lum * clay; bb = bb * (1 - clay) + cl[2] * lum * clay;
         // fuera del ancho real del camino (en tramos más angostos) se ve la banquina
         if (Math.abs(s) > P.hw) { rr *= 0.9; gg *= 0.92; bb *= 0.85; }
         od[o] = rr; od[o + 1] = gg; od[o + 2] = bb; od[o + 3] = 255;
@@ -2969,7 +2977,7 @@ async function rebuild(keepCam) {
     res.hsrc = res.C.map(p => roadH && roadH(p[0], p[1]) != null ? 'G' : (() => { const [la, lo] = B.P.inv(p[0], p[1]); return DEM.covered(la, lo) ? 'M' : 'S'; })());
     res.zone = useZ ? { pres: ZPRE - 30, start: ZPRE, finish: res.total - ZPOST, stop: res.total - ZPOST + 30 } : null;
     if (useZ) log('Largada y llegada: se tomaron 30 m antes de la largada para la presentación (control horario) y 30 m después de la llegada para el control stop, donde se entrega el carnet y los tiempos. El reloj corre desde la largada hasta la llegada.');
-    if (o.roadTex) { try { log('Armando la textura continua del camino…'); await tick(); const st = buildRoadStrips(B, res);
+    if (o.roadTex) { try { log('Armando la textura continua del camino…'); await tick(); const st = buildRoadStrips(B, res, o);
       if (st) log(`Textura del camino: ${st.n} tramos de ${STRIP_LEN} m · ${Math.round(st.real * 100)}% de ortofoto real, ${Math.round((1 - st.real) * 100)}% generado (ripio sin patrón repetido, huellas y piedras en los bordes).`); } catch (e) { log('Textura del camino: ' + e.message, 'err'); } }
     meshes.push(...res.meshes, ...cattleMeshes(res)); length = res.total; outline = [res.C];
     res.sideJ = [];
@@ -4124,6 +4132,7 @@ try {
 
 // ---------- Ayuda: explicación de cada control al pasar el mouse (o tocarlo en el celular) ----------
 const HELP = {
+  clay: 'Piso arcilloso: cuánta tierra marrón apisonada se ve entre el ripio en la textura del camino (Aguas Blancas es bastante arcilloso).',
   roadTex: 'Textura continua del camino: cada 80 m de camino lleva su propia textura que sigue las curvas y el ancho, sin repeticiones visibles. Si cargaste una ortofoto (vuelo de dron) es la foto real del camino; si no, se arma con el ripio, las huellas de las ruedas y piedras sueltas en los bordes (generado). Incluye relieve fino (mapa de normales) que es solo visual: no cambia la física.',
   realTex: 'Texturas reales del terreno: pinta el terreno con el color real del suelo tomado de Sentinel-2 (imagen satelital europea de 10 m por píxel con licencia libre) y le suma el detalle de cada suelo. Donde cargaste una ortofoto propia, usa esa (mucho más detallada). La imagen de Esri del mapa no se puede usar dentro de la pista por su licencia.',
   orthoFile: 'Importar ortofoto: una foto aérea georreferenciada (GeoTIFF RGB), por ejemplo de un vuelo de dron o de un organismo público. Donde cubre, el terreno de la pista toma los colores de esa foto. Verificá su licencia antes de publicar la pista.',
