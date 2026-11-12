@@ -3152,7 +3152,10 @@ async function loadFreeOrtho(item, routeLL, halfW) {
   const mpp = 156543.03 * Math.cos(lat0 * D2R) / 2 ** z;
   return { name: `${item.title} (${item.provider})`, resM: mpp, crs: { name: 'tiles del catálogo abierto de HOT' }, auto: true, lic: item.lic, date: item.date, tiles: tiles.size,
     attr: `${item.provider} — "${item.title}"${item.date ? ', ' + item.date : ''}, vía OpenAerialMap / HOT (licencia ${item.lic.name})`,
-    rgb: (la, lo) => { const [fx, fy] = tp(la, lo, z), X = Math.floor(fx), Y = Math.floor(fy), d = tiles.get(X + ',' + Y); if (!d) return null; const k = ((Math.floor((fy - Y) * 256)) * 256 + Math.floor((fx - X) * 256)) * 4; return d[k + 3] < 200 ? null : [d[k], d[k + 1], d[k + 2]]; } };
+    rgb: (la, lo) => { const [fx, fy] = tp(la, lo, z), X = Math.floor(fx), Y = Math.floor(fy), d = tiles.get(X + ',' + Y); if (!d) return null;
+      const px = Math.min(254.999, Math.max(0, (fx - X) * 256 - 0.5)), py = Math.min(254.999, Math.max(0, (fy - Y) * 256 - 0.5)), i = Math.floor(px), j = Math.floor(py), a = px - i, b = py - j, k = (j * 256 + i) * 4;
+      if (d[k + 3] < 200 || d[k + 7] < 200 || d[k + 1027] < 200 || d[k + 1031] < 200) return null;
+      const c = n => d[k + n] * (1 - a) * (1 - b) + d[k + 4 + n] * a * (1 - b) + d[k + 1024 + n] * (1 - a) * b + d[k + 1028 + n] * a * b; return [c(0), c(1), c(2)]; } };
 }
 // la mejor imagen disponible en cada punto: ortofoto propia > Sentinel-2
 function imageryAt(lat, lon, S2) { for (const R of ORTHO) { const v = R.rgb(lat, lon); if (v) return [v, 'O']; } if (S2) { const v = S2.rgb(lat, lon); if (v) return [v, 'S']; } return [null, 'G']; }
@@ -3246,6 +3249,8 @@ function buildRoadStrips(B, res, o = {}) {
         const s = ((px + 0.5) / STRIP_W * 2 - 1) * HW, o = (py * STRIP_W + px) * 4; allPx++;
         let col = null;
         if (ORTHO.length) { const wx = P.x + P.nx * s, wy = P.y + P.ny * s, [la, lo] = (s === 0 ? [la0, lo0] : B.P.inv(wx, wy)); for (const R of ORTHO) { col = R.rgb(la, lo); if (col) break; } }
+        // en el bosque la foto aérea muestra las copas que tapan el camino: esos píxeles no son suelo y no se usan
+        if (col) { const l = 0.3 * col[0] + 0.59 * col[1] + 0.11 * col[2], veg = (col[1] > col[0] + 6 && col[1] >= col[2]) || l < 45; if (veg) col = null; }
         if (col) { od[o] = col[0]; od[o + 1] = col[1]; od[o + 2] = col[2]; od[o + 3] = 255; realPx++; continue; }
         // ripio sin patrón repetido: cada parche de 2,5 m toma la textura desde otro lugar y con otra orientación
         // mezcla suave entre los 4 parches vecinos (sin cortes visibles)
@@ -3461,7 +3466,7 @@ async function rebuild(keepCam) {
       if (S2 || ORTHO.length) {
         const st = bakeTerrainTextures(B, ter, ter.meshes, o.res, S2, Core.roadDistFn(res.segs, true));
         S.imgStats = { ...st, src: S2 };
-        log(`Texturas reales: ${st.chunks} sectores de terreno · ${Math.round(st.pO * 100)}% ortofoto propia, ${Math.round(st.pS * 100)}% ${S2 ? S2.name + ' (' + S2.res + ' m por píxel: color real del suelo, el detalle fino es generado)' : 'Sentinel-2'}, ${Math.round(st.pG * 100)}% textura generada (sin imagen).`);
+        log(`Texturas reales: ${st.chunks} sectores de terreno · ${Math.round(st.pO * 100)}% ortofoto o imagen libre de alta resolución, ${Math.round(st.pS * 100)}% ${S2 ? S2.name + ' (' + S2.res + ' m por píxel: color real del suelo, el detalle fino es generado)' : 'Sentinel-2'}, ${Math.round(st.pG * 100)}% textura generada (sin imagen).`);
       } else log('No se pudo descargar la imagen satelital con licencia abierta; el terreno usa texturas generadas.', 'err');
       if (PV.mats) { for (const k in PV.mats) if (k.startsWith('tc_')) { try { PV.mats[k].map.dispose(); PV.mats[k].dispose(); } catch (e) { } delete PV.mats[k]; } }
     } catch (e) { log('Texturas reales: ' + e.message, 'err'); }
