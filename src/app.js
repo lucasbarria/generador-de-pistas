@@ -2678,3 +2678,89 @@ try {
     $('#recoverNo').onclick = () => { bar.style.display = 'none'; };
   }
 } catch (e) { }
+
+// ---------- Ayuda: explicación de cada control al pasar el mouse (o tocarlo en el celular) ----------
+const HELP = {
+  traceMode: {
+    pick: 'Calle por calle: tocá el camino donde largás y después cada cruce hasta el final. La app sigue la calle real del mapa entre un punto y otro, sin inventar el recorrido. Es la forma más precisa cuando el camino está en el mapa.',
+    free: 'Línea libre: cada clic agrega un punto y el tramo va en línea recta de uno a otro. Sirve para caminos que no están en el mapa: marcalos sobre la foto satelital.',
+    auto: 'Ruta automática: marcás solo largada y llegada y la app busca el camino más corto entre los dos. Rápido, pero puede elegir un recorrido distinto al del rally.',
+  },
+  undo: 'Deshacer punto: borra el último punto o cruce que marcaste.',
+  clear: 'Borrar todo: empieza el recorrido de cero.',
+  closed: 'Circuito cerrado: une el final con el comienzo (para circuitos). Para un tramo de rally dejalo destildado: queda punto a punto, con largada y llegada.',
+  loadNet: 'Recargar calles: vuelve a descargar las calles de lo que ves en el mapa. Usalo si alguna calle no aparece o falló la descarga.',
+  freePts: 'Puntos libres: mientras está tildado, cada clic agrega un punto suelto aunque no haya calle. Ideal para huellas o partes del tramo que el mapa no tiene. (Ctrl+clic hace lo mismo sin tildarlo).',
+  gpsFile: 'Importar GPS: cargá el video de una GoPro (trae el GPS adentro) o un archivo GPX/KML/CSV grabado con el celular. Arma el tramo exacto por donde pasaste.',
+  stA: 'Coordenadas de largada: pegá latitud y longitud (por ejemplo copiadas de Google Maps) para ubicar el punto de largada.',
+  stB: 'Coordenadas de llegada: pegá latitud y longitud del final del tramo.',
+  goStage: 'Ir al tramo: centra el mapa en esas coordenadas y arma el recorrido entre largada y llegada por las calles del mapa.',
+  drawRect: 'Dibujar zona: para modo mundo abierto. Marcás un rectángulo y se genera toda la zona con sus calles.',
+  loadWays: 'Ver calles: muestra las calles que entran en la zona dibujada.',
+  pickSpawn: 'Marcar salida: elegí dónde aparecen los autos en el mundo abierto.',
+  tname: 'Nombre de la pista: es el nombre que aparece en Assetto Corsa y en la pancarta antes del control horario.',
+  width: 'Ancho del camino en metros. Un camino de ripio de tramo suele tener entre 5 y 7 m.',
+  surface: 'Superficie principal del camino (ripio, asfalto, tierra…). Define el agarre en el juego. Después podés cambiar partes en "Editar el camino".',
+  lines: 'Líneas pintadas: agrega las líneas blancas (solo en asfalto).',
+  margin: 'Margen de terreno: cuántos metros de campo se generan a cada lado del camino. Más margen = más paisaje pero archivo más pesado.',
+  hsmooth: 'Suavizado de alturas: alisa los saltos de la elevación del satélite para que el camino no tenga escalones falsos.',
+  ditch: 'Cunetas: zanjas a los costados con piso resbaladizo. Automática pone cuneta a los dos lados, más honda del lado alto de la ladera.',
+  rocks: 'Piedras al costado: cantidad de piedras en la banquina; las grandes tienen choque.',
+  autobank: 'Peralte automático: inclina el camino en las curvas hasta ese máximo de grados. 0 = camino plano.',
+  veg: 'Vegetación y suelos reales: usa el mapa y la foto satelital para poner bosque, pasto, agua, etc. donde realmente están.',
+  treeHit: 'Árboles con choque: los troncos cerca del camino son obstáculos sólidos, como en la realidad.',
+  forest: 'Tipo de bosque: automático elige según la altura; o forzá lengas/ñires (de hoja) o pinos.',
+  treeClear: 'Distancia de los árboles al camino: cuántos metros libres quedan entre el borde del ripio y el monte.',
+  density: 'Densidad de árboles: más alta se ve más tupido pero el archivo pesa más.',
+  gravelStyle: 'Tipo de ripio: automático elige según la zona (bosque o estepa) con la foto satelital; o elegí uno fijo, como el ripio real de Aguas Blancas.',
+  photoTrees: 'Árboles de fotos (experimental): usa árboles recortados de fotos reales. De cerca se ven como paneles; sirven para el fondo.',
+  season: 'Época del año: con hojas (primavera/verano) o lengas peladas (otoño/invierno).',
+  grassType: 'Pasto: automático lo toma del color real del suelo en el satélite; o forzá verde o seco patagónico.',
+  customTex: 'Texturas propias: reemplazá cualquier textura por una foto tuya (ripio, cuneta, pasto, bosque…).',
+  snow: 'Nieve: cubre de nieve el terreno desde cierta altura, y opcionalmente el camino.',
+  snowAlt: 'Altura desde la que hay nieve (metros sobre el nivel del mar).',
+  snowRoad: 'Nieve también en el camino: baja mucho el agarre en esa parte.',
+  res: 'Resolución del terreno: tamaño de cada cuadrito del terreno en metros. Más chico = más detalle (cauces, barrancas) pero más pesado.',
+  zoom: 'Detalle de elevación: cuánto detalle de alturas se descarga. Alto es lo recomendado.',
+  withSrc: 'Incluir archivos fuente: agrega el modelo en OBJ para retocarlo en Blender o KsEditor. No hace falta para jugar.',
+  invertSpawn: 'Invertir dirección de salida: si en el juego los autos aparecen mirando para atrás, tildalo y volvé a exportar.',
+  pits: 'Lugares de salida: cuántos autos pueden largar (para correr con amigos online).',
+  rallyZones: 'Largada, llegada y controles: agrega la pancarta con el nombre, control horario 30 m antes de la largada, carteles A.PI.TU.R, reloj, llegada y control stop 30 m después. El cronómetro del juego corre de la largada a la llegada.',
+  objects: 'Objetos reales: casas y estancias (del mapa y detectadas por los techos en el satélite), alambrados y tranqueras.',
+  fences: 'Alambrados: automático los pone a los costados del camino en campo y estepa (no en el bosque) y alrededor de los cascos de estancia.',
+  water: 'Ríos, arroyos y puentes: cava los cauces que están en el mapa, pone el agua y arma puentes con guardarraíl donde el camino cruza un río.',
+  bridgeRamp: 'Rampas de los puentes: cuánto sube el camino para entrar al puente. Empinada es lo habitual en los caminos rurales; muy empinada puede hacer saltar el auto.',
+  gen: 'Generar: arma el tramo en 3D con todo lo elegido. Después podés revisarlo en la vista 3D y editarlo.',
+  zipBtn: 'Preparar ZIP: arma el archivo para Assetto Corsa. Después arrastralo a Content Manager para instalar la pista.',
+  openViewer: 'Ver en 3D: abre la vista 3D del tramo generado.',
+  saveProj: 'Guardar proyecto: descarga un archivo .pista.json con el recorrido y todas las ediciones, para seguir otro día o pasárselo a alguien.',
+  openProj: 'Abrir proyecto: carga un archivo .pista.json guardado antes.',
+  drive: 'Manejar / vista del auto: recorre el tramo a la altura del piloto para ver cómo queda.',
+  editCurves: 'Editar curvas: arrastrá el camino en 3D para que coincida con la realidad (por ejemplo comparando con la foto satelital).',
+  dragR: 'Radio de arrastre: cuántos metros de camino se mueven juntos al arrastrar una curva.',
+  satBtn: 'Satélite: pone la foto satelital sobre el terreno para comparar el camino con el real.',
+  closeViewer: 'Cerrar la vista 3D y volver al mapa.',
+  profile: 'Perfil del camino: alturas a lo largo del tramo. Arrastrá para elegir una parte y editarla con las herramientas de abajo.',
+  tRaise: 'Subir o bajar el camino en la parte elegida.', tSmooth: 'Suavizar las alturas en la parte elegida.', tBump: 'Agregar una loma.', tJump: 'Agregar un salto.', tPot: 'Agregar un pozo o compresión.',
+  tWidth: 'Cambiar el ancho del camino en la parte elegida.', tBank: 'Cambiar el peralte en la parte elegida.', tSurf: 'Cambiar la superficie (barro, nieve, hielo, ripio suelto…) en la parte elegida: así hacés zonas resbaladizas.',
+  showGrip: 'Mapa de agarre: pinta el tramo según el agarre y la velocidad posible en cada curva.',
+  notes: 'Libro de notas: notas de ruta generadas automáticamente (curvas, crestas, puentes). Tocá una para ir a ese punto.',
+  tApply: 'Aplicar la edición elegida.', tClearEd: 'Borrar todas las ediciones del camino.',
+  search: 'Buscador: escribí un lugar o pegá coordenadas para ir ahí en el mapa.',
+};
+(function setupHelp() {
+  const bar = document.getElementById('helpbar'); if (!bar) return;
+  const def = bar.innerHTML;
+  const textFor = el => {
+    for (let n = el, k = 0; n && k < 6; n = n.parentElement, k++) {
+      let id = n.id; if (!id && n.tagName === 'LABEL') { const inp = n.querySelector('[id]'); if (inp) id = inp.id; }
+      const h = id && HELP[id];
+      if (h) return typeof h === 'string' ? h : h[document.getElementById(id).value] || Object.values(h)[0];
+      if (n.title && n.tagName !== 'ASIDE') return n.title;
+    }
+    return null;
+  };
+  const show = e => { const t = textFor(e.target); bar.innerHTML = t ? '<b>ℹ️</b> ' + t : def; };
+  document.addEventListener('mouseover', show); document.addEventListener('focusin', show); document.addEventListener('touchstart', show, { passive: true });
+  const tm = document.getElementById('traceMode'); if (tm) tm.addEventListener('change', () => { bar.innerHTML = '<b>ℹ️</b> ' + HELP.traceMode[tm.value]; });
+})();
