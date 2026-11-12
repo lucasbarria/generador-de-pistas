@@ -1022,7 +1022,7 @@ function opt() {
   return {
     name: $('#tname').value.trim() || 'Mi pista', width: +$('#width').value, surface: $('#surface').value,
     lines: $('#lines').checked, margin: +$('#margin').value, res: +$('#res').value, hSmooth: +$('#hsmooth').value,
-    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, fences: $('#fences') ? $('#fences').value : 'auto',
+    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, bridgeRamp: $('#bridgeRamp') ? $('#bridgeRamp').value : 'steep', fences: $('#fences') ? $('#fences').value : 'auto',
     autoBank: Math.max(0, Math.min(20, +$('#autobank').value || 0)),
     snow: $('#snow').checked, snowAlt: +$('#snowAlt').value, snowRoad: $('#snowRoad').checked,
     veg: $('#veg').checked, density: +$('#density').value, treeHit: $('#treeHit').checked,
@@ -1468,7 +1468,11 @@ async function rebuild(keepCam) {
     S.water = o.water ? collectWaterways(B) : { ww: [], bridgesOSM: [] };
     S.crossings = o.water ? findCrossings(rPts, S.water) : [];
     const BRs = S.crossings.filter(b => b.bridge);
-    res = Core.buildRoute({ bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, shoulder: o.res * 1.5 + 1, ...editFns(o, S.lastTotal, B.closed) });
+    S.lastRamp = o.bridgeRamp;
+    const RAMP = { none: [0, 1], soft: [1, 25], steep: [2, 15], hard: [3, 11] }[o.bridgeRamp] || [2, 15];
+    const raise = BRs.length && RAMP[0] ? (x, y) => { let dz = 0; for (const b of BRs) { const e = Math.hypot(x - b.p[0], y - b.p[1]); let v = 0;
+      if (e < b.half) v = RAMP[0]; else if (e < b.half + RAMP[1]) { const u = (e - b.half) / RAMP[1]; v = RAMP[0] * (1 - u * u * (3 - 2 * u)); } if (v > dz) dz = v; } return dz; } : null;
+    res = Core.buildRoute({ raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, shoulder: o.res * 1.5 + 1, ...editFns(o, S.lastTotal, B.closed) });
     S.lastTotal = res.total;
     res.zone = useZ ? { pres: ZPRE - 30, start: ZPRE, finish: res.total - ZPOST, stop: res.total - ZPOST + 30 } : null;
     if (useZ) log('Largada y llegada: se tomaron 30 m antes de la largada para la presentación (control horario) y 30 m después de la llegada para el control stop, donde se entrega el carnet y los tiempos. El reloj corre desde la largada hasta la llegada.');
@@ -2540,6 +2544,7 @@ function canvasToDDS(cv, grade) {
 }
 
 // ---------- Notas de ruta automáticas (a partir del trazado generado) ----------
+const RAMP_NOTE = { steep: ' empinado', hard: ' cresta, no cortar' };
 function paceNotes(r, grip) {
   const n = r.n, notes = [], K = r.K, step = 2;
   const grade = R => R < 12 ? 'horquilla' : R < 25 ? '1' : R < 40 ? '2' : R < 60 ? '3' : R < 90 ? '4' : R < 140 ? '5' : R < 220 ? '6' : 'leve';
@@ -2571,7 +2576,7 @@ function paceNotes(r, grip) {
   // saltos y cambios de superficie
   for (const e of S.edits) if (e.kind === 'jump') { const i = Math.min(n - 1, Math.round(e.d / step)); notes.push({ i, d: e.d, txt: 'salto', kind: 'salto' }); }
   for (let i = 1; i < n; i++) if (r.SURF[i] !== r.SURF[i - 1] && SURF[r.SURF[i]].mu < SURF[r.SURF[i - 1]].mu - 0.05) notes.push({ i, d: r.dist[i], txt: 'ojo ' + SURF[r.SURF[i]].name.toLowerCase(), kind: 'sup' });
-  for (const b of r.bridges || []) notes.push({ i: b.ic, d: b.d, txt: 'puente' + (b.cls === 'river' ? ' (río)' : ''), kind: 'puente' });
+  for (const b of r.bridges || []) notes.push({ i: b.ic, d: b.d, txt: 'puente' + (b.cls === 'river' ? ' (río)' : '') + (RAMP_NOTE[S.lastRamp] || ''), kind: 'puente' });
   notes.sort((a, b) => a.d - b.d);
   // distancias entre notas (redondeadas como en un cuaderno)
   let prevEnd = 0;

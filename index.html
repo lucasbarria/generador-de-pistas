@@ -138,6 +138,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
       <label class="f">Lugares de salida <input id="pits" type="number" value="4" min="1" max="24"></label>
       <label class="f" title="Casas y estancias (del mapa y detectadas por los techos en la foto satelital), alambrados y tranqueras">Objetos reales (casas, alambrados, tranqueras) <span><input type="checkbox" id="objects" checked></span></label>
       <label class="f" title="Cauces de ríos y arroyos del mapa, agua, puentes con guardarraíl y alcantarillas">Ríos, arroyos y puentes <span><input type="checkbox" id="water" checked></span></label>
+      <label class="f" title="Desnivel de la subida y bajada al puente (el tablero queda más alto que el camino)">Rampas de los puentes <select id="bridgeRamp"><option value="none">Sin desnivel</option><option value="soft">Suave (1 m)</option><option value="steep" selected>Empinada (2 m)</option><option value="hard">Muy empinada (3 m, puede saltar)</option></select></label>
       <label class="f">Alambrados <select id="fences"><option value="auto" selected>Automático (campo/estepa, no en bosque)</option><option value="always">En todo el tramo</option><option value="none">Sin alambrados</option></select></label>
       <label class="f" title="Agrega 30 m antes de la largada (presentación / control horario) y 30 m después de la llegada (control stop), con pancartas, carteles FIA y reloj. El cronómetro del juego corre de la largada a la llegada.">Largada, llegada y controles (pancartas y reloj) <span><input type="checkbox" id="rallyZones" checked></span></label>
     </section>
@@ -328,6 +329,7 @@ const Core = (() => {
       });
     }
     if (o.offsetAt) hs = hs.map((h, i) => h + o.offsetAt(dist[i]));
+    if (o.raise) hs = hs.map((h, i) => h + o.raise(C[i][0], C[i][1])); // rampas de acceso a puentes
     // ancho, peralte, superficie
     let W = dist.map(d => o.widthAt ? o.widthAt(d) : o.width);
     W = smooth1D(smooth1D(W, 4, closed), 4, closed);
@@ -475,7 +477,7 @@ const Core = (() => {
         const x = bbox.minx + i * res, cx = Math.floor((x - bbox.minx) / cs), cy = Math.floor((y - bbox.miny) / cs);
         if (near && !near[cy * hx + cx]) continue;
         need[j * nx + i] = 1;
-        let h = o.height(x, y);
+        let h = o.height(x, y); const hNat = h;
         let best = Infinity, bS = null, bT = 0, bLat = 0;
         for (let dy = -rr1; dy <= rr1; dy++) for (let dx = -rr1; dx <= rr1; dx++) {
           const X = cx + dx, Y = cy + dy; if (X < 0 || Y < 0 || X >= hx || Y >= hy) continue;
@@ -498,7 +500,7 @@ const Core = (() => {
           if (best < Fz) h = bH - depth - dd;
           else { let t = (best - Fz) / B; t = t * t * (3 - 2 * t); h = (bH - depth - dd) * (1 - t) + h * t; }
         }
-        if (o.carve) h -= o.carve(x, y);
+        if (o.carve) { const cv = o.carve(x, y); if (cv > 0) h = Math.min(h, hNat - 0.15) - cv; } // el cauce sigue su nivel natural aunque el camino suba al puente
         H[j * nx + i] = h;
       }
       if (progress && j % 50 === 0) progress(j / ny);
@@ -1721,7 +1723,7 @@ function opt() {
   return {
     name: $('#tname').value.trim() || 'Mi pista', width: +$('#width').value, surface: $('#surface').value,
     lines: $('#lines').checked, margin: +$('#margin').value, res: +$('#res').value, hSmooth: +$('#hsmooth').value,
-    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, fences: $('#fences') ? $('#fences').value : 'auto',
+    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, bridgeRamp: $('#bridgeRamp') ? $('#bridgeRamp').value : 'steep', fences: $('#fences') ? $('#fences').value : 'auto',
     autoBank: Math.max(0, Math.min(20, +$('#autobank').value || 0)),
     snow: $('#snow').checked, snowAlt: +$('#snowAlt').value, snowRoad: $('#snowRoad').checked,
     veg: $('#veg').checked, density: +$('#density').value, treeHit: $('#treeHit').checked,
@@ -2167,7 +2169,11 @@ async function rebuild(keepCam) {
     S.water = o.water ? collectWaterways(B) : { ww: [], bridgesOSM: [] };
     S.crossings = o.water ? findCrossings(rPts, S.water) : [];
     const BRs = S.crossings.filter(b => b.bridge);
-    res = Core.buildRoute({ bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, shoulder: o.res * 1.5 + 1, ...editFns(o, S.lastTotal, B.closed) });
+    S.lastRamp = o.bridgeRamp;
+    const RAMP = { none: [0, 1], soft: [1, 25], steep: [2, 15], hard: [3, 11] }[o.bridgeRamp] || [2, 15];
+    const raise = BRs.length && RAMP[0] ? (x, y) => { let dz = 0; for (const b of BRs) { const e = Math.hypot(x - b.p[0], y - b.p[1]); let v = 0;
+      if (e < b.half) v = RAMP[0]; else if (e < b.half + RAMP[1]) { const u = (e - b.half) / RAMP[1]; v = RAMP[0] * (1 - u * u * (3 - 2 * u)); } if (v > dz) dz = v; } return dz; } : null;
+    res = Core.buildRoute({ raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, shoulder: o.res * 1.5 + 1, ...editFns(o, S.lastTotal, B.closed) });
     S.lastTotal = res.total;
     res.zone = useZ ? { pres: ZPRE - 30, start: ZPRE, finish: res.total - ZPOST, stop: res.total - ZPOST + 30 } : null;
     if (useZ) log('Largada y llegada: se tomaron 30 m antes de la largada para la presentación (control horario) y 30 m después de la llegada para el control stop, donde se entrega el carnet y los tiempos. El reloj corre desde la largada hasta la llegada.');
@@ -3239,6 +3245,7 @@ function canvasToDDS(cv, grade) {
 }
 
 // ---------- Notas de ruta automáticas (a partir del trazado generado) ----------
+const RAMP_NOTE = { steep: ' empinado', hard: ' cresta, no cortar' };
 function paceNotes(r, grip) {
   const n = r.n, notes = [], K = r.K, step = 2;
   const grade = R => R < 12 ? 'horquilla' : R < 25 ? '1' : R < 40 ? '2' : R < 60 ? '3' : R < 90 ? '4' : R < 140 ? '5' : R < 220 ? '6' : 'leve';
@@ -3270,7 +3277,7 @@ function paceNotes(r, grip) {
   // saltos y cambios de superficie
   for (const e of S.edits) if (e.kind === 'jump') { const i = Math.min(n - 1, Math.round(e.d / step)); notes.push({ i, d: e.d, txt: 'salto', kind: 'salto' }); }
   for (let i = 1; i < n; i++) if (r.SURF[i] !== r.SURF[i - 1] && SURF[r.SURF[i]].mu < SURF[r.SURF[i - 1]].mu - 0.05) notes.push({ i, d: r.dist[i], txt: 'ojo ' + SURF[r.SURF[i]].name.toLowerCase(), kind: 'sup' });
-  for (const b of r.bridges || []) notes.push({ i: b.ic, d: b.d, txt: 'puente' + (b.cls === 'river' ? ' (río)' : ''), kind: 'puente' });
+  for (const b of r.bridges || []) notes.push({ i: b.ic, d: b.d, txt: 'puente' + (b.cls === 'river' ? ' (río)' : '') + (RAMP_NOTE[S.lastRamp] || ''), kind: 'puente' });
   notes.sort((a, b) => a.d - b.d);
   // distancias entre notas (redondeadas como en un cuaderno)
   let prevEnd = 0;

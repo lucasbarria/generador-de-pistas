@@ -146,6 +146,7 @@ const Core = (() => {
       });
     }
     if (o.offsetAt) hs = hs.map((h, i) => h + o.offsetAt(dist[i]));
+    if (o.raise) hs = hs.map((h, i) => h + o.raise(C[i][0], C[i][1])); // rampas de acceso a puentes
     // ancho, peralte, superficie
     let W = dist.map(d => o.widthAt ? o.widthAt(d) : o.width);
     W = smooth1D(smooth1D(W, 4, closed), 4, closed);
@@ -293,7 +294,7 @@ const Core = (() => {
         const x = bbox.minx + i * res, cx = Math.floor((x - bbox.minx) / cs), cy = Math.floor((y - bbox.miny) / cs);
         if (near && !near[cy * hx + cx]) continue;
         need[j * nx + i] = 1;
-        let h = o.height(x, y);
+        let h = o.height(x, y); const hNat = h;
         let best = Infinity, bS = null, bT = 0, bLat = 0;
         for (let dy = -rr1; dy <= rr1; dy++) for (let dx = -rr1; dx <= rr1; dx++) {
           const X = cx + dx, Y = cy + dy; if (X < 0 || Y < 0 || X >= hx || Y >= hy) continue;
@@ -316,7 +317,7 @@ const Core = (() => {
           if (best < Fz) h = bH - depth - dd;
           else { let t = (best - Fz) / B; t = t * t * (3 - 2 * t); h = (bH - depth - dd) * (1 - t) + h * t; }
         }
-        if (o.carve) h -= o.carve(x, y);
+        if (o.carve) { const cv = o.carve(x, y); if (cv > 0) h = Math.min(h, hNat - 0.15) - cv; } // el cauce sigue su nivel natural aunque el camino suba al puente
         H[j * nx + i] = h;
       }
       if (progress && j % 50 === 0) progress(j / ny);
