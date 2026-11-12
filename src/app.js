@@ -2580,7 +2580,8 @@ function makeSideTex(key, a) {
 function makeTuftTex() {
   const W = 1024, H = 256, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'), rng = rngOf(4242);
   const A = SIDECAT.TYPES.side_a.a, B = SIDECAT.TYPES.side_c.a, g = A.col.pasto || [96, 118, 60], dry = B.col.pasto_seco || [160, 150, 105];
-  const tuft = (ox, col, n, hmax, flowers, curl) => { for (let i = 0; i < n; i++) { const bx = ox + 128 + (rng() - 0.5) * 150, h = hmax * (0.45 + rng() * 0.55), lean = (rng() - 0.5) * curl, l = (rng() - 0.5) * 40;
+  // mata con forma: base angosta, más alta al centro, briznas que se abren hacia afuera (silueta de domo, no de caja)
+  const tuft = (ox, col, n, hmax, flowers, curl) => { for (let i = 0; i < n; i++) { const g0 = (rng() + rng() + rng() - 1.5) / 1.5, bx = ox + 128 + g0 * 46, h = hmax * (0.3 + 0.7 * (1 - Math.abs(g0) * 0.85)) * (0.6 + rng() * 0.4), lean = g0 * curl * 1.4 + (rng() - 0.5) * curl * 0.5, l = (rng() - 0.5) * 40;
       x.strokeStyle = `rgb(${col[0] + l},${col[1] + l},${col[2] + l * 0.6})`; x.lineWidth = 1.2 + rng() * 1.6; x.beginPath(); x.moveTo(bx, H - 2); x.quadraticCurveTo(bx + lean * 0.3, H - h * 0.6, bx + lean, H - h); x.stroke();
       if (flowers && rng() < flowers) { x.fillStyle = `rgb(${240 + rng() * 15},${195 + rng() * 25},${35 + rng() * 25})`; x.beginPath(); x.arc(bx + lean, H - h - 2, 3 + rng() * 3, 0, 6.3); x.fill(); } } };
   tuft(0, g, 260, 190, 0.12, 60); tuft(256, dry, 320, 210, 0, 110); tuft(512, g.map(v => v * 0.85), 220, 110, 0.05, 40); tuft(768, mixCol(g, dry, 0.4), 300, 230, 0.06, 80);
