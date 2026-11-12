@@ -260,6 +260,74 @@ const Core = (() => {
     return { meshes, segs, lines: allLines };
   }
 
+  // ---------- Caminos laterales (modo RUTA) ----------
+  // Calles que salen del tramo o lo cruzan. Se pegan al camino principal: en el cruce toman su altura
+  // y en ~30 m pasan a seguir el terreno. Lo que queda debajo del camino principal se esconde unos cm abajo.
+  // o: ways [{pts, width, key}], routeSegs (segs de buildRoute), heightS(x,y), maxDist (m desde el eje del tramo)
+  function buildSideRoads(o) {
+    const meshes = [], segs = [], lines = [], junctions = [], RS = o.routeSegs, cs = 30, cells = new Map();
+    const BLEND = o.blend || 30, VW = 1.2, step = 2;
+    let total = 0, k0 = 0, kv = 0;
+    RS.forEach((s, si) => {
+      const x0 = Math.floor(Math.min(s[0], s[2]) / cs), x1 = Math.floor(Math.max(s[0], s[2]) / cs), y0 = Math.floor(Math.min(s[1], s[3]) / cs), y1 = Math.floor(Math.max(s[1], s[3]) / cs);
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const k = x + ',' + y; (cells.get(k) || cells.set(k, []).get(k)).push(si); }
+    });
+    const nearest = (x, y, R) => {
+      const r = Math.ceil(R / cs), cx = Math.floor(x / cs), cy = Math.floor(y / cs); let best = null;
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+        const list = cells.get((cx + dx) + ',' + (cy + dy)); if (!list) continue;
+        for (const si of list) {
+          const s = RS[si], vx = s[2] - s[0], vy = s[3] - s[1], L2 = vx * vx + vy * vy || 1e-9;
+          let t = ((x - s[0]) * vx + (y - s[1]) * vy) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const d = Math.hypot(s[0] + vx * t - x, s[1] + vy * t - y);
+          if (!best || d < best.d) best = { d, s, t, lat: (vx * (y - s[1]) - vy * (x - s[0])) / Math.sqrt(L2) };
+        }
+      }
+      return best && best.d <= R ? best : null;
+    };
+    const routeH = q => { const s = q.s, hw = s[6], lat = Math.max(-hw, Math.min(hw, q.lat)); return s[4] + (s[5] - s[4]) * q.t + (s[7] + (s[8] - s[7]) * q.t) * lat + 0.02 * (hw - Math.abs(lat)); };
+    // altura de la superficie del lateral en (x, y)
+    const hAt = (x, y) => {
+      const q = nearest(x, y, BLEND + 40);
+      if (!q || isNaN(q.s[4])) return o.heightS(x, y);
+      const e = q.d - q.s[6];
+      if (e < 0.3) return routeH(q) - 0.04; // debajo del camino principal: queda tapado
+      let w = Math.min(1, e / BLEND); w = w * w * (3 - 2 * w);
+      return routeH(q) * (1 - w) + o.heightS(x, y) * w + 0.04 * Math.min(1, e / 1.5);
+    };
+    for (const way of o.ways) {
+      if (way.pts.length < 2) continue;
+      let C0 = resample(way.pts, step, false);
+      if (C0.length > 6) C0 = smoothPts(C0, 1, false, 1);
+      // partes dentro del margen de terreno
+      const runs = []; let cur = null;
+      for (const p of C0) { const q = nearest(p[0], p[1], o.maxDist); if (q) { if (!cur) runs.push(cur = []); cur.push(p); } else cur = null; }
+      for (const C of runs) {
+        if (C.length < 3) continue;
+        const n = C.length, T = tangents(C, false), hw = way.width / 2;
+        const dist = [0]; for (let i = 1; i < n; i++) dist.push(dist[i - 1] + Math.hypot(C[i][0] - C[i - 1][0], C[i][1] - C[i - 1][1]));
+        total += dist[n - 1];
+        const road = [], vL = [], vR = [], HC = [], SLp = [];
+        for (let i = 0; i < n; i++) {
+          const nx = -T[i][1], ny = T[i][0], P = sg => [C[i][0] + nx * sg, C[i][1] + ny * sg];
+          const [xl, yl] = P(-hw), [xr, yr] = P(hw), hl = hAt(xl, yl), hr = hAt(xr, yr);
+          const q = nearest(C[i][0], C[i][1], o.maxDist + 50), inside = q && q.d < q.s[6] + (q.s[9] || 0) + 0.5;
+          road.push({ cols: [{ x: xl, y: yl, h: hl, u: 0 }, { x: xr, y: yr, h: hr, u: 1 }], d: dist[i], step });
+          const [xo, yo] = P(-hw - VW), [xo2, yo2] = P(hw + VW);
+          vL.push({ cols: [{ x: xo, y: yo, h: hAt(xo, yo) - 0.12, u: 1 }, { x: xl, y: yl, h: hl - 0.01, u: 0 }], d: dist[i], step, skip: inside });
+          vR.push({ cols: [{ x: xr, y: yr, h: hr - 0.01, u: 0 }, { x: xo2, y: yo2, h: hAt(xo2, yo2) - 0.12, u: 1 }], d: dist[i], step, skip: inside });
+          HC.push((hl + hr) / 2 - 0.04); SLp.push((hl - hr) / (2 * hw));
+        }
+        for (const m of ribbonMeshes(road, false, way.key, MAT[way.key], 7, { next: () => 3000 + (k0++) })) meshes.push(m);
+        for (const secs of [vL, vR]) for (const m of ribbonMeshes(secs, false, 'GRASS', 'verge', 7, { next: () => 3600 + (kv++) })) meshes.push(m);
+        for (let i = 0; i < n - 1; i++) segs.push([C[i][0], C[i][1], C[i + 1][0], C[i + 1][1], HC[i], HC[i + 1], hw, SLp[i], SLp[i + 1], VW, 0, 0]);
+        for (let i = 0; i < n; i++) { const q = nearest(C[i][0], C[i][1], 20); if (q && q.d < q.s[6] + 3 && !junctions.some(j => Math.hypot(j[0] - C[i][0], j[1] - C[i][1]) < 15)) junctions.push(C[i]); }
+        lines.push(C);
+      }
+    }
+    return { meshes, segs, lines, junctions, total };
+  }
+
   // ---------- Terreno ----------
   // o.surfAt(hLocal, pendiente, x, y) -> [CLAVE_FISICA, material]
   const DEF_SURF = ['GRASS', 'grass'];
@@ -518,6 +586,6 @@ const Core = (() => {
     return mats.map(([name, tex, kd]) => `newmtl ${name}\nKa 1 1 1\nKd ${kd}\nKs 0 0 0\nd 1\nillum 1\nmap_Kd ${tex}\n`).join('\n');
   }
 
-  return { MAT, buildTrees, buildRocks, roadDistFn, makeProj, resample, smooth1D, buildRoute, buildArea, buildTerrain, toOBJ, toMTL, computeNormals };
+  return { MAT, buildTrees, buildRocks, roadDistFn, makeProj, resample, smooth1D, buildRoute, buildArea, buildSideRoads, buildTerrain, toOBJ, toMTL, computeNormals };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

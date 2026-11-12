@@ -93,6 +93,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <label class="f" style="margin-top:10px">Cómo marcar <select id="traceMode"><option value="pick" selected>Calle por calle</option><option value="free">Línea libre</option><option value="auto">Ruta automática</option></select></label>
         <div class="row"><label><input type="checkbox" id="closed"> Circuito cerrado</label><button class="b" id="loadNet">Recargar calles de la vista</button></div>
         <div class="row"><label title="Para partes del tramo que no figuran en el mapa: cada clic agrega un punto, sin seguir calles (Ctrl+clic hace lo mismo)"><input type="checkbox" id="freePts"> Puntos libres (tramo sin calle en el mapa)</label></div>
+        <div class="row"><label title="Clic en una calle del mapa para agregarla como camino lateral (sale del tramo o lo cruza). Clic sobre una naranja para quitarla."><input type="checkbox" id="sideRoads"> Marcar caminos laterales</label><button class="b" id="clearSide">Borrar laterales</button></div>
         <label class="b gpsbtn">📍 Importar GPS (video GoPro, GPX, KML, CSV)<input type="file" id="gpsFile" hidden></label>
         <div class="stage"><input id="stA" placeholder="Inicio: -54.6262612, -67.2421884"><input id="stB" placeholder="Fin (opcional)"><button class="b" id="goStage">Ir al tramo</button></div>
         <div class="mut" id="routeInfo">Sin recorrido todavía.</div>

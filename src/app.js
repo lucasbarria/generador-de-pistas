@@ -18,6 +18,7 @@ const S = {
   mode: 'route', wps: [], markers: [], routeLine: null, routeGeom: null,
   rectStart: null, rect: null, rectBounds: null, ways: null, waysLayer: null,
   spawn: null, spawnMarker: null, picking: null, result: null,
+  side: [], sideLayer: null, // caminos laterales: [{ pts: [[lat, lng]…], cls, unpaved }]
 };
 
 function setMode(m) {
@@ -25,7 +26,8 @@ function setMode(m) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.mode === m));
   document.querySelectorAll('[data-only]').forEach(el => el.style.display = el.dataset.only === m ? '' : 'none');
   S.picking = null; updateHint();
-  if (m === 'area') clearTraceLayers(); else if (traceMode() === 'pick') { drawNet(); drawTrace(); }
+  if (m === 'area') clearTraceLayers(); else if (traceMode() === 'pick' || sideOn()) { drawNet(); drawTrace(); }
+  drawSide();
 }
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => setMode(t.dataset.mode));
 
@@ -34,11 +36,13 @@ function updateHint() {
   if (S.picking === 'rect1') h.textContent = 'Hacé clic en la primera esquina de la zona.';
   else if (S.picking === 'rect2') h.textContent = 'Ahora hacé clic en la esquina opuesta.';
   else if (S.picking === 'spawn') h.textContent = 'Hacé clic sobre una calle para la salida.';
+  else if (S.mode === 'route' && sideOn()) h.textContent = 'Caminos laterales: clic en una calle del mapa para agregarla (queda en naranja). Clic sobre una naranja para quitarla. Destildá "Marcar caminos laterales" para seguir con el tramo.';
   else if (S.mode === 'route') h.textContent = traceMode() === 'pick' ? 'Clic en una calle para empezar. Después, en cada cruce, clic en la calle verde por la que querés seguir (Shift+clic = avanzar solo hasta ese punto).' : traceMode() === 'free' ? 'Clic en el mapa para agregar puntos: se unen en línea recta. Arrastrá los puntos para ajustar.' : 'Clic en el mapa para agregar puntos: el ruteo completa el camino entre ellos.';
   else h.textContent = 'Usá "Dibujar zona" y marcá dos esquinas.';
 }
 
 map.on('click', e => {
+  if (S.mode === 'route' && !S.picking && sideOn()) { sideClick(e); return; }
   if (S.mode === 'route' && !S.picking) { if (traceMode() === 'pick') traceClick(e); else addWp(e.latlng); return; }
   if (S.picking === 'rect1') { S.rectStart = e.latlng; S.picking = 'rect2'; updateHint(); return; }
   if (S.picking === 'rect2') {
@@ -83,7 +87,7 @@ $('#undo').onclick = () => {
   if (!S.wps.length) return; S.wps.pop(); map.removeLayer(S.markers.pop()); refreshRoute();
 };
 $('#clear').onclick = () => {
-  G.path = []; G.steps = []; G.virtual = []; buildGraph();
+  G.path = []; G.steps = []; G.virtual = []; buildGraph(); S.side = []; drawSide();
   S.wps = []; S.markers.forEach(m => map.removeLayer(m)); S.markers = [];
   traceMode() === 'pick' ? drawTrace() : refreshRoute();
 };
@@ -91,7 +95,7 @@ $('#traceMode').onchange = () => {
   const pick = traceMode() === 'pick';
   S.markers.forEach(m => pick ? map.removeLayer(m) : m.addTo(map));
   $('#loadNet').style.display = pick ? '' : 'none';
-  if (pick) { drawNet(); drawTrace(); loadView().catch(e => setInfo(e.message)); } else { clearTraceLayers(); refreshRoute(); }
+  if (pick) { drawNet(); drawTrace(); loadView().catch(e => setInfo(e.message)); } else { clearTraceLayers(); refreshRoute(); if (sideOn()) { drawNet(); loadView().catch(e => setInfo(e.message)); } }
   updateHint();
 };
 $('#closed').onchange = () => traceMode() === 'pick' ? drawTrace() : refreshRoute();
@@ -317,7 +321,7 @@ function landAtG(gx, gy) {
 const G = { nodes: new Map(), edges: new Map(), adj: new Map(), lines: [], path: [], steps: [], virtual: [], netLayer: null, candLayer: null, startMarker: null };
 
 async function loadView() {
-  if (traceMode() !== 'pick' || S.mode !== 'route') return;
+  if ((traceMode() !== 'pick' && !sideOn()) || S.mode !== 'route') return;
   if (map.getZoom && map.getZoom() < 12) { setInfo('Acercá el mapa (zoom) para ver y elegir las calles.'); return; }
   const before = T.cache.size;
   setInfo('Cargando calles…');
@@ -471,7 +475,7 @@ async function followRoad() {
 function clearTraceLayers() { for (const k of ['candLayer', 'startMarker', 'netLayer']) if (G[k]) { map.removeLayer(G[k]); G[k] = null; } }
 function drawNet() {
   if (G.netLayer) { map.removeLayer(G.netLayer); G.netLayer = null; }
-  if (traceMode() !== 'pick' || S.mode !== 'route') return;
+  if ((traceMode() !== 'pick' && !sideOn()) || S.mode !== 'route') return;
   G.netLayer = L.layerGroup([...G.edges.values()].map(e => L.polyline(e.pts, { color: e.info.unpaved ? '#b08d5f' : '#4a7fd6', weight: 3, opacity: 0.6, interactive: false }))).addTo(map);
 }
 function drawTrace() {
@@ -495,6 +499,64 @@ function drawTrace() {
 }
 function routeLen() { const g = S.routeGeom; let d = 0; for (let i = 1; i < g.length; i++) d += map.distance(g[i - 1], g[i]); return d / 1000; }
 function flashCands() { if (!G.candLayer) return; G.candLayer.eachLayer(l => l.setStyle && l.setStyle({ color: '#ffffff' })); setTimeout(() => drawTrace(), 350); }
+
+
+// ---------- Caminos laterales ----------
+// calles que salen del tramo o lo cruzan: se generan en 3D unidas al camino principal (sin cronómetro)
+function sideOn() { return !!($('#sideRoads') && $('#sideRoads').checked); }
+function pxDistTo(P, pts) {
+  let best = Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const A = map.latLngToLayerPoint(pts[i - 1]), B = map.latLngToLayerPoint(pts[i]);
+    const vx = B.x - A.x, vy = B.y - A.y, L2 = vx * vx + vy * vy || 1, t = Math.max(0, Math.min(1, ((P.x - A.x) * vx + (P.y - A.y) * vy) / L2));
+    best = Math.min(best, Math.hypot(A.x + vx * t - P.x, A.y + vy * t - P.y));
+  }
+  return best;
+}
+// la calle es (casi toda) parte del tramo principal
+function onRouteEdge(e) {
+  const g = S.routeGeom; if (!g || g.length < 2) return false;
+  let on = 0; for (const p of e.pts) if (pxDistTo(map.latLngToLayerPoint(p), g) < 6) on++;
+  return on >= e.pts.length * 0.7;
+}
+async function sideClick(ev) {
+  if (!G.edges.size) { try { await loadView(); } catch (err) { setInfo(err.message); return; } }
+  const P = map.latLngToLayerPoint(ev.latlng);
+  const hit = S.side.findIndex(sr => pxDistTo(P, sr.pts) < 12);
+  if (hit >= 0) { S.side.splice(hit, 1); drawSide(); setInfo(`Camino lateral quitado · quedan ${S.side.length}.`); return; }
+  const s = snap(ev.latlng);
+  if (!s || s.d > 25) { setInfo('Hacé clic justo sobre una calle del mapa para agregarla como camino lateral.'); return; }
+  if (onRouteEdge(s.e)) { setInfo('Esa calle es parte del tramo. Elegí una que salga del tramo o lo cruce.'); return; }
+  // seguir la calle hasta el próximo cruce para los dos lados
+  const used = new Set([s.e.id]), pts = s.e.pts.slice();
+  let head = s.e.a, tail = s.e.b;
+  for (const atEnd of [true, false]) {
+    for (let guard = 0; guard < 200; guard++) {
+      const node = atEnd ? tail : head, adj = G.adj.get(node) || [];
+      if (adj.length !== 2) break;
+      const nid = adj.find(id => !used.has(id)); if (!nid) break;
+      const ne = G.edges.get(nid); if (onRouteEdge(ne)) break;
+      used.add(nid);
+      const fwd = ne.a === node, add = (fwd ? ne.pts : ne.pts.slice().reverse()).slice(1), next = fwd ? ne.b : ne.a;
+      if (atEnd) { pts.push(...add); tail = next; } else { pts.unshift(...add.reverse()); head = next; }
+    }
+  }
+  S.side.push({ pts: pts.map(p => [+p[0].toFixed(7), +p[1].toFixed(7)]), cls: s.e.info.cls, unpaved: !!s.e.info.unpaved });
+  drawSide();
+  let d = 0; for (let i = 1; i < pts.length; i++) d += map.distance(pts[i - 1], pts[i]);
+  setInfo(`Camino lateral agregado (${Math.round(d)} m) · ${S.side.length} en total. Se genera hasta donde llega el margen de terreno.`);
+}
+function drawSide() {
+  if (S.sideLayer) { map.removeLayer(S.sideLayer); S.sideLayer = null; }
+  if (S.mode !== 'route' || !S.side.length) return;
+  S.sideLayer = L.layerGroup(S.side.map(sr => L.polyline(sr.pts, { color: '#ff7a1a', weight: 6, opacity: 0.9, interactive: false }))).addTo(map);
+}
+$('#sideRoads').onchange = () => {
+  if (sideOn()) { drawNet(); loadView().catch(e => setInfo(e.message)); }
+  else if (traceMode() !== 'pick') clearTraceLayers();
+  updateHint();
+};
+$('#clearSide').onclick = () => { S.side = []; drawSide(); setInfo('Caminos laterales borrados.'); };
 
 // ---------- Zona ----------
 $('#drawRect').onclick = () => { S.picking = 'rect1'; updateHint(); };
@@ -1557,6 +1619,14 @@ async function rebuild(keepCam) {
     res.zone = useZ ? { pres: ZPRE - 30, start: ZPRE, finish: res.total - ZPOST, stop: res.total - ZPOST + 30 } : null;
     if (useZ) log('Largada y llegada: se tomaron 30 m antes de la largada para la presentación (control horario) y 30 m después de la llegada para el control stop, donde se entrega el carnet y los tiempos. El reloj corre desde la largada hasta la llegada.');
     meshes.push(...res.meshes); length = res.total; outline = [res.C];
+    res.sideJ = [];
+    if (S.side.length) {
+      const sw = S.side.map(sr => ({ pts: sr.pts.map(p => B.P.fwd(p[0], p[1])), width: Math.max(3, Math.min((ROAD_CLASS[sr.cls] || { w: 5 }).w, o.width || 6)), key: sr.unpaved || o.surface === 'gravel' ? 'GRAVEL' : 'ROAD' }));
+      const sd = Core.buildSideRoads({ ways: sw, routeSegs: res.segs, heightS: B.heightS, maxDist: Math.max(20, o.margin - 10) });
+      meshes.push(...sd.meshes); res.segs = res.segs.concat(sd.segs);
+      res.sideJ = sd.junctions.map(p => { let bi = 0, bd = Infinity; for (let i = 0; i < res.n; i++) { const d = Math.hypot(res.C[i][0] - p[0], res.C[i][1] - p[1]); if (d < bd) { bd = d; bi = i; } } return res.dist[bi]; });
+      log(`Caminos laterales: ${S.side.length} (${(sd.total / 1000).toFixed(2)} km dentro del margen de terreno, ${sd.junctions.length} cruce(s) con el tramo).`);
+    }
     spawnList = routeEmpties(res, o, B.closed);
     info.grip = gripAnalysis(res);
     info.notes = paceNotes(res, info.grip);
@@ -1612,6 +1682,7 @@ async function rebuild(keepCam) {
       r, ter, bbox: B.bbox, res: o.res, wallCounter,
       densityAt: i => {
         if (res.bridges && res.bridges.some(b => i >= b.i0 - 3 && i <= b.i1 + 3)) return 0;
+        if (res.sideJ && res.sideJ.some(d => Math.abs(r.dist[i] - d) < 14)) return 0; // no tapar la entrada de los laterales
         let f = Math.max(0, Math.min(1, (Math.abs(r.CS[i]) - 0.05) / 0.15));
         if (r.hs[i] + B.h0 > 1500) f = Math.max(f, 0.5);
         if (o.veg && i % 5 === 0) { const nx = -r.T[i][1], ny = r.T[i][0], off = r.W[i] / 2 + r.EX + 4; r.__rock = B.landAt(r.C[i][0] + nx * off, r.C[i][1] + ny * off) === 'rock' || B.landAt(r.C[i][0] - nx * off, r.C[i][1] - ny * off) === 'rock'; }
@@ -2701,6 +2772,7 @@ function projectState() {
     wps: S.wps.map(p => [p.lat, p.lng]), edits: S.edits, gps: S.gpsTrack ? S.gpsTrack.map(p => [+p[0].toFixed(7), +p[1].toFixed(7), +(+p[2] || 0).toFixed(1)]) : null,
     rect: b ? [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()] : null,
     spawn: S.spawn ? [S.spawn.lat, S.spawn.lng] : null,
+    side: S.side,
     view: map.getCenter ? [map.getCenter().lat, map.getCenter().lng, map.getZoom()] : null,
   };
 }
@@ -2713,6 +2785,7 @@ async function loadProject(st) {
   S.edits = st.edits || []; S.base = null; S.sel = null; S.gpsTrack = st.gps || null;
   S.wps.forEach((p, i) => map.removeLayer(S.markers[i])); S.wps = []; S.markers = [];
   G.path = st.pick?.path || []; G.steps = st.pick?.steps || []; G.virtual = st.pick?.virtual || [];
+  S.side = st.side || []; drawSide();
   if (st.rect) {
     const [s, w, n, e] = st.rect, b = L.latLngBounds([s, w], [n, e]);
     if (S.rect) map.removeLayer(S.rect);
@@ -2750,7 +2823,7 @@ $('#openProj').onchange = async ev => {
 let lastAuto = '';
 setInterval(() => {
   try {
-    const st = projectState(); if (!st.pick.path.length && !st.wps.length && !st.rect) return;
+    const st = projectState(); if (!st.pick.path.length && !st.wps.length && !st.rect && !st.side.length) return;
     const s = JSON.stringify({ ...st, saved: undefined, view: undefined });
     if (s !== lastAuto) { lastAuto = s; localStorage.setItem('generador-pistas-auto', JSON.stringify(st)); }
   } catch (e) { }
@@ -2776,6 +2849,8 @@ const HELP = {
   clear: 'Borrar todo: empieza el recorrido de cero.',
   closed: 'Circuito cerrado: une el final con el comienzo (para circuitos). Para un tramo de rally dejalo destildado: queda punto a punto, con largada y llegada.',
   loadNet: 'Recargar calles: vuelve a descargar las calles de lo que ves en el mapa. Usalo si alguna calle no aparece o falló la descarga.',
+  sideRoads: 'Caminos laterales: tildalo y hacé clic en las calles que salen del tramo o lo cruzan (quedan en naranja). Se generan en 3D unidas al camino, hasta donde llega el margen de terreno. Clic sobre una naranja para quitarla.',
+  clearSide: 'Borrar laterales: quita todos los caminos laterales marcados.',
   freePts: 'Puntos libres: mientras está tildado, cada clic agrega un punto suelto aunque no haya calle. Ideal para huellas o partes del tramo que el mapa no tiene. (Ctrl+clic hace lo mismo sin tildarlo).',
   gpsFile: 'Importar GPS: cargá el video de una GoPro (trae el GPS adentro) o un archivo GPX/KML/CSV grabado con el celular. Arma el tramo exacto por donde pasaste.',
   stA: 'Coordenadas de largada: pegá latitud y longitud (por ejemplo copiadas de Google Maps) para ubicar el punto de largada.',
