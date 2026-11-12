@@ -1187,27 +1187,32 @@ async function buildObjects(B, o, res, ter, wallCounter) {
   // --- edificios: rectángulo orientado, paredes con choque y techo a dos aguas
   const occupied = [];
   const building = (c, dir, L, Wd, Hw, roofMat) => {
-    if (L < 3 || Wd < 3) return false;
+    if (L < 3 || Wd < 2.2) return false; if (Wd < 3.5) { Wd = 3.5; }
     const ca = Math.cos(dir), sa = Math.sin(dir), cr = (u, v) => [c[0] + ca * u - sa * v, c[1] + sa * u + ca * v];
     const pts = [cr(-L / 2, -Wd / 2), cr(L / 2, -Wd / 2), cr(L / 2, Wd / 2), cr(-L / 2, Wd / 2)];
     if (pts.some(p => rd(p[0], p[1], 10) < 4)) return false;
     const hs = pts.map(p => hAt(p[0], p[1])); if (hs.some(h => h == null)) return false;
-    const z0 = Math.min(...hs) - 0.3, zt = Math.max(...hs) + Hw, ridge = zt + Math.min(Wd, 14) * 0.3;
+    const hip = L / Wd < 1.6; // casas casi cuadradas: techo a cuatro aguas (como las de las estancias)
+    const z0 = Math.min(...hs) - 0.3, zt = Math.max(...hs) + Hw, ridge = zt + Math.min(Wd, 14) * (hip ? 0.38 : 0.3);
     const w = mesh('bwall', true), b0 = w.v.length;
     for (let k = 0; k < 4; k++) { const p0 = pts[k], p1 = pts[(k + 1) % 4]; quad(w, p0, p1, z0, z0, zt, zt, 3, 3); } // caras hacia afuera
     // hastiales (triángulos) en los lados cortos
     const mid = (p, q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
-    for (const [p, q] of [[pts[1], pts[2]], [pts[3], pts[0]]]) { const m2 = mid(p, q), b = w.v.length; w.v.push([p[0], p[1], zt], [q[0], q[1], zt], [m2[0], m2[1], ridge]); w.uv.push([0, 0], [1, 0], [0.5, 0.4]); w.f.push([b, b + 1, b + 2]); }
+    if (!hip) for (const [p, q] of [[pts[1], pts[2]], [pts[3], pts[0]]]) { const m2 = mid(p, q), b = w.v.length; w.v.push([p[0], p[1], zt], [q[0], q[1], zt], [m2[0], m2[1], ridge]); w.uv.push([0, 0], [1, 0], [0.5, 0.4]); w.f.push([b, b + 1, b + 2]); }
     vRel(w, b0, z0);
     const r = mesh(roofMat, false), o2 = 0.4, e = (u, v, z) => { const p = cr(u, v); return [p[0], p[1], z]; };
-    const drop = (Wd / 2 + o2) * (ridge - zt) / (Wd / 2);
-    for (const sg of [-1, 1]) {
-      const b = r.v.length, A1 = e(-L / 2 - o2, 0, ridge), A2 = e(L / 2 + o2, 0, ridge), B1 = e(-L / 2 - o2, sg * (Wd / 2 + o2), ridge - drop), B2 = e(L / 2 + o2, sg * (Wd / 2 + o2), ridge - drop);
-      r.v.push(B1, B2, A2, A1); const sl = Math.hypot(Wd / 2 + o2, drop) / 3; r.uv.push([0, 0], [L / 3, 0], [L / 3, sl], [0, sl]);
-      if (sg < 0) r.f.push([b, b + 1, b + 2], [b, b + 2, b + 3]); else r.f.push([b, b + 2, b + 1], [b, b + 3, b + 2]);
-      const c2 = r.v.length; r.v.push(...[B1, B2, A2, A1].map(v => [v[0], v[1], v[2] - 0.05])); r.uv.push([0, 0], [L / 3, 0], [L / 3, sl], [0, sl]);
-      if (sg < 0) r.f.push([c2, c2 + 2, c2 + 1], [c2, c2 + 3, c2 + 2]); else r.f.push([c2, c2 + 1, c2 + 2], [c2, c2 + 2, c2 + 3]);
-    }
+    const drop = (Wd / 2 + o2) * (ridge - zt) / (Wd / 2), ez = ridge - drop, hl = hip ? Math.max(0, L / 2 - Wd / 2) : L / 2 + o2;
+    const E = [e(-L / 2 - o2, -Wd / 2 - o2, ez), e(L / 2 + o2, -Wd / 2 - o2, ez), e(L / 2 + o2, Wd / 2 + o2, ez), e(-L / 2 - o2, Wd / 2 + o2, ez)];
+    const R1 = e(-hl, 0, ridge), R2 = e(hl, 0, ridge);
+    const face = poly => { // cara del techo hacia arriba + su cara de abajo
+      const b = r.v.length, n = poly.length, [p0, p1, p2] = poly, nz = (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p1[1] - p0[1]) * (p2[0] - p0[0]);
+      const P = nz >= 0 ? poly : poly.slice().reverse();
+      for (const v of P) { r.v.push(v); const dx = v[0] - c[0], dy = v[1] - c[1]; r.uv.push([(dx * ca + dy * sa) / 3, (-dx * sa + dy * ca) / 3]); }
+      for (let k = 1; k + 1 < n; k++) r.f.push([b, b + k, b + k + 1]);
+      const b2 = r.v.length; for (const v of P) { r.v.push([v[0], v[1], v[2] - 0.05]); r.uv.push([0, 0]); } for (let k = 1; k + 1 < n; k++) r.f.push([b2, b2 + k + 1, b2 + k]);
+    };
+    if (hip) { face([E[0], E[1], R2, R1]); face([E[2], E[3], R1, R2]); face([E[1], E[2], R2]); face([E[3], E[0], R1]); }
+    else { face([E[0], E[1], R2, R1]); face([E[2], E[3], R1, R2]); }
     occupied.push({ c, R: Math.hypot(L, Wd) / 2 + 3 });
     return true;
   };
@@ -1270,8 +1275,42 @@ async function buildObjects(B, o, res, ter, wallCounter) {
   for (const f of fences) for (let i = 0; i + 1 < f.length; i++) for (const sl of side) for (let j = 0; j + 1 < sl.length; j++) {
     const X = segX(f[i], f[i + 1], sl[j], sl[j + 1]); if (X && rd(X[0], X[1], 6) > 2 && !gates.some(g => Math.hypot(g[0] - X[0], g[1] - X[1]) < 8)) gates.push(X);
   }
-  // entrada a casas/estancias cercanas sin camino mapeado
-  for (const x of blds) { if (!near(x.c, 250)) continue; let best = null; for (const f of fences) for (const p of f) { const d = Math.hypot(p[0] - x.c[0], p[1] - x.c[1]); if (!best || d < best.d) best = { d, p }; } if (best && best.d < 250 && !gates.some(g => Math.hypot(g[0] - best.p[0], g[1] - best.p[1]) < 60)) gates.push(best.p); }
+  // cascos de estancia: 2 o más edificios juntos -> alambrado perimetral, tranquera hacia el camino y huella de entrada
+  const inCluster = new Set(), placed = blds.filter(x => occupied.some(q => q.c === x.c));
+  let nCl = 0;
+  for (const x of placed) {
+    if (inCluster.has(x)) continue;
+    const cl = [x]; inCluster.add(x);
+    for (let k = 0; k < cl.length; k++) for (const y of placed) if (!inCluster.has(y) && Math.hypot(y.c[0] - cl[k].c[0], y.c[1] - cl[k].c[1]) < 70) { cl.push(y); inCluster.add(y); }
+    if (cl.length < 2) { inCluster.delete(x); continue; }
+    if (o.fences === 'none') continue;
+    const d = cl.reduce((s, b) => s.L > b.L ? s : b).d, ca = Math.cos(d), sa = Math.sin(d), cx = cl.reduce((s, b) => s + b.c[0], 0) / cl.length, cy = cl.reduce((s, b) => s + b.c[1], 0) / cl.length;
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (const b of cl) for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { const bc = Math.cos(b.d), bs = Math.sin(b.d), px = b.c[0] + bc * su * b.L / 2 - bs * sv * b.W / 2 - cx, py = b.c[1] + bs * su * b.L / 2 + bc * sv * b.W / 2 - cy, u = px * ca + py * sa, v = -px * sa + py * ca; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+    const m = 14, Pt = (u, v) => [cx + ca * u - sa * v, cy + sa * u + ca * v];
+    let ring = [Pt(u0 - m, v0 - m), Pt(u1 + m, v0 - m), Pt(u1 + m, v1 + m), Pt(u0 - m, v1 + m)];
+    ring = ring.map(p => { const dr = rd(p[0], p[1], 30); return p; });
+    if (ring.some(p => rd(p[0], p[1], 6) < 3)) continue; // muy pegado al camino
+    ring.push(ring[0]); fences.push(ring);
+    // tranquera en el lado del alambrado más cercano al camino y huella hasta el camino
+    let best = null; for (let i = 0; i < 4; i++) { const p = ring[i], q = ring[i + 1], mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], dd = rd(mid[0], mid[1], 600); if (!best || dd < best.dd) best = { dd, mid }; }
+    gates.push(best.mid);
+    // huella: del portón al punto más cercano del camino
+    let rp = null; for (let i = 0; i < res.n; i += 2) { const dd = Math.hypot(res.C[i][0] - best.mid[0], res.C[i][1] - best.mid[1]); if (!rp || dd < rp.dd) rp = { dd, i }; }
+    if (rp && rp.dd < 600) {
+      const A0 = res.C[rp.i], dx = best.mid[0] - A0[0], dy = best.mid[1] - A0[1], Ld = Math.hypot(dx, dy), nx = -dy / Ld, ny = dx / Ld, st = Math.max(2, res.W[rp.i] / 2 + res.EX * 0.5);
+      const tr = { name: `${7000 + inCluster.size + rp.i}GRAVEL`, mat: 'gravel', v: [], uv: [], f: [] }; let ok = true, k0 = 0; nCl += 0;
+      for (let s = st; s <= Ld + 6; s += 2) { const x = A0[0] + dx / Ld * s, y = A0[1] + dy / Ld * s, hh = hAt(x, y); if (hh == null) { ok = false; break; }
+        tr.v.push([x - nx * 1.8, y - ny * 1.8, hh + 0.06], [x + nx * 1.8, y + ny * 1.8, hh + 0.06]); tr.uv.push([0, s / 7], [1, s / 7]);
+        if (k0) { const b = tr.v.length - 4; tr.f.push([b, b + 3, b + 1], [b, b + 2, b + 3]); } k0++; }
+      if (ok && tr.f.length) { meshes.push(tr); nCl++;
+        // donde la huella cruza el alambrado del camino, otra tranquera
+        for (const f of fences) if (f !== ring) for (let i = 0; i + 1 < f.length; i++) { const X = segX(f[i], f[i + 1], A0, best.mid); if (X && !gates.some(g => Math.hypot(g[0] - X[0], g[1] - X[1]) < 8)) gates.push(X); } }
+    }
+  }
+  if (inCluster.size) log(`Casco de estancia: ${inCluster.size} edificios juntos → alambrado perimetral, tranquera hacia el camino y ${nCl} huella(s) de entrada.`);
+  // entrada a casas sueltas sin camino mapeado
+  for (const x of blds) { if (inCluster.has(x) || !near(x.c, 250)) continue; let best = null; for (const f of fences) for (const p of f) { const d = Math.hypot(p[0] - x.c[0], p[1] - x.c[1]); if (!best || d < best.d) best = { d, p }; } if (best && best.d < 250 && !gates.some(g => Math.hypot(g[0] - best.p[0], g[1] - best.p[1]) < 60)) gates.push(best.p); }
   // dibujar alambrados con huecos en las tranqueras
   let fl = 0;
   const post = (p, z, s, h) => { const m = mesh('fpost', false), b0 = m.v.length; const cs = [[-s, -s], [s, -s], [s, s], [-s, s]]; for (let k = 0; k < 4; k++) { const a1 = cs[k], q = cs[(k + 1) % 4]; quad(m, [p[0] + a1[0], p[1] + a1[1]], [p[0] + q[0], p[1] + q[1]], z, z, z + h, z + h, 0.3, 1); } };
@@ -2039,19 +2078,20 @@ async function satVegMask(B) {
       nl++; const st = [k0]; lab[k0] = nl; const P2 = [];
       while (st.length && P2.length < 6000) { const k = st.pop(); P2.push(k); const x = k % PW, y = (k / PW) | 0;
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= PW || yy >= PH) continue; const kk = yy * PW + xx; if (!lab[kk] && roofCol(kk * 4) === col) { lab[kk] = nl; st.push(kk); } } }
-      const A = P2.length * mpp * mpp; if (A < 25 || A > 2500) continue;
+      const A = P2.length * mpp * mpp; if (A < 14 || A > 2500) continue;
       let mx = 0, my = 0; for (const k of P2) { mx += k % PW; my += (k / PW) | 0; } mx /= P2.length; my /= P2.length;
       let sxx = 0, syy = 0, sxy = 0; for (const k of P2) { const dx = k % PW - mx, dy = ((k / PW) | 0) - my; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; }
       const ang = 0.5 * Math.atan2(2 * sxy, sxx - syy), ca = Math.cos(ang), sa = Math.sin(ang);
       let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
       for (const k of P2) { const dx = k % PW - mx, dy = ((k / PW) | 0) - my, u = dx * ca + dy * sa, v = -dx * sa + dy * ca; a0 = Math.min(a0, u); a1 = Math.max(a1, u); b0 = Math.min(b0, v); b1 = Math.max(b1, v); }
-      const L = (a1 - a0 + 1) * mpp, Wd = (b1 - b0 + 1) * mpp; if (P2.length / ((a1 - a0 + 1) * (b1 - b0 + 1)) < 0.55 || L / Wd > 6 || Wd < 3) continue;
+      const L = (a1 - a0 + 1) * mpp, Wd = (b1 - b0 + 1) * mpp; if (P2.length / ((a1 - a0 + 1) * (b1 - b0 + 1)) < 0.5 || L / Wd > 7 || Wd < 2.2) continue;
       const cxp = mx + ca * (a0 + a1) / 2 - sa * (b0 + b1) / 2, cyp = my + sa * (a0 + a1) / 2 + ca * (b0 + b1) / 2;
       const ll = p => { const X = tx0 + p[0] / 256, Y = ty0 + p[1] / 256, lon = X / 2 ** z * 360 - 180, lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * Y / 2 ** z))) * 180 / Math.PI; return P.fwd(lat, lon); };
       const c0 = ll([cxp, cyp]), c1 = ll([cxp + ca * 10, cyp + sa * 10]), dir = Math.atan2(c1[1] - c0[1], c1[0] - c0[0]);
       roofs.push({ c: c0, dir, L, W: Wd, col });
     }
     fn.roofs = roofs;
+    fn.lines = [];
   } catch (e) { fn.roofs = []; }
   fn.cover = cnt ? sum / cnt : 0; fn.ground = gn > 50 ? [gr / gn, gg / gn, gb / gn] : null;
   return fn;
