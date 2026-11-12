@@ -266,11 +266,13 @@ const Core = (() => {
         // zanja angosta cavada al borde del camino (como en Aguas Blancas): pared casi vertical del lado del camino,
         // fondo de ~0,3 m, pared de tierra arcillosa del otro lado con terrones apilados encima (desparejo a lo largo)
         const d = dist[i], open = (1 - FOR[i]) * Math.min(1, WETP[i] * 1.6), wf = (0.85 + 0.35 * vn1(d / 45, sd * 7)) * (1 + 0.6 * open);
-        const lump = (0.1 + 0.08 * Math.sin(d * 0.37 + sd) * Math.sin(d * 0.113 + 2 * sd) + 0.06 * Math.sin(d * 1.3 + sd * 3)) * (1 - 0.75 * open); // en el campo casi sin terrones
-        const bot = edge - Dd, mtop = edge + Math.max(0.02, lump), a0 = 0.1 * wf, a1 = 0.32 * wf, a2 = 0.62 * wf, a3 = 0.9 * wf, a4 = 1.3 * wf;
+        // tierra que sacaron al cavar, amontonada sin forma: lomas irregulares (ruido en dos escalas), a veces casi nada, a veces una loma
+        const nL = vn1(d / 7, sd * 11 + 3) * 0.6 + vn1(d / 2.2, sd * 13 + 5) * 0.4, lump = (0.03 + 0.34 * Math.pow(Math.max(0, nL - 0.25), 1.3)) * (1 - 0.75 * open);
+        const mw = 0.8 + 0.8 * vn1(d / 12, sd * 17 + 2);                         // ancho de la loma, variable
+        const bot = edge - Dd, mtop = edge + Math.max(0.02, lump), a0 = 0.1 * wf, a1 = 0.32 * wf, a2 = 0.62 * wf, a3 = a2 + 0.28 * wf * mw, a4 = a3 + 0.4 * wf * mw;
         xe = a4 + 0.8; for (let k = 0; k < 3; k++) { const dh = tg(xe) - mtop; xe = Math.min(9, a4 + Math.max(0.8, Math.abs(dh) * (dh < 0 ? 1.5 : 1.1))); }
         const top = tg(xe);
-        pts = [[0, edge], [a0, edge - 0.04], [a1, bot], [a2, bot + 0.03], [a3, mtop - 0.04], [a4, mtop - 0.06], [(a4 + xe) / 2, mtop + (top - mtop) * 0.5], [xe, top]];
+        pts = [[0, edge], [a0, edge - 0.04], [a1, bot], [a2, bot + 0.03], [a3, mtop], [a4, mtop - 0.03 - lump * 0.15], [(a4 + xe) / 2, mtop + (top - mtop) * 0.5 + lump * 0.3], [xe, top]]; // hombro redondeado: la loma sigue en el talud
         clear = a4 + 0.3;
       } else {
         const b0 = edge - 0.06; xe = bw + 1;

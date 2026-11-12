@@ -1058,7 +1058,7 @@ function makeDitchTex(variant = 'normal') {
     const wet = MUD ? [70 + f * 10, 60 + f * 9, 48 + f * 8] : [96 + f * 14, 80 + f * 12, 62 + f * 10]; // fondo húmedo
     // terrones: relieve con luz de arriba a la izquierda (derivada del ruido), en vez de manchas planas
     const hgt = nl(px, py) * 0.6 + nf(px, py) * 0.4, sh = Math.max(0.7, Math.min(1.18, 1 + (nl(px - 4, py - 4) - nl(px + 4, py + 4)) * 1.1 + (nf(px - 1, py - 1) - nf(px + 1, py + 1)) * 0.5));
-    const clod = [(166 + hgt * 18) * sh, (149 + hgt * 16) * sh, (124 + hgt * 14) * sh];
+    const clod = [(138 + hgt * 16) * sh, (124 + hgt * 14) * sh, (106 + hgt * 12) * sh]; // terrones: tierra removida, no tan clara
     const dryT = Math.max(0, Math.min(1, (nt(px * 2, py * 0.5) - 0.15) * 2.5)), g0 = [G[k], G[k + 1], G[k + 2]], grass = mix(g0, [146, 134, 90], dryT * 0.55);
     let col = road;
     col = mix(col, cut, sm(0.04, 0.1, u));
@@ -1073,6 +1073,8 @@ function makeDitchTex(variant = 'normal') {
     o[k] = col[0] + gn; o[k + 1] = col[1] + gn; o[k + 2] = col[2] + gn; o[k + 3] = 255;
   }
   x.putImageData(img, 0, 0);
+  for (let i = 0; i < (MUD ? 120 : 420); i++) { const px = N * (0.42 + Math.random() * 0.3), py = Math.random() * N, r = rnd(1.5, 6), l = rnd(-25, 20); // piedras en la loma de tierra
+    const g = x.createRadialGradient(px - r * 0.3, py - r * 0.3, r * 0.1, px, py, r); g.addColorStop(0, `rgb(${150 + l},${146 + l},${138 + l})`); g.addColorStop(1, `rgb(${82 + l},${78 + l},${72 + l})`); x.fillStyle = g; x.beginPath(); x.ellipse(px, py, r, r * rnd(0.6, 1), rnd(0, 3), 0, 6.3); x.fill(); }
   if (ROCK) for (let i = 0; i < 700; i++) { const px = N * (0.04 + Math.random() * 0.56), py = Math.random() * N, r = rnd(2, 9), l = rnd(-25, 25); // piedras en la pared de la zanja
     const g = x.createRadialGradient(px - r * 0.3, py - r * 0.3, r * 0.1, px, py, r); g.addColorStop(0, `rgb(${170 + l},${166 + l},${158 + l})`); g.addColorStop(1, `rgb(${92 + l},${88 + l},${82 + l})`); x.fillStyle = g; x.beginPath(); x.ellipse(px, py, r, r * rnd(0.6, 1), rnd(0, 3), 0, 6.3); x.fill(); }
   // briznas de pasto y pajas secas sobre el talud
@@ -3235,19 +3237,27 @@ async function rebuild(keepCam) {
     if (ditchM) log(`Cunetas: ${(ditchM / 1000).toFixed(2)} km de camino con cuneta (piso resbaladizo).`);
   }
   if (B.mode === 'route' && SIDECAT.on && res) { // matas de pasto 3D (sin choque) en banquinas y taludes, según el tipo de costado
-    const hAt = Core.terrainHeightFn(ter, B.bbox, o.res), m = { name: 'TREES_tufts', mat: 'tuft', v: [], uv: [], f: [] }; let cnt = 0;
-    for (let i = 0; i < res.n && cnt < 60000; i += 1) for (const sd of [1, -1]) {
-      const d = res.dist[i], tp = SIDECAT.TYPES[SIDECAT.typeAt(d, sd)], dens = tp.tuft * 2; if ((res.accessPts || []).some(a => Math.abs(a.d - d) < 8)) continue;
-      for (let q = 0; q < 6; q++) { if (hashU(i, sd * 7 + q, 301) > dens * 0.45) continue;
-        const e = 0.35 + Math.pow(hashU(i, sd * 7 + q, 302), 1.6) * 7, lat = sd * (res.W[i] / 2 + e), nx = -res.T[i][1], ny = res.T[i][0], x0 = res.C[i][0] + nx * lat + res.T[i][0] * hashU(i, q, 303) * 2, y0 = res.C[i][1] + ny * lat + res.T[i][1] * hashU(i, q, 303) * 2;
+    const hAt = Core.terrainHeightFn(ter, B.bbox, o.res), m = { name: 'TREES_tufts', mat: 'tuft', v: [], uv: [], f: [] }, used = new Set(); let cnt = 0;
+    for (let i = 0; i < res.n && cnt < 110000; i += 1) for (const sd of [1, -1]) {
+      const d = res.dist[i], tk = SIDECAT.typeAt(d, sd), tp = SIDECAT.TYPES[tk]; used.add(tk); const dens = tp.tuft * 2; if ((res.accessPts || []).some(a => Math.abs(a.d - d) < 8)) continue;
+      for (let q = 0; q < 10; q++) { if (hashU(i, sd * 7 + q, 301) > dens * 0.7) continue;
+        const e = 0.35 + Math.pow(hashU(i, sd * 7 + q, 302), 1.3) * 12, lat = sd * (res.W[i] / 2 + e), nx = -res.T[i][1], ny = res.T[i][0], x0 = res.C[i][0] + nx * lat + res.T[i][0] * hashU(i, q, 303) * 2, y0 = res.C[i][1] + ny * lat + res.T[i][1] * hashU(i, q, 303) * 2;
         const DD = sd > 0 ? res.DL[i] : res.DR[i]; if (DD > 0.12 && e < 1.4) continue; // no dentro de la zanja
-        const h = hAt(x0, y0); if (h == null) continue; const sz = 0.35 + hashU(i, q, 304) * 0.5, slot = tp === SIDECAT.TYPES.side_a ? (hashU(i, q, 305) < 0.6 ? 0 : 3) : tp === SIDECAT.TYPES.side_c ? 1 : (hashU(i, q, 305) < 0.5 ? 2 : 1), a0 = hashU(i, q, 306) * 3.14;
+        const h = hAt(x0, y0); if (h == null) continue; const sz = (0.4 + hashU(i, q, 304) * 0.6) * (1 + Math.min(1, e / 8) * 0.5), slot = tp === SIDECAT.TYPES.side_a ? (hashU(i, q, 305) < 0.6 ? 0 : 3) : tp === SIDECAT.TYPES.side_c ? 1 : (hashU(i, q, 305) < 0.5 ? 2 : 1), a0 = hashU(i, q, 306) * 3.14;
         for (const a of [a0, a0 + Math.PI / 2]) { const ca = Math.cos(a) * sz * 0.6, sa = Math.sin(a) * sz * 0.6, b = m.v.length;
           m.v.push([x0 - ca, y0 - sa, h - 0.03], [x0 + ca, y0 + sa, h - 0.03], [x0 + ca, y0 + sa, h + sz], [x0 - ca, y0 - sa, h + sz]);
           m.uv.push([slot / 4 + 0.004, 0.01], [(slot + 1) / 4 - 0.004, 0.01], [(slot + 1) / 4 - 0.004, 0.99], [slot / 4 + 0.004, 0.99]); m.f.push([b, b + 1, b + 2], [b, b + 2, b + 3]); }
         cnt++; }
     }
-    if (cnt) { meshes.push(m); log(`Costados (catálogo de fotos de Ushuaia, mismo bioma): ${Object.values(SIDECAT.TYPES).map(t => t.name.toLowerCase()).join(', ')}. ${cnt.toLocaleString()} matas de pasto 3D (sin choque), montículos en los taludes y piedras semienterradas.${SIDECAT.above ? ` Arriba del límite del bosque (~${Math.round(SIDECAT.tl)} m): ${(SIDECAT.above / 1000).toFixed(2)} km de costado de roca y tierra (generado, sin fotos de esa altura).` : ''}`, 'ok'); }
+    // piedras chicas y medianas sueltas sobre la loma de la cuneta y el talud (solo visuales, el auto no choca)
+    const rk = { name: 'ROCKS_side', mat: 'boulder', v: [], uv: [], f: [] }; let nr = 0;
+    for (let i = 0; i < res.n; i++) for (const sd of [1, -1]) { const tp = SIDECAT.TYPES[SIDECAT.typeAt(res.dist[i], sd)]; if (hashU(i, sd, 311) > 0.3 * tp.rocks + 0.05) continue;
+      const e = 0.9 + hashU(i, sd, 312) * 4, lat = sd * (res.W[i] / 2 + e), nx = -res.T[i][1], ny = res.T[i][0], x0 = res.C[i][0] + nx * lat, y0 = res.C[i][1] + ny * lat, h = hAt(x0, y0); if (h == null) continue;
+      const r = 0.08 + Math.pow(hashU(i, sd, 313), 2) * 0.35, b = rk.v.length, rot = hashU(i, sd, 314) * 6.28, j = k => 0.75 + 0.5 * hashU(i * 7 + k, sd, 315);
+      [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 0.7], [0, 0, -0.5]].forEach(([X, Y, Z], k) => { const f = r * j(k), cx = X * Math.cos(rot) - Y * Math.sin(rot), cy = X * Math.sin(rot) + Y * Math.cos(rot); rk.v.push([x0 + cx * f, y0 + cy * f, h - r * 0.25 + Z * f]); rk.uv.push([(X + 1) / 2, (Y + 1) / 2]); });
+      [[0, 2, 4], [2, 1, 4], [1, 3, 4], [3, 0, 4], [2, 0, 5], [1, 2, 5], [3, 1, 5], [0, 3, 5]].forEach(([a, bb, cc]) => rk.f.push([b + a, b + bb, b + cc])); nr++; }
+    if (nr) meshes.push(rk);
+    if (cnt) { meshes.push(m); log(`Costados (catálogo de fotos de Ushuaia, mismo bioma): ${[...used].map(k => SIDECAT.TYPES[k].name.toLowerCase()).join(', ')}. ${cnt.toLocaleString()} matas de pasto 3D (sin choque), ${nr.toLocaleString()} piedras sueltas en las lomas y taludes, montículos y piedras semienterradas.${SIDECAT.above ? ` Arriba del límite del bosque (~${Math.round(SIDECAT.tl)} m): ${(SIDECAT.above / 1000).toFixed(2)} km de costado de roca y tierra (generado, sin fotos de esa altura).` : ''}`, 'ok'); }
   }
   let OCC = [];
   if (B.mode === 'route' && o.objects) {
