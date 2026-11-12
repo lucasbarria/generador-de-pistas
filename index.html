@@ -2130,14 +2130,14 @@ const REFS = {
     const px = (x0, y0, x1, y1, f) => { const out = []; for (let yy = Math.floor(y0 * H); yy < y1 * H; yy++) for (let xx = Math.floor(x0 * W); xx < x1 * W; xx++) { const k = (yy * W + xx) * 4, p = [d[k], d[k + 1], d[k + 2]]; if (!f || f(p)) out.push(p); } return out; };
     const L = p => 0.3 * p[0] + 0.59 * p[1] + 0.11 * p[2], med = A => { if (!A.length) return null; return [0, 1, 2].map(c => { const v = A.map(p => p[c]).sort((a, b) => a - b); return Math.round(v[v.length >> 1]); }); };
     const band = px(0.25, 0.72, 0.75, 0.97), road = band.filter(p => Math.max(...p) - Math.min(...p) < 45 && L(p) > 50 && L(p) < 240);
-    const water = band.filter(p => p[2] > p[0] + 15 && p[2] >= p[1]).length / band.length, roadShare = road.length / band.length;
+    const water = band.filter(p => p[2] > p[0] + 25 && p[2] >= p[1] && L(p) > 110).length / band.length, roadShare = road.length / band.length;
     // rugosidad del piso: el ripio y la tierra tienen grano; el agua, la nieve o un barrial inundado son lisos
     let rough = 0, rn = 0; for (let yy = Math.floor(0.75 * H); yy < 0.97 * H; yy += 2) for (let xx = Math.floor(0.3 * W); xx < 0.7 * W - 1; xx += 2) { const k = (yy * W + xx) * 4; rough += Math.abs(L([d[k], d[k + 1], d[k + 2]]) - L([d[k + 4], d[k + 5], d[k + 6]])); rn++; }
     rough /= rn || 1;
     // a los costados, a media altura, tiene que haber algo que no sea camino (pasto, bosque, banquina)
     const sides = [...px(0, 0.55, 0.15, 0.7), ...px(0.85, 0.55, 1, 0.7)], sideOther = sides.filter(p => Math.max(...p) - Math.min(...p) >= 35 || L(p) < 60).length / (sides.length || 1);
     // tiene que verse un camino abajo al centro (no un lago, una montaña o una persona)
-    if (road.length < 200 || roadShare < 0.45 || water > 0.15 || rough < 5) return { ok: false, roadShare, water, rough, sideOther };
+    if (road.length < 200 || roadShare < 0.45 || water > 0.15 || rough < 10) return { ok: false, roadShare, water, rough, sideOther };
     const ls = road.map(L).sort((a, b) => a - b), cut = ls[Math.floor(ls.length * 0.55)], sun = med(road.filter(p => L(p) >= cut)), shade = med(road.filter(p => L(p) < ls[Math.floor(ls.length * 0.3)]));
     const sunL = L(sun), stones = road.filter(p => L(p) > sunL + 40).length / road.length;
     const verge = med([...px(0, 0.5, 0.2, 0.72), ...px(0.8, 0.5, 1, 0.72)].filter(p => p[1] > p[0] + 4 && p[1] > p[2]));
