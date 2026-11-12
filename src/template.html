@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generador de Pistas — del mapa real al simulador</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#101215;--panel:#16191d;--line:#262a30;--txt:#e9ecef;--mut:#8b939c;--acc:#ffd200;--ok:#2ecc71;--err:#ff6b6b}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font:14px/1.45 Inter,system-ui,sans-serif}
+#app{display:flex;height:100vh}
+#map{flex:1;min-width:0}
+aside{width:390px;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;overflow:auto}
+header{padding:18px 20px 12px;border-bottom:1px solid var(--line)}
+h1{font:700 26px/1 'Barlow Condensed',sans-serif;letter-spacing:.5px;margin:0;text-transform:uppercase}
+h1 span{color:var(--acc)}
+header p{margin:6px 0 0;color:var(--mut);font-size:13px}
+section{padding:14px 20px;border-bottom:1px solid var(--line)}
+h2{font:600 15px 'Barlow Condensed',sans-serif;text-transform:uppercase;letter-spacing:1px;color:var(--mut);margin:0 0 10px}
+.tabs{display:flex;gap:6px}
+.tab{flex:1;padding:9px;border:1px solid var(--line);background:#1c2025;color:var(--txt);border-radius:8px;cursor:pointer;font-weight:600}
+.tab.on{background:var(--acc);color:#111;border-color:var(--acc)}
+button.b{padding:8px 12px;border:1px solid var(--line);background:#1f242a;color:var(--txt);border-radius:7px;cursor:pointer;font-weight:500}
+button.b:hover{border-color:#3a414a}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
+label.f{display:grid;grid-template-columns:1fr 120px;align-items:center;gap:8px;margin:7px 0;color:#cfd4d9}
+input,select{background:#0f1114;border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:7px 8px;font:inherit;width:100%}
+input[type=checkbox]{width:auto}
+.mut{color:var(--mut);font-size:12.5px}
+#hint{background:#1c2025;border-left:3px solid var(--acc);padding:8px 10px;border-radius:4px;font-size:13px;margin-top:10px}
+#gen{width:100%;padding:13px;border:0;border-radius:9px;background:var(--acc);color:#111;font:700 18px 'Barlow Condensed',sans-serif;letter-spacing:1px;text-transform:uppercase;cursor:pointer}
+#gen:disabled{opacity:.5;cursor:wait}
+#dl{display:none;margin-top:10px;text-align:center;padding:11px;border-radius:9px;background:var(--ok);color:#06210f;font-weight:700;text-decoration:none}
+#log{margin-top:10px;max-height:170px;overflow:auto;font:12px ui-monospace,Consolas,monospace;color:#b9c0c7}
+#log .ok{color:var(--ok)}#log .err{color:var(--err)}
+#prog{font-size:12px;color:var(--acc);min-height:16px;margin-top:6px}
+.wp{width:22px;height:22px;border-radius:50%;color:#111;font:700 11px Inter;display:flex;align-items:center;justify-content:center;border:2px solid #111;box-shadow:0 1px 4px #0008}
+#search{position:absolute;top:12px;left:60px;z-index:800;display:flex;gap:6px}
+#search input{width:280px;background:#fff;color:#111;border:0;box-shadow:0 2px 8px #0004}
+#search button{border:0;background:var(--acc);border-radius:6px;padding:0 12px;font-weight:700;cursor:pointer}
+#mapwrap{flex:1;position:relative;min-width:0;display:flex}
+#viewer{display:none;position:absolute;inset:0;z-index:900;background:#000}
+#viewer3d{position:absolute;inset:0}#viewer3d canvas{width:100%;height:100%;display:block}
+#vbar{position:absolute;top:12px;left:12px;z-index:2;display:flex;gap:8px}
+#vbar button.on{background:#ffd200;color:#111;border-color:#ffd200}
+.vsel{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:4px 8px;font-size:13px;display:flex;align-items:center;gap:6px}.vsel select{width:auto;padding:3px 4px}
+#vhint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:2;background:#000c;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px}
+#vbar button{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:8px 12px;cursor:pointer;font-weight:600}
+#profile{width:100%;height:170px;display:block;background:#0f1114;border-radius:8px;cursor:crosshair;touch-action:none}
+#hoverInfo{min-height:34px;margin-top:6px}
+#selInfo{color:#00c8ff;font-size:13px;margin:4px 0}
+.tool{display:grid;grid-template-columns:52px 70px 1fr 1fr 1fr;gap:6px;align-items:center;margin:6px 0}
+.tool span{color:var(--mut);font-size:12.5px}.tool select{grid-column:2/4}.tool input{padding:6px}
+.tool button{padding:7px 6px;font-size:12.5px}.tool button:only-of-type{grid-column:3/6}.tool select~button:only-of-type{grid-column:4/6}
+.b.wide{width:100%;margin-top:10px;padding:10px}
+.legend{display:flex;gap:10px;font-size:12px;color:var(--mut);margin:6px 0}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
+.crit{padding:7px 9px;border:1px solid var(--line);border-radius:7px;margin:6px 0;cursor:pointer;font-size:13px}.crit:hover{border-color:#00c8ff}
+.crit .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+.edit{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
+.edit .x{background:none;border:0;color:var(--mut);cursor:pointer;font-size:14px}.edit .x:hover{color:var(--err)}
+.stage{display:grid;grid-template-columns:1fr 1fr auto;gap:6px;margin:6px 0}.stage input{padding:6px;font-size:12.5px}
+.flag{color:#111;font:700 11px Inter;padding:3px 6px;border-radius:5px;border:2px solid #111;text-align:center;box-shadow:0 1px 4px #0008}
+.gpsbtn{display:block;text-align:center;margin:8px 0;cursor:pointer;border-color:#ffd200 !important}
+#notes{max-height:220px;overflow:auto;font:13px ui-monospace,Consolas,monospace;margin-top:6px}.note{padding:3px 4px;cursor:pointer;border-bottom:1px solid var(--line)}.note:hover{background:#1c2025}
+.texbox{margin:8px 0}.texbox summary{cursor:pointer;color:#cfd4d9;padding:4px 0}.ctex{display:grid;grid-template-columns:1fr;gap:2px;margin:6px 0;font-size:12.5px}.ctex input{font-size:11.5px;padding:4px}
+footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
+@media(max-width:800px){#app{flex-direction:column}aside{width:100%;height:55vh}#search input{width:180px}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="mapwrap">
+    <div id="map"></div>
+    <form id="search"><input id="q" placeholder="Buscar lugar o coordenadas (ej. Paso de Jama)"><button>Ir</button></form>
+    <div id="viewer"><div id="viewer3d"></div>
+      <div id="vbar"><button id="closeViewer">← Volver al mapa</button><button id="drive">▶ Recorrer</button><button id="editCurves">✋ Ajustar curvas</button>
+        <label class="vsel">Alcance <select id="dragR"><option value="15">15 m</option><option value="30">30 m</option><option value="50" selected>50 m</option><option value="100">100 m</option><option value="200">200 m</option></select></label>
+        <button id="satBtn">🛰 Satélite</button></div>
+      <div id="vhint" style="display:none">Arrastrá un punto amarillo para mover la curva. Rueda/arrastre normal = mover la cámara.</div>
+    </div>
+  </div>
+  <aside>
+    <header><h1>Generador de <span>Pistas</span></h1><p>Elegí cualquier camino del mundo y convertilo en una pista para Assetto Corsa, RBR u otro simulador.</p></header>
+    <section id="recover" style="display:none;background:#1f2a1f"><div id="recoverInfo" class="mut"></div><div class="row"><button class="b" id="recoverYes">Recuperar</button><button class="b" id="recoverNo">Descartar</button></div></section>
+    <section class="row" style="padding-top:10px;padding-bottom:10px"><button class="b" id="saveProj">💾 Guardar proyecto</button><label class="b" style="cursor:pointer">📂 Abrir proyecto<input type="file" id="openProj" accept=".json" hidden></label></section>
+    <section>
+      <h2>1 · Qué querés crear</h2>
+      <div class="tabs"><button class="tab" data-mode="route">Tramo / circuito</button><button class="tab" data-mode="area">Zona abierta</button></div>
+      <div data-only="route">
+        <div class="row" style="margin-top:10px"><button class="b" id="undo">Deshacer punto</button><button class="b" id="clear">Borrar todo</button></div>
+        <label class="f" style="margin-top:10px">Cómo marcar <select id="traceMode"><option value="pick" selected>Calle por calle</option><option value="free">Línea libre</option><option value="auto">Ruta automática</option></select></label>
+        <div class="row"><label><input type="checkbox" id="closed"> Circuito cerrado</label><button class="b" id="loadNet">Recargar calles de la vista</button></div>
+        <div class="row"><label title="Para partes del tramo que no figuran en el mapa: cada clic agrega un punto, sin seguir calles (Ctrl+clic hace lo mismo)"><input type="checkbox" id="freePts"> Puntos libres (tramo sin calle en el mapa)</label></div>
+        <label class="b gpsbtn">📍 Importar GPS (video GoPro, GPX, KML, CSV)<input type="file" id="gpsFile" hidden></label>
+        <div class="stage"><input id="stA" placeholder="Inicio: -54.6262612, -67.2421884"><input id="stB" placeholder="Fin (opcional)"><button class="b" id="goStage">Ir al tramo</button></div>
+        <div class="mut" id="routeInfo">Sin recorrido todavía.</div>
+        <div class="mut">Calle por calle: vos elegís el camino en cada cruce. Línea libre: para huellas que no están en el mapa. Azul = calles, marrón = tierra.</div>
+      </div>
+      <div data-only="area">
+        <div class="row" style="margin-top:10px"><button class="b" id="drawRect">Dibujar zona</button><button class="b" id="loadWays">Ver calles</button><button class="b" id="pickSpawn">Marcar salida</button></div>
+        <div class="mut" id="areaInfo">Todas las calles de la zona, con su ancho real aproximado. Ideal hasta 2–4 km².</div>
+      </div>
+      <div id="hint"></div>
+    </section>
+    <section>
+      <h2>2 · Ajustes</h2>
+      <label class="f">Nombre de la pista <input id="tname" value="Mi pista"></label>
+      <div data-only="route">
+        <label class="f">Ancho del camino (m) <input id="width" type="number" value="7" min="3" max="20" step="0.5"></label>
+        <label class="f">Superficie <select id="surface"><option value="asphalt">Asfalto</option><option value="gravel">Tierra / ripio</option></select></label>
+        <label class="f">Líneas pintadas <span><input type="checkbox" id="lines" checked></span></label>
+        <label class="f">Terreno a cada lado (m) <input id="margin" type="number" value="150" min="20" max="1000" step="10"></label>
+        <label class="f">Suavizado de pendiente (m) <input id="hsmooth" type="number" value="40" min="0" max="200" step="5"></label>
+        <label class="f">Cunetas <select id="ditch"><option value="auto" selected>Automática (ambos lados, más honda arriba)</option><option value="both">Ambos lados</option><option value="none">Sin cunetas</option></select></label>
+        <label class="f">Piedras al costado <select id="rocks"><option value="0">Ninguna</option><option value="0.6">Pocas</option><option value="1" selected>Según el terreno</option><option value="1.8">Muchas</option></select></label>
+        <label class="f">Peralte automático máx. (°) <input id="autobank" type="number" value="0" min="0" max="20" step="1"></label>
+      </div>
+      <label class="f">Vegetación y suelos reales <span><input type="checkbox" id="veg" checked></span></label>
+      <label class="f">Árboles con choque <span><input type="checkbox" id="treeHit" checked></span></label>
+      <label class="f">Tipo de bosque <select id="forest"><option value="auto" selected>Automático (según altura)</option><option value="broad">De hoja (lenga, ñire, eucalipto)</option><option value="pine">Pinos / coníferas</option></select></label>
+      <label class="f">Árboles desde el borde (m) <input id="treeClear" type="number" value="1.5" min="0.5" max="20" step="0.5"></label>
+      <label class="f">Densidad de árboles <select id="density"><option value="0.5">Baja</option><option value="1" selected>Media</option><option value="1.8">Alta</option></select></label>
+      <label class="f">Tipo de ripio <select id="gravelStyle"><option value="auto" selected>Automático según la zona (satélite)</option><option value="forest">Bosque (marrón, con huellas)</option><option value="steppe">Estepa (gris, canto rodado)</option><option value="ab">Aguas Blancas (húmedo)</option></select></label>
+      <label class="f" title="Usa grupos de árboles recortados de fotos. Se ven como paneles de cerca: solo para fondos lejanos">Árboles de fotos (experimental) <span><input type="checkbox" id="photoTrees"></span></label>
+      <label class="f">Época del año <select id="season"><option value="summer" selected>Primavera / verano (con hojas)</option><option value="winter">Otoño / invierno (lengas sin hojas)</option></select></label>
+      <label class="f">Pasto <select id="grassType"><option value="auto" selected>Automático según la zona (satélite)</option><option value="green">Verde</option><option value="dry">Seco (patagónico)</option></select></label>
+      <details class="texbox"><summary>Texturas propias (fotos)</summary><div class="mut">Reemplazá cualquier textura por una foto: del ripio real, del bosque, o texturas fotográficas gratis (ambientCG, Poly Haven). Árboles: PNG con fondo transparente.</div><div id="customTex"></div></details>
+      <label class="f">Nieve <span><input type="checkbox" id="snow"></span></label>
+      <div id="snowOpts" style="display:none">
+        <label class="f">Nieve desde (m s.n.m.) <input id="snowAlt" type="number" value="2500" step="50"></label>
+        <label class="f">Nieve también en el camino <span><input type="checkbox" id="snowRoad" checked></span></label>
+      </div>
+      <label class="f">Resolución del terreno (m) <select id="res"><option>2</option><option>3</option><option selected>4</option><option>6</option><option>8</option><option>12</option></select></label>
+      <label class="f">Detalle de elevación <select id="zoom"><option value="12">Bajo</option><option value="13">Medio</option><option value="14" selected>Alto</option><option value="15">Máximo</option></select></label>
+      <label class="f" title="El ZIP ya trae el modelo .kn5 listo; los archivos fuente solo sirven para retocarlo a mano en Blender/KsEditor">Incluir archivos fuente (OBJ) <span><input type="checkbox" id="withSrc"></span></label>
+      <label class="f" title="Si en Assetto Corsa los autos aparecen mirando para atrás, marcá esto y volvé a exportar">Invertir dirección de salida <span><input type="checkbox" id="invertSpawn"></span></label>
+      <label class="f">Lugares de salida <input id="pits" type="number" value="4" min="1" max="24"></label>
+      <label class="f" title="Casas y estancias (del mapa y detectadas por los techos en la foto satelital), alambrados y tranqueras">Objetos reales (casas, alambrados, tranqueras) <span><input type="checkbox" id="objects" checked></span></label>
+      <label class="f">Alambrados <select id="fences"><option value="auto" selected>Automático (campo/estepa, no en bosque)</option><option value="always">En todo el tramo</option><option value="none">Sin alambrados</option></select></label>
+      <label class="f" title="Agrega 30 m antes de la largada (presentación / control horario) y 30 m después de la llegada (control stop), con pancartas, carteles FIA y reloj. El cronómetro del juego corre de la largada a la llegada.">Largada, llegada y controles (pancartas y reloj) <span><input type="checkbox" id="rallyZones" checked></span></label>
+    </section>
+    <section>
+      <button id="gen">Generar pista</button>
+      <button class="b wide" id="zipBtn" style="display:none">Preparar descarga (ZIP)</button>
+      <a id="dl" href="#">Descargar</a>
+      <button class="b wide" id="openViewer">Ver en 3D</button>
+      <div id="prog"></div>
+      <div id="log"></div>
+    </section>
+    <section id="editor" style="display:none">
+      <h2>3 · Editar el camino</h2>
+      <canvas id="profile"></canvas>
+      <div class="mut" id="hoverInfo">Pasá el mouse por el perfil para ver cada punto.</div>
+      <div id="selInfo">Arrastrá sobre el perfil para elegir un tramo, o hacé clic para un punto.</div>
+      <div class="row"><button class="b" id="viewSel">Ver selección en 3D</button></div>
+      <div class="tool"><span>Altura</span><input id="dh" type="number" value="1" step="0.5" title="metros (negativo = bajar)"><button class="b" id="tRaise">Subir / bajar</button><button class="b" id="tSmooth">Suavizar</button></div>
+      <div class="tool"><span>Forma</span><input id="fh" type="number" value="0.5" step="0.1" min="0.1" title="altura en metros"><button class="b" id="tBump">Lomada</button><button class="b" id="tJump">Salto</button><button class="b" id="tPot">Bache</button></div>
+      <div class="tool"><span>Ancho</span><input id="ew" type="number" value="9" step="0.5" min="3" max="25" title="metros"><button class="b" id="tWidth">Aplicar ancho</button></div>
+      <div class="tool"><span>Peralte</span><input id="eb" type="number" value="6" step="1" min="-15" max="25" title="grados; negativo = en contra"><button class="b" id="tBank">Aplicar peralte</button></div>
+      <div class="tool"><span>Suelo</span><select id="surfKey"></select><button class="b" id="tSurf">Aplicar</button></div>
+      <h2 style="margin-top:16px">Agarre</h2>
+      <label class="row"><input type="checkbox" id="showGrip" checked> Mostrar mapa de agarre en el mapa</label>
+      <div class="legend"><span><i style="background:#2ecc71"></i>&gt;110 km/h</span><span><i style="background:#c6e23a"></i>70–110</span><span><i style="background:#ffb020"></i>45–70</span><span><i style="background:#ff4d4d"></i>&lt;45</span></div>
+      <div class="mut">Velocidad segura estimada según superficie, curva, peralte y bajada.</div>
+      <div id="crit"></div>
+      <h2 style="margin-top:16px">Notas de ruta (<span id="notesCount">0</span>)</h2>
+      <div class="mut">Calculadas del trazado: distancia · lado · grado (horquilla, 1 lenta … 6 rápida) · cierra/abre/larga. Clic para ver la curva.</div>
+      <div id="notes"></div>
+      <h2 style="margin-top:16px">Cambios (<span id="editCount">0</span>)</h2>
+      <div id="edits"></div>
+      <div class="row"><button class="b" id="tApply">Aplicar ajustes de arriba</button><button class="b" id="tClearEd">Borrar todos los cambios</button></div>
+    </section>
+    <footer>Calles © colaboradores de OpenStreetMap (ODbL), vía OpenFreeMap. Elevación: Terrarium / AWS Open Data. Ruteo: OSRM. Assetto Corsa es marca de Kunos Simulazioni; Richard Burns Rally es marca de sus titulares. Herramienta no afiliada.</footer>
+  </aside>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+/*CORE*/
+</script>
+<script>
+/*APP*/
+</script>
+</body>
+</html>
