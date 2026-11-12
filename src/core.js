@@ -130,7 +130,7 @@ const Core = (() => {
     }
     K = smooth1D(smooth1D(K, 3, closed), 3, closed);
     // alturas
-    const raw = C.map(p => o.height(p[0], p[1]));
+    const raw = C.map(p => { const g = o.roadH ? o.roadH(p[0], p[1]) : null; return g != null ? g : o.height(p[0], p[1]); }); // altura del GPS si la hay
     let hs = raw; const r = Math.max(1, Math.round((o.hSmooth || 0) / step / 2));
     for (let p = 0; p < 3; p++) hs = smooth1D(hs, r, closed, false);
     if (o.smoothSecs && o.smoothSecs.length) {
