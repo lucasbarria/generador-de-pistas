@@ -1035,7 +1035,7 @@ function opt() {
   return {
     name: $('#tname').value.trim() || 'Mi pista', width: +$('#width').value, surface: $('#surface').value,
     lines: $('#lines').checked, margin: +$('#margin').value, res: +$('#res').value, hSmooth: +$('#hsmooth').value,
-    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, bridgeRamp: $('#bridgeRamp') ? $('#bridgeRamp').value : 'steep', fences: $('#fences') ? $('#fences').value : 'auto',
+    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, bridgeRamp: $('#bridgeRamp') ? $('#bridgeRamp').value : 'steep', autoWidth: !$('#autoWidth') || $('#autoWidth').checked, edgeFix: !$('#edgeFix') || $('#edgeFix').checked, fences: $('#fences') ? $('#fences').value : 'auto',
     autoBank: Math.max(0, Math.min(20, +$('#autobank').value || 0)),
     snow: $('#snow').checked, snowAlt: +$('#snowAlt').value, snowRoad: $('#snowRoad').checked,
     veg: $('#veg').checked, density: +$('#density').value, treeHit: $('#treeHit').checked,
@@ -1129,7 +1129,7 @@ function editFns(o, total, closed) {
       }
       return s;
     },
-    widthAt: d => { let w = o.width; for (const e of S.edits) if (e.kind === 'width' && inSec(d, e)) w = e.w; return w; },
+    widthAt: d => { let w = S.autoW ? S.autoW(d) : o.width; for (const e of S.edits) if (e.kind === 'width' && inSec(d, e)) w = e.w; return w; },
     bankAt: (d, k) => { for (let i = S.edits.length - 1; i >= 0; i--) { const e = S.edits[i]; if (e.kind === 'bank' && inSec(d, e)) return e.deg; } return o.autoBank * Math.min(1, Math.abs(k) * 30); },
     surfaceAt: (d, h) => {
       for (let i = S.edits.length - 1; i >= 0; i--) { const e = S.edits[i]; if (e.kind === 'surface' && inSec(d, e)) return e.key; }
@@ -1462,6 +1462,54 @@ function bridgeMeshes(r, BR, wallCounter) {
   }
   return [conc, rail, posts].filter(m => m.f.length);
 }
+// ---------- Ancho automático del camino: medido en la foto satelital, acotado por el tipo de camino del mapa ----------
+function autoWidthProfile(B, pts, o) {
+  const SV = B.satVeg, cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const total = cum[cum.length - 1]; if (total < 20) return null;
+  // tipo de camino más cercano (para acotar la medición)
+  const bb = B.bbox, P = B.P, [n0, w0] = P.inv(bb.minx, bb.maxy), [s0, e0] = P.inv(bb.maxx, bb.miny), [gx0, gy0] = ll2g(n0, w0), [gx1, gy1] = ll2g(s0, e0), segs = [];
+  for (let tx = Math.floor(gx0 / EXT); tx <= Math.floor(gx1 / EXT); tx++) for (let ty = Math.floor(gy0 / EXT); ty <= Math.floor(gy1 / EXT); ty++) {
+    const c = T.cache.get(tx + '/' + ty); if (!c) continue;
+    for (const ln of c.lines) { const L = ln.g.map(([gx, gy]) => { const [la, lo] = g2ll(gx, gy); return P.fwd(la, lo); }); for (let i = 0; i + 1 < L.length; i++) segs.push([L[i], L[i + 1], ln.cls]); }
+  }
+  const clsAt = (x, y) => { let best = null, bd = 15; for (const [a, b, cls] of segs) { const vx = b[0] - a[0], vy = b[1] - a[1], L2 = vx * vx + vy * vy || 1e-9; let t = ((x - a[0]) * vx + (y - a[1]) * vy) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t; const d = Math.hypot(a[0] + vx * t - x, a[1] + vy * t - y); if (d < bd) { bd = d; best = cls; } } return best; };
+  const RANGE = { motorway: [9, 14], trunk: [8, 12], primary: [7, 11], secondary: [6, 10], tertiary: [5, 9], minor: [4.5, 8.5], service: [3, 6], track: [3, 5.5], raceway: [8, 14], busway: [5, 8] };
+  const samples = [];
+  for (let d = 0; d <= total; d += 10) {
+    let i = 0; while (i < cum.length - 2 && cum[i + 1] < d) i++;
+    const a = pts[i], b = pts[i + 1] || a, L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, t = (d - cum[i]) / L, x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t, nx = -(b[1] - a[1]) / L, ny = (b[0] - a[0]) / L;
+    const cls = clsAt(x, y), rg = RANGE[cls] || [3, 12];
+    let w = null;
+    if (SV && SV.lum) {
+      const prof = []; for (let s = -14; s <= 14.01; s += 0.5) prof.push(SV.lum(x + nx * s, y + ny * s));
+      if (!prof.some(v => v == null)) {
+        const at = s => prof[Math.round((s + 14) / 0.5)];
+        // centro real del camino (el mapa puede estar corrido unos metros): el punto más claro cerca
+        let c0 = 0, best = -1; for (let s = -4; s <= 4; s += 0.5) { const v = (at(s - 0.5) + at(s) + at(s + 0.5)) / 3; if (v > best) { best = v; c0 = s; } }
+        const side = [...prof.slice(0, 7), ...prof.slice(-7)].sort((p, q) => p - q), Lb = side[Math.floor(side.length / 2)], Lc = best;
+        if (Lc - Lb > 14) {
+          const T = Lb + (Lc - Lb) * 0.5; let l = c0, r = c0;
+          while (l > -13.5 && at(l - 0.5) > T) l -= 0.5; while (r < 13.5 && at(r + 0.5) > T) r += 0.5;
+          const m = (r - l + 0.5) * 0.92; if (m >= 2.5 && m <= 14) w = m;
+        }
+      }
+    }
+    samples.push({ d, w, rg, cls });
+  }
+  // suavizar: mediana de 70 m, acotada al rango del tipo de camino; donde no se pudo medir, el ancho típico del tipo
+  const out = samples.map((s, k) => {
+    const win = samples.slice(Math.max(0, k - 3), k + 4).map(q => q.w).filter(v => v != null).sort((p, q) => p - q);
+    let w = win.length >= 3 ? win[Math.floor(win.length / 2)] : null;
+    if (w == null) w = s.cls && ROAD_CLASS[s.cls] ? Math.min(ROAD_CLASS[s.cls].w * 0.85, o.width) : o.width;
+    return Math.max(s.rg[0], Math.min(s.rg[1], w));
+  });
+  for (let p = 0; p < 2; p++) for (let k = 1; k + 1 < out.length; k++) out[k] = (out[k - 1] + out[k] * 2 + out[k + 1]) / 4;
+  const measured = samples.filter(s => s.w != null).length;
+  const fn = d => { const f = Math.max(0, Math.min(out.length - 1, d / 10)), k = Math.floor(f), u = f - k; return out[k] * (1 - u) + (out[Math.min(out.length - 1, k + 1)]) * u; };
+  fn.min = Math.min(...out); fn.max = Math.max(...out); fn.avg = out.reduce((a, b) => a + b, 0) / out.length; fn.measured = measured / samples.length;
+  return fn;
+}
 async function rebuild(keepCam) {
   const B = S.base, o = opt(), t0 = performance.now();
   let meshes = [], res, spawnList, outline, length = 0, info = {};
@@ -1479,6 +1527,12 @@ async function rebuild(keepCam) {
       return [...pre, ...pts, ...post];
     };
     const rPts = useZ ? extend(B.pts) : B.pts;
+    S.autoW = null;
+    if (o.autoWidth) {
+      if (!B.satVeg) { try { log('Midiendo el ancho del camino en la foto satelital…'); await tick(); B.satVeg = await satVegMask(B); } catch (e) { B.satVeg = null; } }
+      S.autoW = autoWidthProfile(B, rPts, o);
+      if (S.autoW) log(`Ancho automático: de ${S.autoW.min.toFixed(1)} a ${S.autoW.max.toFixed(1)} m (promedio ${S.autoW.avg.toFixed(1)} m; ${Math.round(S.autoW.measured * 100)}% medido en el satélite, el resto según el tipo de camino).`);
+    }
     S.water = o.water ? collectWaterways(B) : { ww: [], bridgesOSM: [] };
     S.crossings = o.water ? findCrossings(rPts, S.water) : [];
     const BRs = S.crossings.filter(b => b.bridge);
@@ -1525,7 +1579,7 @@ async function rebuild(keepCam) {
   const CARVE = B.mode === 'route' && S.water && S.water.ww.length ? makeCarve(S.water.ww) : null;
   if (CARVE) log(`Ríos y arroyos: ${S.water.ww.length} tramos de agua en la zona${S.crossings.length ? ` · el camino cruza ${S.crossings.filter(b => b.bridge).length} puente(s) y ${S.crossings.filter(b => !b.bridge).length} alcantarilla(s)` : ''}.`);
   const ter = Core.buildTerrain({
-    carve: CARVE, bbox: B.bbox, res: o.res, margin: B.mode === 'route' ? o.margin : Infinity, segs: res.segs, height: B.height, heightS: B.heightS,
+    carve: CARVE, edgeFix: o.edgeFix && B.mode === 'route', bbox: B.bbox, res: o.res, margin: B.mode === 'route' ? o.margin : Infinity, segs: res.segs, height: B.height, heightS: B.heightS,
     flat: o.res * 1.5, blend: Math.max(12, o.res * 3), depth: 0.15,
     surfAt: (h, slope, x, y) => {
       if (CARVE && CARVE(x, y) > 0.35) return ['MUD', 'mud']; // cauce y barranca
@@ -2230,6 +2284,9 @@ async function satVegMask(B) {
     fn.roofs = roofs;
     fn.lines = [];
   } catch (e) { fn.roofs = []; }
+  fn.lum = (x, y) => { const [la, lo] = P.inv(x, y), [fx, fy] = tp(la, lo, z), X = (fx - tx0) * 256 - 0.5, Y = (fy - ty0) * 256 - 0.5, i = Math.floor(X), j = Math.floor(Y);
+    if (i < 0 || j < 0 || i >= PW - 1 || j >= PH - 1 || !got[Math.floor(j / 256) * TW + Math.floor(i / 256)]) return null; const a = X - i, b = Y - j, L = k => 0.3 * px[k] + 0.59 * px[k + 1] + 0.11 * px[k + 2], k0 = (j * PW + i) * 4;
+    return L(k0) * (1 - a) * (1 - b) + L(k0 + 4) * a * (1 - b) + L(k0 + PW * 4) * (1 - a) * b + L(k0 + PW * 4 + 4) * a * b; };
   fn.cover = cnt ? sum / cnt : 0; fn.ground = gn > 50 ? [gr / gn, gg / gn, gb / gn] : null;
   return fn;
 }
@@ -2716,7 +2773,9 @@ const HELP = {
   loadWays: 'Ver calles: muestra las calles que entran en la zona dibujada.',
   pickSpawn: 'Marcar salida: elegí dónde aparecen los autos en el mundo abierto.',
   tname: 'Nombre de la pista: es el nombre que aparece en Assetto Corsa y en la pancarta antes del control horario.',
-  width: 'Ancho del camino en metros. Un camino de ripio de tramo suele tener entre 5 y 7 m.',
+  edgeFix: 'Relieve real junto al camino: la elevación del satélite mide la altura de las copas de los árboles, y eso arma paredones falsos al costado del camino en el bosque. Con esto activado, cerca del camino el terreno sigue la pendiente real de la ladera y solo se aparta de a poco; a partir de 30 m vuelve a la elevación del satélite.',
+  autoWidth: 'Ancho automático: mide el ancho real del camino en la foto satelital cada 10 m (el ripio claro contra el pasto o el bosque) y lo acota según el tipo de camino del mapa (huella, camino rural, ruta). Así un tramo angosto de bosque y una ruta ancha de estepa salen distintos. Donde no se puede medir, usa el ancho típico de ese tipo de camino.',
+  width: 'Ancho del camino en metros (si el automático está activado, se usa solo donde no se puede medir). Un camino de ripio de tramo suele tener entre 5 y 7 m.',
   surface: 'Superficie principal del camino (ripio, asfalto, tierra…). Define el agarre en el juego. Después podés cambiar partes en "Editar el camino".',
   lines: 'Líneas pintadas: agrega las líneas blancas (solo en asfalto).',
   margin: 'Margen de terreno: cuántos metros de campo se generan a cada lado del camino. Más margen = más paisaje pero archivo más pesado.',

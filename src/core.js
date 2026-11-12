@@ -230,7 +230,7 @@ const Core = (() => {
     const segs = [];
     for (let i = 0; i < segCount; i++) {
       const j = (i + 1) % n;
-      segs.push([C[i][0], C[i][1], C[j][0], C[j][1], hs[i], hs[j], W[i] / 2, SL[i], SL[j], EX, Math.max(DDmax[i], DDmax[j])]);
+      segs.push([C[i][0], C[i][1], C[j][0], C[j][1], hs[i], hs[j], W[i] / 2, SL[i], SL[j], EX, Math.max(DDmax[i], DDmax[j]), CS[i]]);
     }
     return { meshes, segs, C, T, hs, raw, dist, total, n, K, W, SL, SURF, closed, CS, DL: DLs, DR: DRs, EX };
   }
@@ -286,7 +286,7 @@ const Core = (() => {
       }
     }
     const F = o.flat, B = o.blend, depth = o.depth;
-    const R1 = maxHW + Math.max(F, maxEX) + B, rr1 = Math.ceil(R1 / cs);
+    const R1 = maxHW + Math.max(Math.max(F, maxEX) + B, o.edgeFix ? 55 : 0), rr1 = Math.ceil(R1 / cs);
     const H = new Float32Array(nx * ny), need = new Uint8Array(nx * ny);
     for (let j = 0; j < ny; j++) {
       const y = bbox.miny + j * res;
@@ -307,6 +307,14 @@ const Core = (() => {
           }
         }
         const Fz = bS ? Math.max(F, bS[9] || 0) : F, dd = bS ? (bS[10] || 0) : 0;
+        // relieve junto al camino: la elevación del satélite incluye la altura de las copas de los árboles y arma
+        // paredones falsos al lado del camino. Cerca del camino el terreno sigue el plano de la ladera real
+        // (pendiente lateral medida a 15 m de cada lado) y solo se aparta de a poco; desde 30 m vuelve al natural.
+        if (o.edgeFix && bS && !isNaN(bS[4]) && best < 55) {
+          const target = bS[4] + (bS[5] - bS[4]) * bT + (bS[11] || 0) * bLat, allow = 0.4 + 0.08 * Math.max(0, best - Fz);
+          const hc = target + Math.max(-allow, Math.min(allow, h - target));
+          if (best <= 30) h = hc; else { let w = (best - 30) / 25; w = w * w * (3 - 2 * w); h = hc * (1 - w) + h * w; }
+        }
         if (bS && best < Fz + B) {
           let bH;
           if (isNaN(bS[4])) bH = o.heightS(x, y);

@@ -108,7 +108,9 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
       <h2>2 · Ajustes</h2>
       <label class="f">Nombre de la pista <input id="tname" value="Mi pista"></label>
       <div data-only="route">
-        <label class="f">Ancho del camino (m) <input id="width" type="number" value="7" min="3" max="20" step="0.5"></label>
+        <label class="f">Relieve real junto al camino <span><input type="checkbox" id="edgeFix" checked></span></label>
+        <label class="f">Ancho automático (satélite) <span><input type="checkbox" id="autoWidth" checked></span></label>
+        <label class="f">Ancho fijo / por defecto (m) <input id="width" type="number" value="7" min="3" max="20" step="0.5"></label>
         <label class="f">Superficie <select id="surface"><option value="asphalt">Asfalto</option><option value="gravel">Tierra / ripio</option></select></label>
         <label class="f">Líneas pintadas <span><input type="checkbox" id="lines" checked></span></label>
         <label class="f">Terreno a cada lado (m) <input id="margin" type="number" value="150" min="20" max="1000" step="10"></label>
