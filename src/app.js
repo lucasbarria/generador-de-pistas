@@ -1036,7 +1036,7 @@ function opt() {
   return {
     name: $('#tname').value.trim() || 'Mi pista', width: +$('#width').value, surface: $('#surface').value,
     lines: $('#lines').checked, margin: +$('#margin').value, res: +$('#res').value, hSmooth: +$('#hsmooth').value,
-    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, bridgeRamp: $('#bridgeRamp') ? $('#bridgeRamp').value : 'steep', autoWidth: !$('#autoWidth') || $('#autoWidth').checked, edgeFix: !$('#edgeFix') || $('#edgeFix').checked, gpsAlt: !$('#gpsAlt') || $('#gpsAlt').checked, fences: $('#fences') ? $('#fences').value : 'auto',
+    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, bridgeRamp: $('#bridgeRamp') ? $('#bridgeRamp').value : 'steep', autoWidth: !$('#autoWidth') || $('#autoWidth').checked, edgeFix: !$('#edgeFix') || $('#edgeFix').checked, realTex: $('#realTex') ? $('#realTex').value : 'none', gpsAlt: !$('#gpsAlt') || $('#gpsAlt').checked, fences: $('#fences') ? $('#fences').value : 'auto',
     autoBank: Math.max(0, Math.min(20, +$('#autobank').value || 0)),
     snow: $('#snow').checked, snowAlt: +$('#snowAlt').value, snowRoad: $('#snowRoad').checked,
     veg: $('#veg').checked, density: +$('#density').value, treeHit: $('#treeHit').checked,
@@ -1580,14 +1580,15 @@ async function readGeoTIFF(buf, name) {
     tags[tag] = type === 2 ? String.fromCharCode(...vals).replace(/\0+$/, '') : vals;
   }
   const W = tags[256][0], H = tags[257][0], bps = (tags[258] || [8])[0], comp = (tags[259] || [1])[0], pred = (tags[317] || [1])[0], fmt = (tags[339] || [1])[0], spp = (tags[277] || [1])[0];
-  if (spp !== 1) throw new Error('el GeoTIFF tiene varias bandas; se espera una sola (altura)');
+  const rgbMode = spp >= 3 && bps === 8; if (spp !== 1 && !rgbMode) throw new Error('el GeoTIFF tiene varias bandas: se espera una (altura) o una imagen RGB de 8 bits (ortofoto)');
+  if (comp === 7) throw new Error('compresión JPEG no soportada: exportalo desde QGIS con compresión DEFLATE o LZW');
   if (![1, 5, 8, 32946].includes(comp)) throw new Error(`compresión ${comp} no soportada (usá sin compresión, LZW o Deflate)`);
   const scale = tags[33550], tie = tags[33922]; if (!scale || !tie) throw new Error('el archivo no tiene georreferencia (ModelPixelScale/ModelTiepoint)');
   const gk = tags[34735] || [], keys = {}; for (let i = 4; i + 3 < gk.length; i += 4) keys[gk[i]] = gk[i + 3];
   const epsg = keys[3072] || keys[2048] || (keys[1024] === 2 ? 4326 : 0), crs = crsFromEPSG(epsg) || (keys[1024] === 2 ? { geo: true, name: 'geográficas' } : null);
   if (!crs) throw new Error(`sistema de coordenadas EPSG ${epsg || '?'} no soportado (usá geográficas, POSGAR fajas o UTM)`);
   const nodata = tags[42113] != null ? parseFloat(tags[42113]) : -32768;
-  const bpsB = bps / 8, grid = new Float32Array(W * H).fill(NaN);
+  const bpsB = bps / 8 * (rgbMode ? spp : 1), grid = rgbMode ? null : new Float32Array(W * H).fill(NaN), rgba = rgbMode ? new Uint8ClampedArray(W * H * 4) : null;
   const tiled = !!tags[322], tw = tiled ? tags[322][0] : W, th = tiled ? tags[323][0] : (tags[278] || [H])[0];
   const offs = tiled ? tags[324] : tags[273], cnts = tiled ? tags[325] : tags[279], across = Math.ceil(W / tw);
   for (let b = 0; b < offs.length; b++) {
@@ -1600,6 +1601,12 @@ async function readGeoTIFF(buf, name) {
         const tmp = bytes.slice(o, o + tw * bpsB); for (let i = 0; i < tw; i++) for (let k = 0; k < bpsB; k++) bytes[o + i * bpsB + k] = tmp[k * tw + i]; } // queda en orden big-endian
       dv = new DataView(bytes.buffer); }
     const x0 = tiled ? (b % across) * tw : 0, y0 = tiled ? Math.floor(b / across) * th : b * th;
+    if (rgbMode) { const u8 = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
+      for (let r = 0; r < rows; r++) { const acc = [0, 0, 0, 0];
+        for (let c = 0; c < tw; c++) { const X = x0 + c, Y = y0 + r;
+          for (let s2 = 0; s2 < Math.min(spp, 4); s2++) { let val = u8[(r * tw + c) * spp + s2]; if (pred === 2) { acc[s2] = c ? (acc[s2] + val) & 255 : val; val = acc[s2]; } if (X < W && Y < H) rgba[(Y * W + X) * 4 + s2] = val; }
+          if (spp === 3 && X < W && Y < H) rgba[(Y * W + X) * 4 + 3] = 255; } }
+      continue; }
     for (let r = 0; r < rows; r++) { let acc = 0;
       for (let c = 0; c < tw; c++) {
         const o = (r * tw + c) * bpsB; if (o + bpsB > dv.byteLength) break;
@@ -1610,12 +1617,14 @@ async function readGeoTIFF(buf, name) {
       } }
   }
   const sx = scale[0], sy = scale[1], ox = tie[3] - tie[0] * sx, oy = tie[4] + tie[1] * sy;
-  const R = { name, W, H, grid, crs, epsg, sx, sy, ox, oy };
+  const R = { name, W, H, grid, crs, epsg, sx, sy, ox, oy, rgbMode };
+  if (rgbMode) { R.rgb = (lat, lon) => { const [fx, fy] = R.toPix(lat, lon), i = Math.floor(fx), j = Math.floor(fy); if (i < 0 || j < 0 || i >= W - 1 || j >= H - 1) return null; const k = (j * W + i) * 4; if (rgba[k + 3] < 128 || (rgba[k] + rgba[k + 1] + rgba[k + 2] === 0)) return null;
+    const a = fx - i, b2 = fy - j, o = [0, 0, 0]; for (let c = 0; c < 3; c++) o[c] = rgba[k + c] * (1 - a) * (1 - b2) + rgba[k + 4 + c] * a * (1 - b2) + rgba[k + W * 4 + c] * (1 - a) * b2 + rgba[k + W * 4 + 4 + c] * a * b2; return o; }; }
   R.toPix = (lat, lon) => { let X, Y; if (crs.geo) { X = lon; Y = lat; } else { [X, Y] = tmForward(lat, lon, ...crs.tm); } return [(X - ox) / sx - 0.5, (oy - Y) / sy - 0.5]; };
-  R.sample = (lat, lon) => { const [fx, fy] = R.toPix(lat, lon), i = Math.floor(fx), j = Math.floor(fy); if (i < 0 || j < 0 || i >= W - 1 || j >= H - 1) return NaN; const a = fx - i, b = fy - j, g = grid;
+  if (!rgbMode) R.sample = (lat, lon) => { const [fx, fy] = R.toPix(lat, lon), i = Math.floor(fx), j = Math.floor(fy); if (i < 0 || j < 0 || i >= W - 1 || j >= H - 1) return NaN; const a = fx - i, b = fy - j, g = grid;
     return g[j * W + i] * (1 - a) * (1 - b) + g[j * W + i + 1] * a * (1 - b) + g[(j + 1) * W + i] * (1 - a) * b + g[(j + 1) * W + i + 1] * a * b; };
   R.resM = crs.geo ? sx * 111320 * Math.cos((oy - H * sy / 2) * D2R) : sx;
-  let mn = Infinity, mx = -Infinity, ok = 0; for (let i = 0; i < grid.length; i += 7) if (!isNaN(grid[i])) { mn = Math.min(mn, grid[i]); mx = Math.max(mx, grid[i]); ok++; }
+  let mn = Infinity, mx = -Infinity, ok = 0; if (rgbMode) { R.valid = 1; return R; } for (let i = 0; i < grid.length; i += 7) if (!isNaN(grid[i])) { mn = Math.min(mn, grid[i]); mx = Math.max(mx, grid[i]); ok++; }
   R.min = mn; R.max = mx; R.valid = ok / Math.ceil(grid.length / 7);
   return R;
 }
@@ -1695,6 +1704,95 @@ function useAlternative(a, start) {
   for (const id of a.path) { const e = G.edges.get(id); appendEdge(e, end); end = e.a === end ? e.b : e.a; }
   if (S.altLayer) { map.removeLayer(S.altLayer); S.altLayer = null; }
   drawTrace(); setInfo(`Recorrido elegido: ${a.km.toFixed(1)} km. Podés seguir ajustándolo cruce por cruce o con puntos libres.`);
+}
+// ---------- Texturas reales del terreno: imágenes con licencia que permite usarlas dentro de la pista ----------
+// Esri (el satélite del mapa) se usa solo para ver y analizar: sus condiciones no permiten exportar sus imágenes.
+// Para las texturas exportadas se usan: Sentinel-2 cloudless (EOX) y ortofotos propias (dron, IGN, organismos públicos).
+const IMG_SOURCES = {
+  s2_2016: { name: 'Sentinel-2 cloudless 2016 (EOX)', url: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg', z: 14, res: 10, date: '2016–2017',
+    lic: 'CC BY 4.0: uso libre con atribución', attr: 'Sentinel-2 cloudless - https://s2maps.eu by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2016 & 2017)' },
+  s2_2024: { name: 'Sentinel-2 cloudless 2024 (EOX)', url: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg', z: 14, res: 10, date: '2024',
+    lic: 'CC BY-NC-SA 4.0: solo uso no comercial, con atribución, y lo que publiques con ella debe compartirse con la misma licencia', attr: 'Sentinel-2 cloudless - https://s2maps.eu by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2024)' },
+};
+const ORTHO = []; // ortofotos propias (GeoTIFF RGB)
+async function fetchImagery(B, key) {
+  const S0 = IMG_SOURCES[key], b = B.bbox, P = B.P, [n, w] = P.inv(b.minx, b.maxy), [s, e] = P.inv(b.maxx, b.miny), z = S0.z;
+  const tp = (lat, lon) => [(lon + 180) / 360 * 2 ** z, (1 - Math.log(Math.tan(lat * D2R) + 1 / Math.cos(lat * D2R)) / Math.PI) / 2 * 2 ** z];
+  const [X0, Y0] = tp(n, w), [X1, Y1] = tp(s, e), tx0 = Math.floor(X0), ty0 = Math.floor(Y0), tx1 = Math.floor(X1), ty1 = Math.floor(Y1), TW = tx1 - tx0 + 1, TH = ty1 - ty0 + 1;
+  if (TW * TH > 400) throw new Error('zona demasiado grande para la imagen');
+  const cv = document.createElement('canvas'); cv.width = TW * 256; cv.height = TH * 256; const ctx = cv.getContext('2d', { willReadFrequently: true }), jobs = [];
+  for (let x = tx0; x <= tx1; x++) for (let y = ty0; y <= ty1; y++) jobs.push([x, y]); let ok = 0;
+  await Promise.all(Array.from({ length: 6 }, async () => { while (jobs.length) { const [x, y] = jobs.pop();
+    try { const r = await fetch(S0.url.replace('{z}', z).replace('{x}', x).replace('{y}', y)); if (!r.ok) continue; ctx.drawImage(await createImageBitmap(await r.blob()), (x - tx0) * 256, (y - ty0) * 256); ok++; } catch (err) { } } }));
+  if (!ok) return null;
+  const px = ctx.getImageData(0, 0, cv.width, cv.height).data, PW = cv.width, PH = cv.height;
+  return { ...S0, key, rgb: (lat, lon) => { const [fx, fy] = tp(lat, lon), X = (fx - tx0) * 256 - 0.5, Y = (fy - ty0) * 256 - 0.5, i = Math.floor(X), j = Math.floor(Y);
+    if (i < 0 || j < 0 || i >= PW - 1 || j >= PH - 1) return null; const a = X - i, bb = Y - j, k = (j * PW + i) * 4, out = [0, 0, 0];
+    for (let c = 0; c < 3; c++) out[c] = px[k + c] * (1 - a) * (1 - bb) + px[k + 4 + c] * a * (1 - bb) + px[k + PW * 4 + c] * (1 - a) * bb + px[k + PW * 4 + 4 + c] * a * bb; return out; } };
+}
+// la mejor imagen disponible en cada punto: ortofoto propia > Sentinel-2
+function imageryAt(lat, lon, S2) { for (const R of ORTHO) { const v = R.rgb(lat, lon); if (v) return [v, 'O']; } if (S2) { const v = S2.rgb(lat, lon); if (v) return [v, 'S']; } return [null, 'G']; }
+// textura propia de cada sector del terreno (240 m x 240 m): el detalle de cada suelo + el color real de la imagen
+function bakeTerrainTextures(B, ter, meshes, res, S2, rd) {
+  const groups = new Map();
+  for (const m of meshes) if (m.terrain && m.chunk) { const k = m.chunk.join('_'); (groups.get(k) || groups.set(k, []).get(k)).push(m); }
+  const detailCache = new Map(), detail = mat => { if (detailCache.has(mat)) return detailCache.get(mat); const cv = TEX[mat] || TEX.grass, d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let L = 0; for (let i = 0; i < d.length; i += 4) L += 0.3 * d[i] + 0.59 * d[i + 1] + 0.11 * d[i + 2]; const o = { d, w: cv.width, h: cv.height, mean: L / (d.length / 4) || 128 }; detailCache.set(mat, o); return o; };
+  const stats = { O: 0, S: 0, G: 0 }, size = ter.CH * res;
+  let n = 0;
+  for (const [k, list] of groups) {
+    const [ci, cj] = list[0].chunk, x0 = B.bbox.minx + ci * res, y0 = B.bbox.miny + cj * res;
+    const near = rd(x0 + size / 2, y0 + size / 2, size) < size * 0.75, N = near ? 1024 : 512, mpp = size / N;
+    // 1) qué suelo hay en cada píxel: se dibujan los triángulos de cada malla con su número
+    const cls = document.createElement('canvas'); cls.width = cls.height = N; const cx = cls.getContext('2d', { willReadFrequently: true });
+    const mats = list.map(m => m.mat);
+    list.forEach((m, mi) => { cx.fillStyle = `rgb(${mi + 1},0,0)`; cx.beginPath();
+      for (const f of m.f) { const p = f.map(i => [(m.v[i][0] - x0) / mpp, N - (m.v[i][1] - y0) / mpp]); cx.moveTo(p[0][0], p[0][1]); cx.lineTo(p[1][0], p[1][1]); cx.lineTo(p[2][0], p[2][1]); cx.closePath(); }
+      cx.fill(); cx.strokeStyle = cx.fillStyle; cx.lineWidth = 1.5; cx.stroke(); });
+    const cd = cx.getImageData(0, 0, N, N).data;
+    // 2) color real de la imagen en una grilla gruesa (se interpola)
+    const G = 33, macro = new Float32Array(G * G * 3), src = new Uint8Array(G * G);
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const x = x0 + size * i / (G - 1), y = y0 + size * (1 - j / (G - 1)), [la, lo] = B.P.inv(x, y), [c, s] = imageryAt(la, lo, S2);
+      src[j * G + i] = s.charCodeAt(0); if (c) macro.set(c, (j * G + i) * 3); else macro.set([-1, -1, -1], (j * G + i) * 3); }
+    for (let q = 0; q < G * G; q++) stats[String.fromCharCode(src[q])]++;
+    // 3) componer: el detalle de la textura (piedritas, pasto) con el color de la imagen
+    const out = document.createElement('canvas'); out.width = out.height = N; const ox = out.getContext('2d'), img = ox.createImageData(N, N), od = img.data;
+    const tileM = 5; // la textura de detalle cubre 5 m
+    for (let py = 0; py < N; py++) for (let px = 0; px < N; px++) {
+      const o = (py * N + px) * 4, mi = cd[o] - 1, mat = mats[Math.max(0, Math.min(mats.length - 1, mi))], D = detail(mat);
+      const wx = x0 + (px + 0.5) * mpp, wy = y0 + size - (py + 0.5) * mpp;
+      const tx = ((Math.floor(wx / tileM * D.w) % D.w) + D.w) % D.w, ty = ((Math.floor(-wy / tileM * D.h) % D.h) + D.h) % D.h, dk = (ty * D.w + tx) * 4;
+      const fx = px / N * (G - 1), fy = py / N * (G - 1), gi = Math.min(G - 2, Math.floor(fx)), gj = Math.min(G - 2, Math.floor(fy)), a = fx - gi, bb = fy - gj;
+      const q00 = (gj * G + gi) * 3, q10 = q00 + 3, q01 = q00 + G * 3, q11 = q01 + 3;
+      if (macro[q00] < 0 || macro[q10] < 0 || macro[q01] < 0 || macro[q11] < 0) { od[o] = D.d[dk]; od[o + 1] = D.d[dk + 1]; od[o + 2] = D.d[dk + 2]; od[o + 3] = 255; continue; }
+      const lum = (0.3 * D.d[dk] + 0.59 * D.d[dk + 1] + 0.11 * D.d[dk + 2]) / D.mean, k = Math.pow(lum, 0.85);
+      for (let c = 0; c < 3; c++) { const mc = macro[q00 + c] * (1 - a) * (1 - bb) + macro[q10 + c] * a * (1 - bb) + macro[q01 + c] * (1 - a) * bb + macro[q11 + c] * a * bb;
+        od[o + c] = Math.max(0, Math.min(255, (mc * k) * 0.8 + D.d[dk + c] * 0.2)); }
+      od[o + 3] = 255;
+    }
+    ox.putImageData(img, 0, 0);
+    const name = 'tc_' + k; TEX[name] = out; TEX[name].__dxt = true;
+    for (const m of list) { m.mat = name; m.uv = m.v.map(v => [(v[0] - x0) / size, (v[1] - y0) / size]); }
+    n++;
+  }
+  const tot = stats.O + stats.S + stats.G || 1;
+  return { chunks: n, pO: stats.O / tot, pS: stats.S / tot, pG: stats.G / tot };
+}
+// compresión DXT1 (texturas grandes del terreno: 8 veces más livianas)
+function dxt1Encode(img, w, h) {
+  const bw = Math.max(1, (w + 3) >> 2), bh = Math.max(1, (h + 3) >> 2), out = new Uint8Array(bw * bh * 8); let o = 0;
+  const to565 = (r, g, b) => ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3), from565 = c => [((c >> 11) & 31) * 255 / 31, ((c >> 5) & 63) * 255 / 63, (c & 31) * 255 / 31];
+  const blk = new Array(16);
+  for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) {
+    let mn = [255, 255, 255], mx = [0, 0, 0];
+    for (let k = 0; k < 16; k++) { const x = Math.min(w - 1, bx * 4 + (k & 3)), y = Math.min(h - 1, by * 4 + (k >> 2)), i = (y * w + x) * 4; blk[k] = [img[i], img[i + 1], img[i + 2]]; for (let c = 0; c < 3; c++) { mn[c] = Math.min(mn[c], img[i + c]); mx[c] = Math.max(mx[c], img[i + c]); } }
+    let c0 = to565(...mx), c1 = to565(...mn); if (c0 < c1) [c0, c1] = [c1, c0];
+    let idx = 0;
+    if (c0 !== c1) { const A = from565(c0), Bc = from565(c1), pal = [A, Bc, A.map((v, c) => (2 * v + Bc[c]) / 3), A.map((v, c) => (v + 2 * Bc[c]) / 3)];
+      for (let k = 0; k < 16; k++) { let best = 0, bd = Infinity; for (let p = 0; p < 4; p++) { const d = (blk[k][0] - pal[p][0]) ** 2 + (blk[k][1] - pal[p][1]) ** 2 + (blk[k][2] - pal[p][2]) ** 2; if (d < bd) { bd = d; best = p; } } idx |= best << (k * 2); } }
+    out[o++] = c0 & 255; out[o++] = c0 >> 8; out[o++] = c1 & 255; out[o++] = c1 >> 8; out[o++] = idx & 255; out[o++] = (idx >> 8) & 255; out[o++] = (idx >> 16) & 255; out[o++] = (idx >>> 24) & 255;
+  }
+  return out;
 }
 async function rebuild(keepCam) {
   const B = S.base, o = opt(), t0 = performance.now();
@@ -1794,6 +1892,20 @@ async function rebuild(keepCam) {
     },
   }, p => { $('#prog').textContent = `Terreno ${(p * 100).toFixed(0)}%`; });
   meshes.push(...ter.meshes);
+  // texturas reales del terreno (Sentinel-2 con licencia abierta y/u ortofotos propias)
+  S.imgStats = null;
+  if (o.realTex !== 'none' || ORTHO.length) {
+    try {
+      log('Armando las texturas reales del terreno…'); await tick();
+      let S2 = null; if (o.realTex !== 'none') { if (!B.s2 || B.s2.key !== o.realTex) B.s2 = await fetchImagery(B, o.realTex); S2 = B.s2; }
+      if (S2 || ORTHO.length) {
+        const st = bakeTerrainTextures(B, ter, ter.meshes, o.res, S2, Core.roadDistFn(res.segs, true));
+        S.imgStats = { ...st, src: S2 };
+        log(`Texturas reales: ${st.chunks} sectores de terreno · ${Math.round(st.pO * 100)}% ortofoto propia, ${Math.round(st.pS * 100)}% ${S2 ? S2.name + ' (' + S2.res + ' m por píxel: color real del suelo, el detalle fino es generado)' : 'Sentinel-2'}, ${Math.round(st.pG * 100)}% textura generada (sin imagen).`);
+      } else log('No se pudo descargar la imagen satelital con licencia abierta; el terreno usa texturas generadas.', 'err');
+      if (PV.mats) { for (const k in PV.mats) if (k.startsWith('tc_')) { try { PV.mats[k].map.dispose(); PV.mats[k].dispose(); } catch (e) { } delete PV.mats[k]; } }
+    } catch (e) { log('Texturas reales: ' + e.message, 'err'); }
+  }
   let wallN = 0; const wallCounter = () => ++wallN;
   if (CARVE) { meshes.push(...waterMeshes(S.water, ter, B.bbox, o.res)); }
   if (B.mode === 'route' && S.crossings && S.crossings.some(b => b.bridge)) { meshes.push(...bridgeMeshes(res, S.crossings, wallCounter)); res.bridges = S.crossings.filter(b => b.bridge && b.d != null); info.notes = paceNotes(res, info.grip); }
@@ -2178,7 +2290,7 @@ async function buildZip(R) {
   const tr = zip.folder('content').folder('tracks').folder(slug), src = $('#withSrc').checked ? zip.folder('fuente_' + slug) : null, ref = zip.folder('referencia_rbr_btb');
   const usedMats = [...new Set(R.meshes.map(m => m.mat))];
   const keys = [...new Set(R.meshes.filter(m => !/^(LINES|TREES|ROCKS|BANNERS|OBJECTS)_/.test(m.name)).map(m => m.name.replace(/^\d+/, '')))];
-  const kd = m => (m === 'line' || m === 'tree') ? '1 1 1' : (TEXDEF[m] || SURF[MAT2KEY[m]]).col.map(v => (v / 255).toFixed(2)).join(' ');
+  const kd = m => (m === 'line' || m === 'tree' || m.startsWith('tc_')) ? '1 1 1' : (TEXDEF[m] || SURF[MAT2KEY[m]]).col.map(v => (v / 255).toFixed(2)).join(' ');
   $('#prog').textContent = 'Escribiendo modelo 3D…'; await tick();
   if ($('#withSrc').checked) {
     src.file('track.obj', Core.toOBJ(R.meshes, 'track.mtl')); await tick();
@@ -2198,7 +2310,8 @@ async function buildZip(R) {
   if (PV.renderer) { PV.render(); const b = await new Promise(r => PV.renderer.domElement.toBlob(r, 'image/png')); if (b) ui.file('preview.png', b); }
   const tags = R.mode === 'route' ? (R.closed ? ['circuit', 'real world'] : ['point to point', 'rally', 'real world']) : ['open world', 'real world'];
   if (o.snow) tags.push('snow');
-  ui.file('ui_track.json', JSON.stringify({ name: o.name, description: `Generada desde datos reales (OpenStreetMap + elevación). ${(R.length / 1000).toFixed(2)} km.`, tags, geotags: [R.lat0.toFixed(5), R.lon0.toFixed(5)], country: '', city: '', length: Math.round(R.length) + 'm', width: o.width + 'm', pitboxes: String(o.pits), run: R.closed ? 'clockwise' : '' }, null, 2));
+  tr.file('LICENCIAS_DATOS.txt', ['Datos usados para generar esta pista:', '- Calles, agua y edificios: © colaboradores de OpenStreetMap (ODbL), vía OpenFreeMap.', '- Elevación: Terrain Tiles (AWS Open Data / Mapzen)' + (DEM.custom.length ? ' y ' + DEM.custom.map(r => r.name).join(', ') : '') + '.', S.imgStats && S.imgStats.src ? '- Texturas del terreno: ' + S.imgStats.src.attr + ' — licencia ' + S.imgStats.src.lic + '.' : '', ORTHO.length ? '- Ortofotos propias: ' + ORTHO.map(r => r.name).join(', ') + ' (verificá su licencia antes de publicar la pista).' : '', '- La imagen satelital de Esri se usó solo para analizar (ubicar bosque, techos y ancho del camino); no está incluida en la pista.'].filter(Boolean).join('\n'));
+  ui.file('ui_track.json', JSON.stringify({ name: o.name, description: `Generada desde datos reales (OpenStreetMap + elevación). ${(R.length / 1000).toFixed(2)} km.${S.imgStats && S.imgStats.src ? ' Texturas del terreno: ' + S.imgStats.src.attr : ''}`, tags, geotags: [R.lat0.toFixed(5), R.lon0.toFixed(5)], country: '', city: '', length: Math.round(R.length) + 'm', width: o.width + 'm', pitboxes: String(o.pits), run: R.closed ? 'clockwise' : '' }, null, 2));
   if (R.mode === 'route') {
     const r = R.res, g = R.info.grip, ll = R.info.ll;
     const rows = r.C.map((p, i) => [ll[i][0].toFixed(7), ll[i][1].toFixed(7), (r.hs[i] + R.h0).toFixed(2), p[0].toFixed(2), p[1].toFixed(2), r.hs[i].toFixed(2), r.dist[i].toFixed(1), r.W[i].toFixed(2), (Math.atan(r.SL[i]) / D2R).toFixed(1), r.SURF[i], g.V[i].toFixed(0)]);
@@ -2762,7 +2875,7 @@ async function buildKN5(R, slug, invert) {
     // en Assetto Corsa el sol pega más fuerte que en la vista previa y la luz ambiente es azulada:
     // oscurecemos y entibiamos las texturas de suelo para que el ripio no quede blanco y las banquinas no se vean azules
     const G = m === 'tree' || m === 'line' ? null : ['gravel', 'loose', 'asphalt', 'wet', 'ice', 'snow', 'powder'].includes(m) ? [0.7, 0.68, 0.62] : [0.8, 0.79, 0.72];
-    const data = canvasToDDS(TEX[m], G);
+    const data = TEX[m].__dxt ? canvasToDDS(TEX[m], [0.86, 0.85, 0.8], true) : canvasToDDS(TEX[m], G);
     w.i32(1); w.str(m + '.dds'); w.i32(data.length); w.bytes(data);
   }
   // materiales
@@ -2814,16 +2927,18 @@ async function buildKN5(R, slug, invert) {
 }
 
 // ---------- Texturas DDS con mipmaps (formato nativo de Assetto Corsa) ----------
-function canvasToDDS(cv, grade) {
+function canvasToDDS(cv, grade, dxt) {
   let w = cv.width, h = cv.height;
   let img = cv.getContext('2d').getImageData(0, 0, w, h).data;
   if (grade) { img = new Uint8ClampedArray(img); for (let i = 0; i < img.length; i += 4) { img[i] *= grade[0]; img[i + 1] *= grade[1]; img[i + 2] *= grade[2]; } }
   const levels = [];
   for (;;) {
+    if (dxt) { levels.push(dxt1Encode(img, w, h)); if (w <= 4 || h <= 4) break; }
+    else {
     const bgra = new Uint8Array(w * h * 4);
     for (let i = 0; i < w * h; i++) { bgra[i * 4] = img[i * 4 + 2]; bgra[i * 4 + 1] = img[i * 4 + 1]; bgra[i * 4 + 2] = img[i * 4]; bgra[i * 4 + 3] = img[i * 4 + 3]; }
     levels.push(bgra);
-    if (w === 1 && h === 1) break;
+    if (w === 1 && h === 1) break; }
     const nw = Math.max(1, w >> 1), nh = Math.max(1, h >> 1), nd = new Uint8ClampedArray(nw * nh * 4);
     for (let y = 0; y < nh; y++) for (let x = 0; x < nw; x++) for (let c = 0; c < 4; c++) {
       const x0 = Math.min(w - 1, x * 2), x1 = Math.min(w - 1, x * 2 + 1), y0 = Math.min(h - 1, y * 2), y1 = Math.min(h - 1, y * 2 + 1);
@@ -2834,8 +2949,10 @@ function canvasToDDS(cv, grade) {
   const head = new DataView(new ArrayBuffer(128)), W0 = cv.width, H0 = cv.height;
   head.setUint32(0, 0x20534444, true); head.setUint32(4, 124, true); head.setUint32(8, 0x1 | 0x2 | 0x4 | 0x8 | 0x1000 | 0x20000, true);
   head.setUint32(12, H0, true); head.setUint32(16, W0, true); head.setUint32(20, W0 * 4, true); head.setUint32(28, levels.length, true);
+  if (dxt) { head.setUint32(8, 0x1 | 0x2 | 0x4 | 0x1000 | 0x20000 | 0x80000, true); head.setUint32(20, Math.max(1, (W0 + 3) >> 2) * Math.max(1, (H0 + 3) >> 2) * 8, true); head.setUint32(76, 32, true); head.setUint32(80, 0x4, true); head.setUint32(84, 0x31545844, true); }
+  else {
   head.setUint32(76, 32, true); head.setUint32(80, 0x41, true); head.setUint32(88, 32, true);
-  head.setUint32(92, 0x00ff0000, true); head.setUint32(96, 0x0000ff00, true); head.setUint32(100, 0x000000ff, true); head.setUint32(104, 0xff000000, true);
+  head.setUint32(92, 0x00ff0000, true); head.setUint32(96, 0x0000ff00, true); head.setUint32(100, 0x000000ff, true); head.setUint32(104, 0xff000000, true); }
   head.setUint32(108, 0x1000 | 0x400000 | 0x8, true);
   const total = 128 + levels.reduce((a, l) => a + l.length, 0), out = new Uint8Array(total);
   out.set(new Uint8Array(head.buffer), 0); let o = 128; for (const l of levels) { out.set(l, o); o += l.length; }
@@ -2980,6 +3097,8 @@ try {
 
 // ---------- Ayuda: explicación de cada control al pasar el mouse (o tocarlo en el celular) ----------
 const HELP = {
+  realTex: 'Texturas reales del terreno: pinta el terreno con el color real del suelo tomado de Sentinel-2 (imagen satelital europea de 10 m por píxel con licencia libre) y le suma el detalle de cada suelo. Donde cargaste una ortofoto propia, usa esa (mucho más detallada). La imagen de Esri del mapa no se puede usar dentro de la pista por su licencia.',
+  orthoFile: 'Importar ortofoto: una foto aérea georreferenciada (GeoTIFF RGB), por ejemplo de un vuelo de dron o de un organismo público. Donde cubre, el terreno de la pista toma los colores de esa foto. Verificá su licencia antes de publicar la pista.',
   findAlt: 'Buscar caminos reales: con inicio y fin cargados, descarga los caminos del mapa en la zona y propone hasta 3 recorridos por caminos que existen (nunca une los puntos en línea recta). Con "Evitar rutas principales" prioriza caminos de tierra y huellas. Revisá las opciones sobre el satélite y hacé clic en la correcta.',
   avoidMain: 'Evitar rutas principales: al buscar caminos, penaliza mucho las rutas nacionales y principales para encontrar el camino alternativo de tierra.',
   demFile: 'Importar elevación: cargá un modelo de elevación en GeoTIFF (por ejemplo el MDE-Ar del IGN, de 30 m, o un relevamiento LiDAR o de dron). Donde cubre, tiene prioridad sobre el satélite. En "Fuentes de elevación y precisión" se ve la resolución y la precisión de cada fuente.',
@@ -3083,3 +3202,21 @@ if ($('#demFile')) $('#demFile').onchange = async ev => {
   ev.target.value = ''; S.base = null; renderElevSources();
 };
 renderElevSources();
+
+if ($('#orthoFile')) $('#orthoFile').onchange = async ev => {
+  for (const f of ev.target.files) {
+    try { log(`Leyendo ortofoto ${f.name} (${(f.size / 1e6).toFixed(0)} MB)…`); await tick();
+      const R = await readGeoTIFF(await f.arrayBuffer(), f.name); if (!R.rgbMode) throw new Error('no es una imagen RGB (para alturas usá "Importar elevación")');
+      ORTHO.push(R); log(`Ortofoto ${f.name}: ${R.W}×${R.H} píxeles de ${R.resM < 1 ? (R.resM * 100).toFixed(0) + ' cm' : R.resM.toFixed(1) + ' m'}, ${R.crs.name}. Se usa con prioridad para las texturas del terreno; volvé a generar.`, 'ok');
+    } catch (e) { log(`No se pudo leer ${f.name}: ${e.message}`, 'err'); }
+  }
+  ev.target.value = ''; renderImgSources();
+};
+function renderImgSources() {
+  const el = $('#imgInfo'); if (!el) return;
+  const rows = ORTHO.map(R => `<b>${R.name}</b> — ortofoto propia, ${R.resM < 1 ? (R.resM * 100).toFixed(0) + ' cm' : R.resM.toFixed(1) + ' m'} por píxel, ${R.crs.name}. Máxima prioridad donde cubre. Verificá su licencia antes de publicar.`);
+  for (const k in IMG_SOURCES) { const s = IMG_SOURCES[k]; rows.push(`<b>${s.name}</b> — ${s.res} m por píxel, captura ${s.date}, cobertura mundial. Licencia: ${s.lic}. Da el color real del suelo; el detalle fino (piedras, pasto) es generado.`); }
+  rows.push('<b>Esri World Imagery</b> (el satélite del mapa) — mayor resolución, pero sus condiciones no permiten exportar sus imágenes: se usa solo para ver y para analizar (bosque, techos, ancho del camino), nunca dentro de la pista.');
+  el.innerHTML = rows.map(r => `<div style="margin:4px 0">• ${r}</div>`).join('');
+}
+renderImgSources();

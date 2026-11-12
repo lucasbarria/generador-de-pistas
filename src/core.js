@@ -333,7 +333,7 @@ const Core = (() => {
     const CH = 60, meshes = [], cnt = counters();
     for (let cj = 0; cj < ny - 1; cj += CH) for (let ci = 0; ci < nx - 1; ci += CH) {
       const parts = {};
-      const get = ([key, mat]) => parts[key + '|' + mat] || (parts[key + '|' + mat] = { m: Object.assign(newMesh(`${cnt(key)}${key}`, mat), { terrain: true }), map: new Map() });
+      const get = ([key, mat]) => parts[key + '|' + mat] || (parts[key + '|' + mat] = { m: Object.assign(newMesh(`${cnt(key)}${key}`, mat), { terrain: true, chunk: [ci, cj] }), map: new Map() });
       const vid = (P, i, j) => {
         const k = j * nx + i; if (P.map.has(k)) return P.map.get(k);
         const x = bbox.minx + i * res, y = bbox.miny + j * res;
@@ -354,7 +354,7 @@ const Core = (() => {
       }
       for (const k in parts) meshes.push(parts[k].m);
     }
-    return { meshes, nx, ny, H, need };
+    return { meshes, nx, ny, H, need, CH };
   }
 
 

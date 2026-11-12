@@ -98,6 +98,9 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <div class="row"><label><input type="checkbox" id="avoidMain" checked> Evitar rutas principales</label><button class="b" id="findAlt">Buscar caminos reales</button></div>
         <label class="b gpsbtn">📐 Importar elevación (GeoTIFF: MDE-Ar del IGN, LiDAR…)<input type="file" id="demFile" accept=".tif,.tiff" multiple hidden></label>
         <details class="texbox"><summary>Fuentes de elevación y precisión</summary><div id="elevInfo" class="mut"></div></details>
+        <label class="f">Texturas reales del terreno <select id="realTex"><option value="s2_2016" selected>Sentinel-2 2016 (libre, CC BY)</option><option value="s2_2024">Sentinel-2 2024 (no comercial)</option><option value="none">No (texturas generadas)</option></select></label>
+        <label class="b gpsbtn">🛰️ Importar ortofoto (GeoTIFF RGB: dron, IGN…)<input type="file" id="orthoFile" accept=".tif,.tiff" multiple hidden></label>
+        <details class="texbox"><summary>Fuentes de imágenes y licencias</summary><div id="imgInfo" class="mut"></div></details>
         <div class="mut" id="routeInfo">Sin recorrido todavía.</div>
         <div class="mut">Calle por calle: vos elegís el camino en cada cruce. Línea libre: para huellas que no están en el mapa. Azul = calles, marrón = tierra.</div>
       </div>
