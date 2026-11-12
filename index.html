@@ -48,7 +48,7 @@ input[type=checkbox]{width:auto}
 .vsel{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:4px 8px;font-size:13px;display:flex;align-items:center;gap:6px}.vsel select{width:auto;padding:3px 4px}
 #vhint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:2;background:#000c;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px}
 #vbar button{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:8px 12px;cursor:pointer;font-weight:600}
-#profile{width:100%;height:170px;display:block;background:#0f1114;border-radius:8px;cursor:crosshair;touch-action:none}
+#profile{width:100%;height:190px;display:block;background:#0f1114;border-radius:8px;cursor:crosshair;touch-action:none}
 #hoverInfo{min-height:34px;margin-top:6px}
 #selInfo{color:#00c8ff;font-size:13px;margin:4px 0}
 .tool{display:grid;grid-template-columns:52px 70px 1fr 1fr 1fr;gap:6px;align-items:center;margin:6px 0}
@@ -95,6 +95,9 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <div class="row"><label title="Para partes del tramo que no figuran en el mapa: cada clic agrega un punto, sin seguir calles (Ctrl+clic hace lo mismo)"><input type="checkbox" id="freePts"> Puntos libres (tramo sin calle en el mapa)</label></div>
         <label class="b gpsbtn">📍 Importar GPS (video GoPro, GPX, KML, CSV)<input type="file" id="gpsFile" hidden></label>
         <div class="stage"><input id="stA" placeholder="Inicio: -54.6262612, -67.2421884"><input id="stB" placeholder="Fin (opcional)"><button class="b" id="goStage">Ir al tramo</button></div>
+        <div class="row"><label><input type="checkbox" id="avoidMain" checked> Evitar rutas principales</label><button class="b" id="findAlt">Buscar caminos reales</button></div>
+        <label class="b gpsbtn">📐 Importar elevación (GeoTIFF: MDE-Ar del IGN, LiDAR…)<input type="file" id="demFile" accept=".tif,.tiff" multiple hidden></label>
+        <details class="texbox"><summary>Fuentes de elevación y precisión</summary><div id="elevInfo" class="mut"></div></details>
         <div class="mut" id="routeInfo">Sin recorrido todavía.</div>
         <div class="mut">Calle por calle: vos elegís el camino en cada cruce. Línea libre: para huellas que no están en el mapa. Azul = calles, marrón = tierra.</div>
       </div>
@@ -157,6 +160,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
     <section id="editor" style="display:none">
       <h2>3 · Editar el camino</h2>
       <canvas id="profile"></canvas>
+      <div class="mut" id="pfStats" style="font-size:12px;margin:4px 0"></div>
       <div class="mut" id="hoverInfo">Pasá el mouse por el perfil para ver cada punto.</div>
       <div id="selInfo">Arrastrá sobre el perfil para elegir un tramo, o hacé clic para un punto.</div>
       <div class="row"><button class="b" id="viewSel">Ver selección en 3D</button></div>
@@ -1256,7 +1260,7 @@ $('#search').onsubmit = async e => {
 
 // ---------- Elevación (tiles Terrarium, AWS Open Data) ----------
 const DEM = {
-  z: 14, tiles: new Map(),
+  z: 14, tiles: new Map(), custom: [],
   px(lat, lon) { const n = 2 ** this.z * 256; return [(lon + 180) / 360 * n, (1 - Math.log(Math.tan(lat * D2R) + 1 / Math.cos(lat * D2R)) / Math.PI) / 2 * n]; },
   async load(s, w, n, e, z) {
     this.z = z; this.tiles = new Map(); this.spikes = 0;
@@ -1293,11 +1297,13 @@ const DEM = {
   },
   pix(X, Y) { const t = this.tiles.get((X >> 8) + ',' + (Y >> 8)); return t ? t[(Y & 255) * 256 + (X & 255)] : NaN; },
   sample(lat, lon) {
+    for (const R of this.custom) { const v = R.sample(lat, lon); if (isFinite(v)) return v; } // modelo propio (MDE-Ar, LiDAR…) donde cubre
     let [fx, fy] = this.px(lat, lon); fx -= 0.5; fy -= 0.5;
     const X = Math.floor(fx), Y = Math.floor(fy), a = fx - X, b = fy - Y;
     const v = this.pix(X, Y) * (1 - a) * (1 - b) + this.pix(X + 1, Y) * a * (1 - b) + this.pix(X, Y + 1) * (1 - a) * b + this.pix(X + 1, Y + 1) * a * b;
     return isNaN(v) ? (this.pix(X, Y) || 0) : v;
   },
+  covered(lat, lon) { for (const R of this.custom) if (isFinite(R.sample(lat, lon))) return R.name; return null; },
   tileCount(s, w, n, e, z) { const o = this.z; this.z = z; const [x0, y0] = this.px(n, w).map(v => Math.floor(v / 256)), [x1, y1] = this.px(s, e).map(v => Math.floor(v / 256)); this.z = o; return (x1 - x0 + 3) * (y1 - y0 + 3); },
 };
 
@@ -2236,6 +2242,178 @@ function autoWidthProfile(B, pts, o) {
   fn.min = Math.min(...out); fn.max = Math.max(...out); fn.avg = out.reduce((a, b) => a + b, 0) / out.length; fn.measured = measured / samples.length;
   return fn;
 }
+// ---------- Modelos de elevación propios (GeoTIFF): MDE-Ar del IGN, Copernicus, ALOS, LiDAR rasterizado ----------
+// Lector de GeoTIFF: sin compresión, LZW o Deflate; predictor 2/3; enteros o float; tiras o mosaicos;
+// coordenadas geográficas, Gauss-Krüger POSGAR (fajas 1-7) o UTM.
+async function inflateZ(u8) { const ds = new DecompressionStream('deflate'); const out = await new Response(new Blob([u8]).stream().pipeThrough(ds)).arrayBuffer(); return new Uint8Array(out); }
+function lzwDecode(src, outLen) {
+  const out = new Uint8Array(outLen); let op = 0, bitPos = 0, codeLen = 9; let dict = [], prev = null;
+  const reset = () => { dict = []; for (let i = 0; i < 256; i++) dict.push([i]); dict.push(null, null); codeLen = 9; };
+  const read = () => { let v = 0; for (let i = 0; i < codeLen; i++) { const byte = src[(bitPos + i) >> 3]; v = (v << 1) | ((byte >> (7 - ((bitPos + i) & 7))) & 1); } bitPos += codeLen; return v; };
+  reset();
+  while ((bitPos + codeLen) <= src.length * 8 && op < outLen) {
+    const code = read(); if (code === 257) break;
+    if (code === 256) { reset(); prev = null; continue; }
+    let entry = code < dict.length && dict[code] ? dict[code] : prev ? prev.concat([prev[0]]) : null; if (!entry) break;
+    for (const b of entry) { if (op < outLen) out[op++] = b; }
+    if (prev) dict.push(prev.concat([entry[0]]));
+    prev = entry;
+    if (dict.length + 1 >= (1 << codeLen) && codeLen < 12) codeLen++;
+  }
+  return out;
+}
+// Transversa de Mercator inversa (elipsoide WGS84/GRS80)
+function tmInverse(E, N, lon0, k0, FE, FN) {
+  const a = 6378137, f = 1 / 298.257223563, e2 = f * (2 - f), ep2 = e2 / (1 - e2), x = (E - FE) / k0, y = (N - FN) / k0;
+  const M = y, mu = M / (a * (1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 ** 3 / 256)), e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+  const p1 = mu + (3 * e1 / 2 - 27 * e1 ** 3 / 32) * Math.sin(2 * mu) + (21 * e1 * e1 / 16 - 55 * e1 ** 4 / 32) * Math.sin(4 * mu) + (151 * e1 ** 3 / 96) * Math.sin(6 * mu);
+  const C1 = ep2 * Math.cos(p1) ** 2, T1 = Math.tan(p1) ** 2, N1 = a / Math.sqrt(1 - e2 * Math.sin(p1) ** 2), R1 = a * (1 - e2) / (1 - e2 * Math.sin(p1) ** 2) ** 1.5, D = x / N1;
+  const lat = p1 - (N1 * Math.tan(p1) / R1) * (D * D / 2 - (5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * ep2) * D ** 4 / 24 + (61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * ep2 - 3 * C1 * C1) * D ** 6 / 720);
+  const lon = lon0 * D2R + (D - (1 + 2 * T1 + C1) * D ** 3 / 6 + (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * ep2 + 24 * T1 * T1) * D ** 5 / 120) / Math.cos(p1);
+  return [lat / D2R, lon / D2R];
+}
+function tmForward(lat, lon, lon0, k0, FE, FN) { // por iteración sobre la inversa (suficiente para muestrear)
+  let E = FE + (lon - lon0) * 111320 * Math.cos(lat * D2R) * k0, Nn = FN + lat * 110574 * k0;
+  for (let it = 0; it < 6; it++) { const [la, lo] = tmInverse(E, Nn, lon0, k0, FE, FN); E += (lon - lo) * 111320 * Math.cos(lat * D2R) * k0; Nn += (lat - la) * 110574 * k0; }
+  return [E, Nn];
+}
+function crsFromEPSG(code) {
+  if (!code || code === 4326 || code === 4258 || code === 5340 || code === 4190 || code === 4694 || code === 4269) return { geo: true, name: 'geográficas (lat/lon)' };
+  if (code >= 5343 && code <= 5349) { const f = code - 5342; return { tm: [-72 + 3 * (f - 1), 1, f * 1e6 + 500000, 0], name: `POSGAR 2007 / Argentina faja ${f}` }; }
+  if (code >= 22181 && code <= 22187) { const f = code - 22180; return { tm: [-72 + 3 * (f - 1), 1, f * 1e6 + 500000, 0], name: `POSGAR 94 / Argentina faja ${f}` }; }
+  if (code >= 22171 && code <= 22177) { const f = code - 22170; return { tm: [-72 + 3 * (f - 1), 1, f * 1e6 + 500000, 0], name: `POSGAR 98 / Argentina faja ${f}` }; }
+  if (code >= 32701 && code <= 32760) { const z = code - 32700; return { tm: [-183 + 6 * z, 0.9996, 500000, 10000000], name: `UTM ${z}S` }; }
+  if (code >= 32601 && code <= 32660) { const z = code - 32600; return { tm: [-183 + 6 * z, 0.9996, 500000, 0], name: `UTM ${z}N` }; }
+  return null;
+}
+async function readGeoTIFF(buf, name) {
+  const v = new DataView(buf), le = v.getUint16(0) === 0x4949, u16 = o => v.getUint16(o, le), u32 = o => v.getUint32(o, le);
+  if (u16(2) !== 42) throw new Error('no es un TIFF clásico (BigTIFF no soportado)');
+  const ifd = u32(4), n = u16(ifd), tags = {};
+  const TS = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8, 16: 8 };
+  for (let i = 0; i < n; i++) {
+    const e = ifd + 2 + i * 12, tag = u16(e), type = u16(e + 2), cnt = u32(e + 4), sz = (TS[type] || 1) * cnt, off = sz <= 4 ? e + 8 : u32(e + 8), vals = [];
+    for (let k = 0; k < cnt; k++) { const o = off + k * (TS[type] || 1);
+      vals.push(type === 3 ? u16(o) : type === 4 ? u32(o) : type === 12 ? v.getFloat64(o, le) : type === 11 ? v.getFloat32(o, le) : type === 2 || type === 1 || type === 7 ? v.getUint8(o) : type === 8 ? v.getInt16(o, le) : type === 9 ? v.getInt32(o, le) : type === 16 ? Number(v.getBigUint64(o, le)) : u32(o)); }
+    tags[tag] = type === 2 ? String.fromCharCode(...vals).replace(/\0+$/, '') : vals;
+  }
+  const W = tags[256][0], H = tags[257][0], bps = (tags[258] || [8])[0], comp = (tags[259] || [1])[0], pred = (tags[317] || [1])[0], fmt = (tags[339] || [1])[0], spp = (tags[277] || [1])[0];
+  if (spp !== 1) throw new Error('el GeoTIFF tiene varias bandas; se espera una sola (altura)');
+  if (![1, 5, 8, 32946].includes(comp)) throw new Error(`compresión ${comp} no soportada (usá sin compresión, LZW o Deflate)`);
+  const scale = tags[33550], tie = tags[33922]; if (!scale || !tie) throw new Error('el archivo no tiene georreferencia (ModelPixelScale/ModelTiepoint)');
+  const gk = tags[34735] || [], keys = {}; for (let i = 4; i + 3 < gk.length; i += 4) keys[gk[i]] = gk[i + 3];
+  const epsg = keys[3072] || keys[2048] || (keys[1024] === 2 ? 4326 : 0), crs = crsFromEPSG(epsg) || (keys[1024] === 2 ? { geo: true, name: 'geográficas' } : null);
+  if (!crs) throw new Error(`sistema de coordenadas EPSG ${epsg || '?'} no soportado (usá geográficas, POSGAR fajas o UTM)`);
+  const nodata = tags[42113] != null ? parseFloat(tags[42113]) : -32768;
+  const bpsB = bps / 8, grid = new Float32Array(W * H).fill(NaN);
+  const tiled = !!tags[322], tw = tiled ? tags[322][0] : W, th = tiled ? tags[323][0] : (tags[278] || [H])[0];
+  const offs = tiled ? tags[324] : tags[273], cnts = tiled ? tags[325] : tags[279], across = Math.ceil(W / tw);
+  for (let b = 0; b < offs.length; b++) {
+    let raw = new Uint8Array(buf, offs[b], cnts[b]);
+    const rows = tiled ? th : Math.min(th, H - b * th), need = tw * rows * bpsB;
+    if (comp === 5) raw = lzwDecode(raw, need); else if (comp === 8 || comp === 32946) raw = await inflateZ(raw);
+    let dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+    if (pred === 3) { // predictor de punto flotante: bytes reordenados + diferencias
+      const bytes = new Uint8Array(raw); for (let r = 0; r < rows; r++) { const o = r * tw * bpsB; for (let i = 1; i < tw * bpsB; i++) bytes[o + i] = (bytes[o + i] + bytes[o + i - 1]) & 255;
+        const tmp = bytes.slice(o, o + tw * bpsB); for (let i = 0; i < tw; i++) for (let k = 0; k < bpsB; k++) bytes[o + i * bpsB + k] = tmp[k * tw + i]; } // queda en orden big-endian
+      dv = new DataView(bytes.buffer); }
+    const x0 = tiled ? (b % across) * tw : 0, y0 = tiled ? Math.floor(b / across) * th : b * th;
+    for (let r = 0; r < rows; r++) { let acc = 0;
+      for (let c = 0; c < tw; c++) {
+        const o = (r * tw + c) * bpsB; if (o + bpsB > dv.byteLength) break;
+        const lit = pred === 3 ? false : le;
+        let val = fmt === 3 ? (bpsB === 4 ? dv.getFloat32(o, lit) : dv.getFloat64(o, lit)) : fmt === 2 ? (bpsB === 2 ? dv.getInt16(o, le) : bpsB === 4 ? dv.getInt32(o, le) : dv.getInt8(o)) : (bpsB === 2 ? dv.getUint16(o, le) : bpsB === 4 ? dv.getUint32(o, le) : dv.getUint8(o));
+        if (pred === 2) { acc = c ? acc + val : val; if (fmt === 2 && bpsB === 2) acc = (acc << 16) >> 16; val = acc; }
+        const X = x0 + c, Y = y0 + r; if (X < W && Y < H) grid[Y * W + X] = val === nodata || val < -1000 || val > 9000 ? NaN : val;
+      } }
+  }
+  const sx = scale[0], sy = scale[1], ox = tie[3] - tie[0] * sx, oy = tie[4] + tie[1] * sy;
+  const R = { name, W, H, grid, crs, epsg, sx, sy, ox, oy };
+  R.toPix = (lat, lon) => { let X, Y; if (crs.geo) { X = lon; Y = lat; } else { [X, Y] = tmForward(lat, lon, ...crs.tm); } return [(X - ox) / sx - 0.5, (oy - Y) / sy - 0.5]; };
+  R.sample = (lat, lon) => { const [fx, fy] = R.toPix(lat, lon), i = Math.floor(fx), j = Math.floor(fy); if (i < 0 || j < 0 || i >= W - 1 || j >= H - 1) return NaN; const a = fx - i, b = fy - j, g = grid;
+    return g[j * W + i] * (1 - a) * (1 - b) + g[j * W + i + 1] * a * (1 - b) + g[(j + 1) * W + i] * (1 - a) * b + g[(j + 1) * W + i + 1] * a * b; };
+  R.resM = crs.geo ? sx * 111320 * Math.cos((oy - H * sy / 2) * D2R) : sx;
+  let mn = Infinity, mx = -Infinity, ok = 0; for (let i = 0; i < grid.length; i += 7) if (!isNaN(grid[i])) { mn = Math.min(mn, grid[i]); mx = Math.max(mx, grid[i]); ok++; }
+  R.min = mn; R.max = mx; R.valid = ok / Math.ceil(grid.length / 7);
+  return R;
+}
+// ficha de cada fuente de elevación: resolución, precisión, procedencia y si incluye copas de árboles
+function elevSourceInfo(R) {
+  const n = R.name.toLowerCase(), res = R.resM;
+  const kind = /mde|ign/.test(n) ? { src: 'IGN Argentina (MDE-Ar)', prec: '≈2 m vertical (dato del IGN para MDE-Ar v2.1)', dsm: 'combina SRTM y ALOS: puede incluir parte de la altura de los árboles' }
+    : /cop|glo/.test(n) ? { src: 'Copernicus DEM', prec: 'pocos metros (según su documentación)', dsm: 'modelo de superficie: incluye árboles y edificios' }
+    : /alos|aw3d/.test(n) ? { src: 'ALOS AW3D30', prec: 'pocos metros', dsm: 'modelo de superficie: incluye árboles' }
+    : /lidar|las|dtm|mdt/.test(n) || res <= 5 ? { src: 'alta resolución (LiDAR / fotogrametría)', prec: 'decímetros a 1 m, según el relevamiento', dsm: 'si es MDT, es el suelo sin árboles' }
+    : { src: 'archivo propio', prec: 'desconocida: depende de la fuente', dsm: 'verificar si es de terreno o de superficie' };
+  return { ...kind, res, note: res >= 10 ? `con ${res.toFixed(0)} m por píxel no reproduce baches, serruchos ni irregularidades de pocos centímetros` : `${res.toFixed(1)} m por píxel: puede mostrar cunetas y desniveles chicos` };
+}
+function renderElevSources() {
+  const el = $('#elevInfo'); if (!el) return;
+  const rows = [`<b>Satélite (Terrarium / AWS):</b> mezcla de SRTM y otras fuentes, ~30 m por píxel en Argentina, error típico de varios metros; en el bosque mide parte de la altura de las copas. <i>Interpolado: no reproduce detalles chicos.</i>`];
+  for (const R of DEM.custom) { const I = elevSourceInfo(R); rows.unshift(`<b>${R.name}</b> — ${I.src}. ${I.res.toFixed(1)} m por píxel, ${R.crs.name}, alturas de ${R.min.toFixed(0)} a ${R.max.toFixed(0)} m. Precisión: ${I.prec}. ${I.dsm}; ${I.note}. <b>Tiene prioridad</b> donde cubre.`); }
+  if (S.gpsTrack && S.gpsTrack.some(p => +p[2])) rows.unshift(`<b>GPS del recorrido</b> (${S.gpsTrack.length.toLocaleString()} puntos): altura del vehículo, suavizada; error típico de 3 a 10 m por punto, pero la tendencia de subidas y bajadas es fiel. Se usa en el camino si "Altura del camino desde el GPS" está activado.`);
+  el.innerHTML = rows.map(r => `<div style="margin:4px 0">• ${r}</div>`).join('');
+}
+// ---------- Buscar el camino real entre dos puntos (por caminos del mapa, sin inventar): alternativas ----------
+const ROUTE_COST = { motorway: 60, trunk: 50, primary: 40, secondary: 6, tertiary: 2.2, minor: 1.4, service: 1.3, track: 1, busway: 5, raceway: 5 };
+function edgeLen(e) { let L = 0; for (let i = 1; i < e.pts.length; i++) L += map.distance(e.pts[i - 1], e.pts[i]); return L; }
+function dijkstra(src, dst, costOf) {
+  const dist = new Map([[src, 0]]), prev = new Map(), heap = [[0, src]], done = new Set();
+  const push = it => { heap.push(it); let i = heap.length - 1; while (i) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+  while (heap.length) {
+    const [d, u] = pop(); if (done.has(u)) continue; done.add(u); if (u === dst) break;
+    for (const id of G.adj.get(u) || []) { const e = G.edges.get(id), w = e.a === u ? e.b : e.a, nd = d + costOf(e); if (nd < (dist.get(w) ?? Infinity)) { dist.set(w, nd); prev.set(w, [u, id]); push([nd, w]); } }
+  }
+  if (!prev.has(dst) && src !== dst) return null;
+  const edges = []; for (let k = dst; k !== src; k = prev.get(k)[0]) edges.unshift(prev.get(k)[1]);
+  return edges;
+}
+async function findAlternatives() {
+  const A = parseLL($('#stA').value), Bp = parseLL($('#stB').value);
+  if (!A || !Bp) { setInfo('Para buscar caminos, pegá las coordenadas de inicio y de fin.'); return; }
+  const avoid = $('#avoidMain').checked;
+  // descargar un corredor alrededor de la línea inicio-fin (ancho: 25% de la distancia, mínimo 5 km a cada lado)
+  const dist = map.distance(A, Bp), half = Math.max(5000, dist * 0.25), steps = Math.max(1, Math.ceil(dist / 6000));
+  const dLat = half / 111320, dLon = half / (111320 * Math.cos(A[0] * D2R));
+  for (let k = 0; k <= steps; k++) {
+    const t = k / steps, la = A[0] + (Bp[0] - A[0]) * t, lo = A[1] + (Bp[1] - A[1]) * t;
+    setInfo(`Descargando los caminos de la zona… ${Math.round(t * 100)}%`);
+    try { await loadTiles(L.latLngBounds([la - dLat, lo - dLon], [la + dLat, lo + dLon]), 900); } catch (e) { setInfo(e.message); return; }
+  }
+  G.lines = []; for (const v of T.cache.values()) G.lines.push(...v.lines);
+  G.path = []; G.steps = []; G.virtual = []; buildGraph();
+  const sA = snap({ lat: A[0], lng: A[1] }), sB = snap({ lat: Bp[0], lng: Bp[1] });
+  const dA = sA ? map.distance(A, sA.e.pts[sA.i]) : Infinity, dB = sB ? map.distance(Bp, sB.e.pts[sB.i]) : Infinity;
+  if (dA > 400 || dB > 400) { setInfo(`No hay caminos del mapa cerca del ${dA > 400 ? 'inicio' : 'fin'} (a más de 400 m). Marcá esa parte con puntos libres sobre el satélite o importá un GPX.`); drawNet(); return; }
+  const ka = virtualAt(sA), kb = virtualAt(snap({ lat: Bp[0], lng: Bp[1] }));
+  const lenCache = new Map(), lenOf = e => lenCache.get(e.id) ?? (lenCache.set(e.id, edgeLen(e)), lenCache.get(e.id));
+  const penal = new Map(), alts = [];
+  for (let k = 0; k < 3; k++) {
+    const path = dijkstra(ka, kb, e => lenOf(e) * (avoid ? (ROUTE_COST[e.info.cls] || 1.5) * (e.info.unpaved ? 1 : 1.3) : 1) * (penal.get(e.id) || 1));
+    if (!path) break;
+    const km = path.reduce((s, id) => s + lenOf(G.edges.get(id)), 0) / 1000, main = path.reduce((s, id) => { const e = G.edges.get(id); return s + (['motorway', 'trunk', 'primary'].includes(e.info.cls) ? lenOf(e) : 0); }, 0) / 1000;
+    const dirt = path.reduce((s, id) => { const e = G.edges.get(id); return s + (e.info.unpaved || e.info.cls === 'track' ? lenOf(e) : 0); }, 0) / 1000;
+    if (!alts.some(a => a.path.length === path.length && a.path.every((x, i) => x === path[i]))) alts.push({ path, km, main, dirt });
+    for (const id of path) penal.set(id, (penal.get(id) || 1) * 2.5);
+  }
+  if (S.altLayer) map.removeLayer(S.altLayer);
+  if (!alts.length) { setInfo('El mapa no tiene un camino continuo entre esos dos puntos. Completá el hueco con puntos libres o un GPX.'); drawNet(); return; }
+  S.alts = alts; S.altStart = ka;
+  const cols = ['#ffd200', '#00d4ff', '#ff6ad5'];
+  S.altLayer = L.layerGroup(alts.map((a, i) => L.polyline(a.path.flatMap(id => G.edges.get(id).pts), { color: cols[i], weight: 6 - i, opacity: 0.85 })
+    .bindTooltip(`Opción ${i + 1}: ${a.km.toFixed(1)} km · ${a.dirt.toFixed(1)} km de tierra · ${a.main.toFixed(1)} km por ruta principal`, { sticky: true })
+    .on('click', () => useAlternative(a, ka)))).addTo(map);
+  map.fitBounds(L.latLngBounds(A, Bp).pad(0.1));
+  $('#routeInfo').innerHTML = ('Encontré ' + alts.length + ' opción(es) por caminos del mapa. ' + alts.map((a, i) => `<b style="color:${cols[i]}">Opción ${i + 1}</b>: ${a.km.toFixed(1)} km, ${a.dirt.toFixed(1)} km de tierra, ${a.main.toFixed(1)} km por ruta principal`).join(' · ') + '. Revisalas sobre el satélite y hacé clic en la que corresponde al camino real.');
+  drawNet();
+}
+function useAlternative(a, start) {
+  G.path = [start]; G.steps = [0]; let end = start;
+  for (const id of a.path) { const e = G.edges.get(id); appendEdge(e, end); end = e.a === end ? e.b : e.a; }
+  if (S.altLayer) { map.removeLayer(S.altLayer); S.altLayer = null; }
+  drawTrace(); setInfo(`Recorrido elegido: ${a.km.toFixed(1)} km. Podés seguir ajustándolo cruce por cruce o con puntos libres.`);
+}
 async function rebuild(keepCam) {
   const B = S.base, o = opt(), t0 = performance.now();
   let meshes = [], res, spawnList, outline, length = 0, info = {};
@@ -2280,8 +2458,11 @@ async function rebuild(keepCam) {
         return best == null ? null : sm[best] + off; };
       log(`Altura del camino tomada del GPS (${T0.length.toLocaleString()} puntos, alineada con el satélite ${off >= 0 ? '+' : ''}${off.toFixed(1)} m).`);
     }
+    S.roadH = roadH;
     res = Core.buildRoute({ bareAt: S.autoW ? S.autoW.bare : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, shoulder: Math.min(3.5, o.res * 1.5 + 1), ...editFns(o, S.lastTotal, B.closed) });
     S.lastTotal = res.total;
+    // origen de la altura de cada punto del camino: GPS, modelo propio (MDE-Ar/LiDAR) o satélite
+    res.hsrc = res.C.map(p => roadH && roadH(p[0], p[1]) != null ? 'G' : (() => { const [la, lo] = B.P.inv(p[0], p[1]); return DEM.covered(la, lo) ? 'M' : 'S'; })());
     res.zone = useZ ? { pres: ZPRE - 30, start: ZPRE, finish: res.total - ZPOST, stop: res.total - ZPOST + 30 } : null;
     if (useZ) log('Largada y llegada: se tomaron 30 m antes de la largada para la presentación (control horario) y 30 m después de la llegada para el control stop, donde se entrega el carnet y los tiempos. El reloj corre desde la largada hasta la llegada.');
     meshes.push(...res.meshes); length = res.total; outline = [res.C];
@@ -2440,7 +2621,7 @@ function gripAnalysis(r) {
 const CLS_COL = ['#2ecc71', '#c6e23a', '#ffb020', '#ff4d4d'];
 
 // ---------- Perfil interactivo ----------
-const PF = { cv: $('#profile'), pad: { l: 40, r: 8, t: 10, b: 36 }, down: null, hover: null };
+const PF = { cv: $('#profile'), pad: { l: 40, r: 8, t: 10, b: 46 }, down: null, hover: null };
 function pfGeom() {
   const cv = PF.cv, dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
   if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
@@ -2477,6 +2658,11 @@ function drawProfile() {
     ctx.fillStyle = CLS_COL[grip.CLS[i]]; ctx.fillRect(x0, gy, x1 - x0, 6);
   }
   ctx.fillStyle = '#8b939c'; ctx.fillText('sup.', 4, sy + 6); ctx.fillText('agarre', 2, gy + 6);
+  // origen de la altura: verde = GPS, azul = modelo propio (MDE-Ar/LiDAR), gris = satélite ~30 m, rosa = editado a mano
+  const oy = gy + 8, SRC_COL = { G: '#2ecc71', M: '#3d8bff', S: '#6b7280' };
+  if (r.hsrc) for (let i = 0; i < r.n - 1; i++) { const x0 = X(r.dist[i]), x1 = Math.max(x0 + 0.6, X(r.dist[i + 1])); ctx.fillStyle = SRC_COL[r.hsrc[i]] || '#6b7280'; ctx.fillRect(x0, oy, x1 - x0, 6); }
+  for (const e of S.edits) if (['raise', 'smooth', 'bump', 'jump', 'pothole'].includes(e.kind)) { ctx.fillStyle = '#ff7ad9'; const a0 = e.d0 !== undefined ? e.d0 : e.d - 15, a1 = e.d1 !== undefined ? e.d1 : e.d + 15; ctx.fillRect(X(Math.max(0, a0)), oy, Math.max(2, X(a1) - X(a0)), 6); }
+  ctx.fillStyle = '#8b939c'; ctx.fillText('altura', 2, oy + 6);
   // ediciones
   for (const e of S.edits) {
     ctx.fillStyle = '#ff7ad9';
@@ -2489,7 +2675,17 @@ function drawProfile() {
     const a = X(S.sel.d0), b = X(S.sel.d1);
     ctx.fillRect(a, p.t, Math.max(2, b - a), G.ph); ctx.strokeRect(a, p.t, Math.max(2, b - a), G.ph);
   }
+  profileStats();
   if (PF.hover != null) { ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.moveTo(X(PF.hover), p.t); ctx.lineTo(X(PF.hover), p.t + G.ph); ctx.stroke(); }
+}
+function profileStats() {
+  const R = S.result, el = $('#pfStats'); if (!el || !R || R.mode !== 'route') return;
+  const r = R.res, h = r.hs, n = r.n; let up = 0, down = 0, mx = -Infinity, mn = Infinity, gU = 0, gD = 0, ref = h[0];
+  for (let i = 0; i < n; i++) { mx = Math.max(mx, h[i]); mn = Math.min(mn, h[i]); const dh = h[i] - ref; if (dh > 1) { up += dh; ref = h[i]; } else if (dh < -1) { down -= dh; ref = h[i]; } }
+  for (let i = 10; i < n; i++) { const g = (h[i] - h[i - 10]) / (r.dist[i] - r.dist[i - 10] || 1); gU = Math.max(gU, g); gD = Math.min(gD, g); }
+  const cnt = { G: 0, M: 0, S: 0 }; (r.hsrc || []).forEach(s => cnt[s]++); const pc = k => Math.round(cnt[k] / n * 100);
+  el.innerHTML = `Altura ${Math.round(mn + R.h0)}–${Math.round(mx + R.h0)} m · desnivel acumulado <b>+${Math.round(up)} m / −${Math.round(down)} m</b> · pendiente máx. <b>+${(gU * 100).toFixed(1)}% / ${(gD * 100).toFixed(1)}%</b> (en 20 m)<br>` +
+    `Origen de la altura: <span style="color:#2ecc71">GPS ${pc('G')}%</span> · <span style="color:#3d8bff">modelo propio ${pc('M')}%</span> · <span style="color:#9aa1aa">satélite ~30 m ${pc('S')}% (interpolado: no reproduce detalles chicos)</span> · <span style="color:#ff7ad9">editado a mano: rosa</span>. La línea punteada es el terreno original, sin ediciones.`;
 }
 function idxAt(d) { const r = S.result.res; return Math.max(0, Math.min(r.n - 1, Math.round(d / 2))); }
 function fixIdx(d) { const r = S.result.res; let i = idxAt(d); while (i > 0 && r.dist[i] > d) i--; while (i < r.n - 1 && r.dist[i + 1] <= d) i++; return i; }
@@ -3182,8 +3378,15 @@ function gpsFromText(txt, name) {
   } else if (/<kml|<coordinates/i.test(txt)) {
     for (const m of txt.matchAll(/<coordinates>([\s\S]*?)<\/coordinates>/gi))
       for (const t of m[1].trim().split(/\s+/)) { const [lo, la, el] = t.split(',').map(Number); if (isFinite(la) && isFinite(lo)) pts.push([la, lo, el || 0]); }
+  } else if (/^\s*\{/.test(txt) && /"coordinates"/.test(txt)) { // GeoJSON: LineString / MultiLineString / puntos [lon, lat, alt]
+    const j = JSON.parse(txt), walk = g => { if (!g) return;
+      if (g.type === 'FeatureCollection') g.features.forEach(f => walk(f.geometry)); else if (g.type === 'Feature') walk(g.geometry);
+      else if (g.type === 'LineString') g.coordinates.forEach(c => pts.push([c[1], c[0], c[2] || 0]));
+      else if (g.type === 'MultiLineString') g.coordinates.forEach(l => l.forEach(c => pts.push([c[1], c[0], c[2] || 0])));
+      else if (g.type === 'Point') pts.push([g.coordinates[1], g.coordinates[0], g.coordinates[2] || 0]); };
+    walk(j);
   } else {
-    for (const line of txt.split(/\r?\n/)) { const m = line.match(/(-?\d{1,2}\.\d+)\s*[,;\t ]\s*(-?\d{1,3}\.\d+)/); if (m) pts.push([+m[1], +m[2], 0]); }
+    for (const line of txt.split(/\r?\n/)) { const m = line.match(/(-?\d{1,2}\.\d+)\s*[,;\t ]\s*(-?\d{1,3}\.\d+)(?:\s*[,;\t ]\s*(-?\d+(?:\.\d+)?))?/); if (m) pts.push([+m[1], +m[2], m[3] ? +m[3] : 0]); }
   }
   if (pts.length < 2) throw new Error(`No encontré puntos de recorrido en ${name}.`);
   return pts;
@@ -3495,6 +3698,10 @@ try {
 
 // ---------- Ayuda: explicación de cada control al pasar el mouse (o tocarlo en el celular) ----------
 const HELP = {
+  findAlt: 'Buscar caminos reales: con inicio y fin cargados, descarga los caminos del mapa en la zona y propone hasta 3 recorridos por caminos que existen (nunca une los puntos en línea recta). Con "Evitar rutas principales" prioriza caminos de tierra y huellas. Revisá las opciones sobre el satélite y hacé clic en la correcta.',
+  avoidMain: 'Evitar rutas principales: al buscar caminos, penaliza mucho las rutas nacionales y principales para encontrar el camino alternativo de tierra.',
+  demFile: 'Importar elevación: cargá un modelo de elevación en GeoTIFF (por ejemplo el MDE-Ar del IGN, de 30 m, o un relevamiento LiDAR o de dron). Donde cubre, tiene prioridad sobre el satélite. En "Fuentes de elevación y precisión" se ve la resolución y la precisión de cada fuente.',
+  pfStats: 'Estadísticas del perfil y origen de cada altura: verde = GPS, azul = modelo propio, gris = satélite (interpolado), rosa = editado a mano.',
   traceMode: {
     pick: 'Calle por calle: tocá el camino donde largás y después cada cruce hasta el final. La app sigue la calle real del mapa entre un punto y otro, sin inventar el recorrido. Es la forma más precisa cuando el camino está en el mapa.',
     free: 'Línea libre: cada clic agrega un punto y el tramo va en línea recta de uno a otro. Sirve para caminos que no están en el mapa: marcalos sobre la foto satelital.',
@@ -3581,6 +3788,19 @@ const HELP = {
   document.addEventListener('mouseover', show); document.addEventListener('focusin', show); document.addEventListener('touchstart', show, { passive: true });
   const tm = document.getElementById('traceMode'); if (tm) tm.addEventListener('change', () => { bar.innerHTML = '<b>ℹ️</b> ' + HELP.traceMode[tm.value]; });
 })();
+
+// ---------- Reconstrucción real: controles ----------
+if ($('#findAlt')) $('#findAlt').onclick = () => findAlternatives().catch(e => setInfo('No se pudo buscar: ' + e.message));
+if ($('#demFile')) $('#demFile').onchange = async ev => {
+  for (const f of ev.target.files) {
+    try { log(`Leyendo modelo de elevación ${f.name} (${(f.size / 1e6).toFixed(0)} MB)…`); await tick();
+      const R = await readGeoTIFF(await f.arrayBuffer(), f.name); DEM.custom.push(R);
+      log(`Elevación ${f.name}: ${R.W}×${R.H} píxeles de ${R.resM.toFixed(1)} m, ${R.crs.name}, ${Math.round(R.valid * 100)}% con datos. Se usa con prioridad donde cubre; volvé a generar la pista.`, 'ok');
+    } catch (e) { log(`No se pudo leer ${f.name}: ${e.message}`, 'err'); }
+  }
+  ev.target.value = ''; S.base = null; renderElevSources();
+};
+renderElevSources();
 
 </script>
 </body>
