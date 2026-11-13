@@ -145,14 +145,14 @@ function obLakeCommit(rects) {
 function obClearAuto(x, y, r) {
   const R = S.result; if (!R) return; const r2 = r * r;
   for (const m of R.meshes) {
-    if (m.placed || !m.block || !(m.mat === 'tree' || m.mat === 'bark')) continue;
+    if (m.placed || !(m.block || m.blocks) || !(m.mat === 'tree' || m.mat === 'bark' || m.mat === 'lenga')) continue;
     const bb = edMeshBB(m); if (bb.maxx < x - r || bb.minx > x + r || bb.maxy < y - r || bb.miny > y + r) continue;
     let t = false;
-    for (let b = 0; b + m.block <= m.v.length; b += m.block) {
+    for (const [b, L] of Core.blocksOf(m)) {
       const cx = (m.v[b][0] + m.v[b + 1][0]) / 2, cy = (m.v[b][1] + m.v[b + 1][1]) / 2;
       if ((cx - x) ** 2 + (cy - y) ** 2 > r2) continue;
       if (m.v[b][0] === m.v[b + 2][0] && m.v[b][2] === m.v[b + 2][2]) continue;
-      const p0 = m.v[b].slice(); for (let k = 0; k < m.block; k++) m.v[b + k] = p0.slice(); t = true;
+      const p0 = m.v[b].slice(); for (let k = 0; k < L; k++) m.v[b + k] = p0.slice(); t = true;
     }
     if (t) pvSync(m);
   }

@@ -703,6 +703,13 @@ const Core = (() => {
   //    kindAt(x,y,h) -> 0 pino, 1 árbol de hoja, 2 arbusto, maxTrees
   function vn2c(x, y, s) { const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
     const a = hash2(xi, yi, s), b = hash2(xi + 1, yi, s), c = hash2(xi, yi + 1, s), d = hash2(xi + 1, yi + 1, s); return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; }
+  // objetos de una malla como [inicio, cantidad de vértices]: tamaño fijo (m.block) o variable (m.blocks)
+  function blocksOf(m) {
+    const out = [];
+    if (m.blocks) { const B = m.blocks.filter((b, i, a) => b < m.v.length && (i === 0 || b > a[i - 1])); B.forEach((b, i) => { const e = i + 1 < B.length ? B[i + 1] : m.v.length; if (e - b > 1) out.push([b, e - b]); }); }
+    else if (m.block) for (let b = 0; b + m.block <= m.v.length; b += m.block) out.push([b, m.block]);
+    return out;
+  }
   function buildTrees(o) {
     const { ter, bbox, res } = o, nx = ter.nx, ny = ter.ny, H = ter.H, need = ter.need;
     const hAt = (x, y) => {
@@ -755,8 +762,9 @@ const Core = (() => {
         if (back) M.f.push([b, b + 2, b + 1], [b, b + 3, b + 2]); else M.f.push([b, b + 1, b + 2], [b, b + 2, b + 3]); } };
     for (const t of near) {
       const [x, y, h, , ra, rb] = t, dRoad = rd(x, y, NEAR + 1);
-      if (!tm || tm.v.length > 60000) { tm = newMesh('TREES_L' + meshes.length, 'lenga'); tm.n = []; tm.block = 16; meshes.push(tm); }
-      if (!bm || bm.v.length > 60000) { bm = newMesh('TREES_B' + meshes.length, 'bark'); bm.block = 16; meshes.push(bm); }
+      if (!tm || tm.v.length > 60000) { tm = newMesh('TREES_L' + meshes.length, 'lenga'); tm.n = []; tm.blocks = []; meshes.push(tm); }
+      if (!bm || bm.v.length > 60000) { bm = newMesh('TREES_B' + meshes.length, 'bark'); bm.blocks = []; meshes.push(bm); }
+      bm.blocks.push(bm.v.length); tm.blocks.push(tm.v.length); // cada árbol ocupa un tramo de vértices de largo variable
       // tronco caído en el suelo del bosque (cada tanto, no pegado al camino)
       if (ra < 0.05 && dRoad > CL + 2 && dRoad < 30) {
         const a = rb * Math.PI * 2, L = 3 + ra * 60, r = 0.14 + rb * 0.2, ex = x + Math.cos(a) * L, ey = y + Math.sin(a) * L, he = hAt(ex, ey); if (!he) continue; const N = 6, b0 = bm.v.length;
@@ -876,6 +884,6 @@ const Core = (() => {
     return mats.map(([name, tex, kd]) => `newmtl ${name}\nKa 1 1 1\nKd ${kd}\nKs 0 0 0\nd 1\nillum 1\nmap_Kd ${tex}\n`).join('\n');
   }
 
-  return { MAT, profileInterp, buildTrees, buildRocks, roadDistFn, patchTerrain, terrainHeightFn, makeProj, resample, smooth1D, buildRoute, buildArea, buildSideRoads, buildTerrain, toOBJ, toMTL, computeNormals };
+  return { MAT, profileInterp, blocksOf, buildTrees, buildRocks, roadDistFn, patchTerrain, terrainHeightFn, makeProj, resample, smooth1D, buildRoute, buildArea, buildSideRoads, buildTerrain, toOBJ, toMTL, computeNormals };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

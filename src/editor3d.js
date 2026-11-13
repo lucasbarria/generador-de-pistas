@@ -311,13 +311,13 @@ function liveCommit() {
     if (xy) {
       const rd = Core.roadDistFn(r.segs, true);
       for (const m of R.meshes) {
-        if (!m.block || !edHit(edMeshBB(m), q)) continue;
-        const lim = m.mat === 'tree' ? 1.0 : 0.4; let t = false;
-        for (let b = 0; b + m.block <= m.v.length; b += m.block) {
-          let cx = 0, cy = 0; for (let k = 0; k < m.block; k++) { cx += m.v[b + k][0]; cy += m.v[b + k][1]; } cx /= m.block; cy /= m.block;
+        if (!(m.block || m.blocks) || !edHit(edMeshBB(m), q)) continue;
+        const lim = m.mat === 'tree' || m.mat === 'lenga' ? 1.0 : 0.4; let t = false;
+        for (const [b, L] of Core.blocksOf(m)) {
+          let cx = 0, cy = 0; for (let k = 0; k < L; k++) { cx += m.v[b + k][0]; cy += m.v[b + k][1]; } cx /= L; cy /= L;
           if (cx < q.minx || cx > q.maxx || cy < q.miny || cy > q.maxy) continue;
           if (m.v[b][0] === m.v[b + 1][0] && m.v[b][1] === m.v[b + 1][1] && m.v[b][2] === m.v[b + 1][2]) continue; // ya quitado
-          if (rd(cx, cy, 12) < lim) { const p0 = m.v[b].slice(); for (let k = 0; k < m.block; k++) m.v[b + k] = p0.slice(); t = true; }
+          if (rd(cx, cy, 12) < lim) { const p0 = m.v[b].slice(); for (let k = 0; k < L; k++) m.v[b + k] = p0.slice(); t = true; }
         }
         if (t) touched.add(m);
       }
