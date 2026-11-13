@@ -343,7 +343,10 @@ const Core = (() => {
     const GR = smooth1D(hs.map((h, i) => (hs[Math.min(n - 1, i + 1)] - hs[Math.max(0, i - 1)]) / (2 * step)), 4, closed);
     const BZ = (() => { const sharp = K.map(k => Math.max(0, Math.min(1, (Math.abs(k) - 1 / 120) / (1 / 25 - 1 / 120)))), z = new Float32Array(n), W0 = Math.round(70 / step), W1 = Math.round(35 / step);
       for (let i = 0; i < n; i++) { let b = 0; for (let j = i; j <= Math.min(n - 1, i + W0); j++) b = Math.max(b, sharp[j] * (1 - (j - i) / W0)); for (let j = Math.max(0, i - W1); j < i; j++) b = Math.max(b, 0.7 * sharp[j] * (1 - (i - j) / W1)); z[i] = b; } return z; })();
-    const ctxAt = d => { const f = Math.max(0, Math.min(n - 1.001, d / step)), k = Math.floor(f), u = f - k; return { hum: HUM[k] * (1 - u) + HUM[k + 1] * u, hollow: HO[k] * (1 - u) + HO[k + 1] * u, forest: FOR[k], K: K[k] * (1 - u) + K[k + 1] * u, G: GR[k] * (1 - u) + GR[k + 1] * u, BZ: BZ[k] * (1 - u) + BZ[k + 1] * u }; };
+    const keyAt = d => SURF[Math.max(0, Math.min(segCount - 1, Math.floor(d / step)))];
+    const surfMix = d => { const a = keyAt(d - 8), b = keyAt(d + 8); if (a === b) return { a, b, t: 0 };
+      let j = Math.max(0, Math.floor((d - 8) / step)); while (j < segCount - 1 && SURF[j] === a) j++; const t = Math.max(0, Math.min(1, (d - (j * step - 8)) / 16)); return { a, b, t: t * t * (3 - 2 * t) }; };
+    const ctxAt = d => { const f = Math.max(0, Math.min(n - 1.001, d / step)), k = Math.floor(f), u = f - k; return { key: surfMix(d), hum: HUM[k] * (1 - u) + HUM[k + 1] * u, hollow: HO[k] * (1 - u) + HO[k + 1] * u, forest: FOR[k], K: K[k] * (1 - u) + K[k + 1] * u, G: GR[k] * (1 - u) + GR[k + 1] * u, BZ: BZ[k] * (1 - u) + BZ[k + 1] * u }; };
     const addRelief = sc => { if (!o.reliefAt) return sc; const c = ctxAt(sc.d), hw = W[sc.cols[0].i] / 2;
       for (const q of sc.cols) if (Math.abs(q.s) < hw - 0.01) q.h += o.reliefAt(sc.d, q.s, hw, c); return sc; };
     // secciones intermedias cada 0,5 m (entre los puntos del eje, que van cada 2 m): los baches necesitan esa resolución
