@@ -111,7 +111,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <div id="vbar"><button id="closeViewer" title="Volver al mapa">← Mapa</button><button id="drive" title="Recorrer el tramo con la cámara">▶ Recorrer</button><button id="editCurves" title="Mostrar u ocultar el editor">✏️ Editor</button>
           <span class="vsep"></span>
           <button id="navLow" title="Cámara a ras del piso">👁 Piso</button><button id="navTop" title="Vista desde arriba">⬇ Arriba</button>
-          <button id="satBtn" title="Foto satelital sobre el terreno">🛰</button><button id="mapBtn" title="Mostrar u ocultar el mapa chico">🗺</button><button id="profBtn" title="Mostrar u ocultar el perfil de alturas">📈</button><button id="helpBtn" title="Controles (H)">?</button>
+          <button id="mapBtn" title="Mostrar u ocultar el mapa chico">🗺</button><button id="profBtn" title="Mostrar u ocultar el perfil de alturas">📈</button><button id="helpBtn" title="Controles (H)">?</button>
           <label class="vsel" id="dragRw" title="Cuánto camino se mueve al arrastrar un punto amarillo">Alcance <select id="dragR"><option value="15">15 m</option><option value="30">30 m</option><option value="50" selected>50 m</option><option value="100">100 m</option><option value="200">200 m</option></select></label></div>
         <div id="edBar"><button id="edUndoB" title="Deshacer (Ctrl+Z)">↶</button><button id="edRedoB" title="Rehacer (Ctrl+Y o Ctrl+Shift+Z)">↷</button>
           <span id="edState">Todo confirmado</span><button id="edHistB" title="Historial de la sesión">Historial</button>
@@ -216,22 +216,15 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
 <label class="f" title="Desnivel de la subida y bajada al puente (el tablero queda más alto que el camino)">Rampas de los puentes <select id="bridgeRamp"><option value="none">Sin desnivel</option><option value="soft">Suave (1 m)</option><option value="steep" selected>Empinada (2 m)</option><option value="hard">Muy empinada (3 m, puede saltar)</option></select></label>
 <label class="f">Alambrados <select id="fences"><option value="auto" selected>Automático (campo/estepa, no en bosque)</option><option value="always">En todo el tramo</option><option value="none">Sin alambrados</option></select></label>
 </details>
-      <details class="texbox"><summary>Avanzado / Materiales personalizados</summary>
-<div class="mut">Subí fotos del camino: la app detecta sola ripio, piedras, humedad y bordes.</div>
-<details class="texbox"><summary>Fotos reales del recorrido (automático)</summary><div class="mut">Al generar, la app busca sola fotos libres del lugar (Wikimedia Commons, Panoramax, Mapillary), verifica que muestren el camino y las usa para calibrar materiales km a km. Nunca se incluyen en la pista exportada.</div><div id="photoPanel" style="margin:6px 0"></div><label class="f">Buscar fotos reales al generar <span><input type="checkbox" id="refCal" checked></span></label><label class="f">Token de Mapillary (opcional) <input id="mlyToken" placeholder="MLY|…" style="width:160px"></label><label class="b gpsbtn">📷 Agregar fotos para comparar<input type="file" id="refFile" accept="image/*" multiple hidden></label><div id="refList"></div></details>
-<details class="texbox"><summary>Reconstrucción de materiales desde fotos reales</summary><div class="mut">REAL PHOTO MATERIAL RECONSTRUCTION: materiales del camino generados a partir de las fotos reales de Aguas Blancas (colores, piedras, huellas, humedad, bordes). El satélite los reparte a lo largo del recorrido. Las fotos no se exportan.</div>
+      <details class="texbox"><summary>Avanzado / Materiales</summary>
+<div class="mut">Todas las texturas salen de la app: materiales internos mezclados según el bioma, la altura, la pendiente y la cercanía a ríos. No se descargan fotos ni se suben imágenes.</div>
+<details class="texbox"><summary>Materiales internos de Aguas Blancas</summary><div class="mut">Materiales del camino que vienen dentro de la app (armados una vez con medidas de Aguas Blancas: colores, piedras, huellas, humedad, bordes). El satélite solo decide dónde va cada uno; no se descarga ni se usa ninguna foto.</div>
 <label style="display:block;margin:6px 0">Usar materiales de fotos reales <select id="photoMat"><option value="auto">Automático (tramos de Aguas Blancas)</option><option value="on">Siempre</option><option value="off">No</option></select></label>
 <div id="abPanel"></div></details>
 <label class="f">Textura continua del camino <span><input type="checkbox" id="roadTex" checked></span></label>
-<label class="f">Texturas reales del terreno <select id="realTex"><option value="s2_2016" selected>Sentinel-2 2016 (libre, CC BY)</option><option value="s2_2024">Sentinel-2 2024 (no comercial)</option><option value="none">No (texturas generadas)</option></select></label>
-<label class="f">Materiales del suelo <select id="matSrc"><option value="auto" selected>Automático (biblioteca libre si está guardada)</option><option value="lib">Biblioteca libre (Poly Haven, CC0)</option><option value="app">Fotos de la app</option></select></label>
-<label class="f">Buscar imágenes libres del recorrido <span><input type="checkbox" id="freeImg" checked></span></label>
-<details class="texbox"><summary>Biblioteca de materiales libres</summary><div id="libInfo" class="mut"></div><div style="margin-top:6px"><button class="b" id="libDl">Descargar biblioteca básica (una sola vez)</button> <button class="b" id="libExp">Exportar</button> <label class="b">Importar<input type="file" id="libImp" accept=".zip" hidden></label> <button class="b" id="cacheClr">Vaciar caché de descargas</button></div></details>
-<details class="texbox"><summary>Pack de texturas de otro tramo (local)</summary><div class="mut">Cargá las texturas de un tramo que tengas (.dds, .png, .jpg; varios archivos o la carpeta entera). La app reconoce sola cuáles son detalle de ripio, de pasto, de tierra y colores base, y las usa en la vista 3D y en el .kn5. Quedan guardadas solo en esta compu: no se suben ni se publican. Si compartís la pista exportada, revisá la licencia de esas texturas.</div>
-<div class="row" style="margin-top:6px"><label class="b">Elegir archivos<input type="file" id="packFiles" multiple accept=".dds,.png,.jpg,.jpeg,.webp" style="display:none"></label> <label class="b">Elegir carpeta<input type="file" id="packDir" webkitdirectory multiple style="display:none"></label> <button class="b" id="packClear">Quitar todas</button></div>
-<label class="f">Usar el pack <span><input type="checkbox" id="packOn" checked></span></label><div id="packList"></div></details>
-<details class="texbox"><summary>Texturas propias (fotos)</summary><div class="mut">Reemplazá cualquier textura por una foto: del ripio real, del bosque, o texturas fotográficas gratis (ambientCG, Poly Haven). Árboles: PNG con fondo transparente.</div><div id="customTex"></div></details>
-<label class="b gpsbtn">🛰️ Importar ortofoto (GeoTIFF RGB: dron, IGN…)<input type="file" id="orthoFile" accept=".tif,.tiff" multiple hidden></label>
+<details class="texbox"><summary>Pack de texturas DDS (opcional)</summary><div class="mut">Cargá las texturas de un tramo que tengas (.dds, .png, .jpg; varios archivos o la carpeta entera). La app reconoce sola cuáles son detalle de ripio, de pasto, de tierra y colores base, y las usa en la vista 3D y en el .kn5. Quedan guardadas solo en esta compu: no se suben ni se publican. Si compartís la pista exportada, revisá la licencia de esas texturas.</div>
+<div class="row" style="margin-top:6px"><label class="b">Elegir archivos<input type="file" id="packFiles" multiple accept=".dds" style="display:none"></label> <label class="b">Elegir carpeta<input type="file" id="packDir" webkitdirectory multiple style="display:none"></label> <button class="b" id="packClear">Quitar todas</button></div>
+<label class="f">Usar el pack <span><input type="checkbox" id="packOn"></span></label><div id="packList"></div></details>
 </details>
       <details class="texbox"><summary>Datos de elevación y fuentes</summary>
 <div style="display:none"><label class="f">Elevación base <select id="demSrc"><option value="auto" selected>Copernicus GLO-30 (si no hay, Terrarium)</option><option value="terrarium">Terrarium (SRTM y otras)</option></select></label></div>
@@ -1813,7 +1806,6 @@ const LOCAL = {
   },
 };
 // ---------- Fuentes abiertas del catálogo de OpenAerialMap (HOT): Copernicus DEM, imágenes de drones con licencia libre ----------
-const HOT = { stac: 'https://api.imagery.hotosm.org/stac', raster: 'https://api.imagery.hotosm.org/raster' };
 const COP_ATTR = 'Copernicus DEM GLO-30: produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved';
 const copItemId = (latF, lonF) => `Copernicus_DSM_COG_10_${latF < 0 ? 'S' : 'N'}${String(Math.abs(latF)).padStart(2, '0')}_00_${lonF < 0 ? 'W' : 'E'}${String(Math.abs(lonF)).padStart(3, '0')}_00_DEM`;
 const COP_MISSING = new Set(); // celdas sin dato (mar): no se vuelven a pedir
@@ -1824,6 +1816,7 @@ async function decodeRGBTile(blob, ctx, fn) {
   return a;
 }
 // un tile de Copernicus GLO-30 (Terrain-RGB) armado con las celdas de 1° que toca; null si no hay dato
+const HOT = { stac: 'https://api.imagery.hotosm.org/stac', raster: 'https://api.imagery.hotosm.org/raster' }; // elevación Copernicus GLO-30 (datos de altura, no imágenes)
 async function copTile(z, x, y, ctx) {
   const n = 2 ** z, lon0 = x / n * 360 - 180, lon1 = (x + 1) / n * 360 - 180, lat = t => Math.atan(Math.sinh(Math.PI * (1 - 2 * t / n))) / D2R, latN = lat(y), latS = lat(y + 1);
   let out = null;
@@ -2421,135 +2414,8 @@ const REFS = {
     return this.cal;
   },
 };
-// ---------- AUTOMATIC REAL-WORLD PHOTO DISCOVERY: fotos reales del recorrido, buscadas, verificadas y aplicadas solas ----------
-// Cada fuente es un adaptador independiente (search sobre una caja geográfica → candidatas con coordenadas, orientación,
-// fecha, licencia y miniatura). Las fotos se verifican por distancia al trazado, orientación y contenido, se puntúan,
-// se asignan a un km del tramo y se usan para calibrar materiales. Nunca se incluyen en la pista exportada.
-const PHOTOS = {
-  STEP: 100, // m entre puntos de búsqueda
-  LEVELS: [{ lv: 1, max: 30, name: 'camino exacto' }, { lv: 2, max: 100, name: 'entorno inmediato' }, { lv: 3, max: 500, name: 'entorno ampliado' }, { lv: 4, max: 2000, name: 'entorno regional' }],
-  status: {}, report: null, layer: null,
-  // consulta JSON con caché local (14 días) y reintentos controlados
-  async json(url, src, { ttl = 14, tries = 3 } = {}) {
-    const key = 'json:' + url.replace(/access_token=[^&]+/, 'access_token=*'), hit = await LOCAL.get('tiles', key);
-    if (hit && Date.now() - hit.t < ttl * 864e5) return hit.v;
-    let err;
-    for (let i = 0; i < tries; i++) {
-      try { const r = await fetch(url); if (r.status === 429 || r.status >= 500) { err = new Error('HTTP ' + r.status); await new Promise(z => setTimeout(z, 700 * (i + 1) ** 2)); continue; }
-        const v = await r.json(); if (r.ok && !v.error) LOCAL.put('tiles', key, { t: Date.now(), v }); return v; }
-      catch (e) { err = e; await new Promise(z => setTimeout(z, 500 * (i + 1))); }
-    }
-    throw err || new Error('sin respuesta');
-  },
-  SOURCES: [
-    { id: 'commons', name: 'Wikimedia Commons', async search(b) {
-        const j = await PHOTOS.json(`https://commons.wikimedia.org/w/api.php?action=query&list=geosearch&gsbbox=${b.n}%7C${b.w}%7C${b.s}%7C${b.e}&gslimit=500&gsnamespace=6&format=json&origin=*`, 'commons');
-        const geo = (j.query && j.query.geosearch) || [], out = [];
-        for (let i = 0; i < geo.length; i += 50) {
-          const T = geo.slice(i, i + 50), k = await PHOTOS.json(`https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent(T.map(g => g.title).join('|'))}&prop=imageinfo&iiprop=url|extmetadata|size&iiurlwidth=1024&format=json&origin=*`, 'commons');
-          for (const pg of Object.values((k.query && k.query.pages) || {})) { const g = T.find(q => q.title === pg.title), ii = pg.imageinfo && pg.imageinfo[0]; if (!g || !ii) continue; const m = ii.extmetadata || {}, lic = (m.LicenseShortName && m.LicenseShortName.value) || '';
-            const dir = m.GPSImgDirection ? parseFloat(m.GPSImgDirection.value) : null;
-            out.push({ key: 'commons:' + pg.title, src: 'commons', ll: [g.lat, g.lon], heading: isFinite(dir) ? dir : null, date: ((m.DateTimeOriginal && m.DateTimeOriginal.value) || '').replace(/<[^>]+>/g, '').slice(0, 10), license: lic || 'sin licencia declarada', free: /CC|Public domain|PD|CC0/i.test(lic) && !/NC|ND/.test(lic),
-              author: ((m.Artist && m.Artist.value) || '').replace(/<[^>]+>/g, '').trim().slice(0, 60), img: ii.thumburl || ii.url, url: ii.descriptionurl, w: ii.width, h: ii.height, title: pg.title.replace(/^File:/, '') }); }
-        }
-        return out; } },
-    { id: 'panoramax', name: 'Panoramax', async search(b) {
-        const j = await PHOTOS.json(`https://api.panoramax.xyz/api/search?bbox=${b.w},${b.s},${b.e},${b.n}&limit=500`, 'panoramax');
-        return (j.features || []).map(f => { const P = f.properties || {}, lic = ((f.links || []).find(l => l.rel === 'license') || {}).title || 'CC BY-SA 4.0';
-          return { key: 'panoramax:' + f.id, src: 'panoramax', ll: [f.geometry.coordinates[1], f.geometry.coordinates[0]], heading: P['view:azimuth'] != null ? +P['view:azimuth'] : null, date: (P.datetime || '').slice(0, 10), license: lic.replace(/^License for this object \(|\)$/g, ''), free: true,
-            author: (f.providers && f.providers[0] && f.providers[0].name) || '', img: f.assets && ((f.assets.sd || f.assets.thumb || {}).href), url: `https://api.panoramax.xyz/#focus=pic&pic=${f.id}`, pano: P['exif'] && /equirect/i.test(JSON.stringify(P['exif'] || '')), title: 'Panoramax ' + f.id.slice(0, 8) }; }); } },
-    { id: 'mapillary', name: 'Mapillary', needs: 'token', async search(b) {
-        const tok = (localStorage.getItem('mlyToken') || '').trim(); if (!tok) { const e = new Error('sin token (opcional)'); e.skip = true; throw e; }
-        const z = 14, tp = (la, lo) => [Math.floor((lo + 180) / 360 * 2 ** z), Math.floor((1 - Math.log(Math.tan(la * D2R) + 1 / Math.cos(la * D2R)) / Math.PI) / 2 * 2 ** z)];
-        const [x0, y0] = tp(b.n, b.w), [x1, y1] = tp(b.s, b.e), out = [];
-        for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
-          if ((x1 - x0 + 1) * (y1 - y0 + 1) > 40) break;
-          const blob = await LOCAL.fetchBlob(`https://tiles.mapillary.com/maps/vtp/mly1_public/2/${z}/${x}/${y}?access_token=${encodeURIComponent(tok)}`).catch(() => null); if (!blob) continue;
-          for (const f of decodeMVT(await blob.arrayBuffer(), 'image')) { const [px, py] = f.lines[0][0], fx = x + px / f.extent, fy = y + py / f.extent, P = f.props;
-            out.push({ key: 'mapillary:' + P.id, src: 'mapillary', ll: [Math.atan(Math.sinh(Math.PI * (1 - 2 * fy / 2 ** z))) / D2R, fx / 2 ** z * 360 - 180], heading: P.compass_angle != null ? +P.compass_angle : null, date: P.captured_at ? new Date(P.captured_at).toISOString().slice(0, 10) : '', license: 'CC BY-SA 4.0', free: true, pano: !!P.is_pano,
-              author: '', url: `https://www.mapillary.com/app/?pKey=${P.id}`, title: 'Mapillary ' + P.id,
-              img: async () => { const j = await PHOTOS.json(`https://graph.mapillary.com/${P.id}?access_token=${encodeURIComponent(tok)}&fields=thumb_1024_url`, 'mapillary', { tries: 1 }); if (!j.thumb_1024_url) throw new Error('Mapillary no deja bajar la foto (falla de su servicio con aplicaciones nuevas)'); return j.thumb_1024_url; } }); }
-        }
-        return out; } },
-  ],
-  // búsqueda completa sobre un recorrido: rPts en metros (proyección B.P), con su largo acumulado
-  async discover(rPts, P, onLog) {
-    const cum = [0]; for (let i = 1; i < rPts.length; i++) cum.push(cum[i - 1] + Math.hypot(rPts[i][0] - rPts[i - 1][0], rPts[i][1] - rPts[i - 1][1]));
-    const total = cum.at(-1), samples = [];
-    for (let d = 0, i = 0; d <= total; d += this.STEP) { while (i < rPts.length - 2 && cum[i + 1] < d) i++; const t = (d - cum[i]) / Math.max(1e-6, cum[i + 1] - cum[i]), x = rPts[i][0] + (rPts[i + 1][0] - rPts[i][0]) * t, y = rPts[i][1] + (rPts[i + 1][1] - rPts[i][1]) * t; samples.push({ d, x, y, ll: P.inv(x, y), tx: rPts[i + 1][0] - rPts[i][0], ty: rPts[i + 1][1] - rPts[i][1] }); }
-    // dónde cae una foto respecto del trazado: distancia, km y rumbo del camino ahí
-    const nearest = (x, y) => { let best = { dist: Infinity }; for (let i = 0; i + 1 < rPts.length; i++) { const a = rPts[i], b2 = rPts[i + 1], vx = b2[0] - a[0], vy = b2[1] - a[1], L2 = vx * vx + vy * vy || 1e-9; let t = ((x - a[0]) * vx + (y - a[1]) * vy) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t; const qx = a[0] + vx * t, qy = a[1] + vy * t, dd = Math.hypot(qx - x, qy - y); if (dd < best.dist) best = { dist: dd, d: cum[i] + Math.sqrt(L2) * t, qx, qy, vx, vy }; } return best; };
-    // cajas del corredor: tramos de ~3 km con 2,1 km de margen (alcanza el nivel regional)
-    const boxes = [];
-    for (let k = 0; k < samples.length; k += 30) { const ch = samples.slice(k, k + 31); let s = 90, n = -90, w = 180, e = -180; for (const q of ch) { s = Math.min(s, q.ll[0]); n = Math.max(n, q.ll[0]); w = Math.min(w, q.ll[1]); e = Math.max(e, q.ll[1]); }
-      const mLa = 2100 / 111320, mLo = 2100 / (111320 * Math.cos(ch[0].ll[0] * D2R)); boxes.push({ s: s - mLa, n: n + mLa, w: w - mLo, e: e + mLo }); }
-    // 1) buscar en todas las fuentes; si una falla, se sigue con las demás
-    const cands = new Map(); this.status = {};
-    for (const S0 of this.SOURCES) {
-      const st = this.status[S0.id] = { name: S0.name, found: 0, err: null };
-      for (const b of boxes) { try { for (const c of await S0.search(b)) if (!cands.has(c.key)) { cands.set(c.key, c); st.found++; } } catch (e) { st.err = e.message; if (e.skip) break; } }
-    }
-    // 2) verificación geográfica y de orientación
-    const rep = { total, found: cands.size, sel: [], disc: [], src: this.status, center: P.inv(rPts[rPts.length >> 1][0], rPts[rPts.length >> 1][1]) };
-    const angDiff = (a, b) => { const x = Math.abs(((a - b) % 360) + 360) % 360; return x > 180 ? 360 - x : x; };
-    const items = [];
-    for (const c of cands.values()) {
-      const [x, y] = P.fwd(c.ll[0], c.ll[1]), nr = nearest(x, y), L = this.LEVELS.find(q => nr.dist <= q.max);
-      c.dist = Math.round(nr.dist); c.km = +(nr.d / 1000).toFixed(2); c.level = L ? L.lv : 5;
-      if (!L) continue; // más allá de 2 km: no se usa
-      if (!c.free) { rep.disc.push({ ...c, why: 'licencia no libre (' + c.license + ')' }); continue; }
-      if (c.pano) { rep.disc.push({ ...c, why: 'foto 360° (sin perspectiva conocida)' }); continue; }
-      if (c.heading != null) { // ¿la cámara mira hacia el camino?
-        const roadB = (Math.atan2(nr.vx, nr.vy) / D2R + 360) % 360, toRoad = (Math.atan2(nr.qx - x, nr.qy - y) / D2R + 360) % 360;
-        c.oriented = nr.dist < 20 ? Math.min(angDiff(c.heading, roadB), angDiff(c.heading, roadB + 180)) < 50 : angDiff(c.heading, toRoad) < 55;
-      } else c.oriented = null;
-      items.push(c);
-    }
-    // 3) puntuación previa y límite de descargas (prefiere pocas fotos útiles a muchas irrelevantes)
-    const pre = c => 100 - c.dist / 10 + (c.oriented === true ? 25 : c.oriented === false ? -40 : 0) + (c.date ? (+c.date.slice(0, 4) - 2010) : 0);
-    items.sort((a, b) => a.level - b.level || pre(b) - pre(a));
-    const quota = { 1: 40, 2: 30, 3: 15, 4: 10 }, used = { 1: 0, 2: 0, 3: 0, 4: 0 }, hashes = [];
-    let k = 0;
-    for (const c of items) {
-      if (used[c.level] >= quota[c.level]) { rep.disc.push({ ...c, why: 'sobran fotos más útiles en este nivel' }); continue; }
-      used[c.level]++; k++; onLog && k % 10 === 0 && onLog(`Analizando fotos del lugar… ${k}`);
-      try {
-        const url = typeof c.img === 'function' ? await c.img() : c.img; if (!url) throw new Error('sin imagen');
-        const blob = await LOCAL.fetchBlob(url), a = await REFS.analyze(blob);
-        if (Math.min(a.w, a.h) < 300) { rep.disc.push({ ...c, why: 'baja resolución' }); continue; }
-        if (hashes.some(h => h.c.dist < 9e9 && Math.hypot((h.c.ll[0] - c.ll[0]) * 111320, (h.c.ll[1] - c.ll[1]) * 70000) < 60 && [...h.h].filter((b, i) => b !== a.hash[i]).length <= 6)) { rep.disc.push({ ...c, why: 'duplicada' }); continue; }
-        hashes.push({ c, h: a.hash });
-        if (a.env && a.env.water > 0.35 && !a.ok) { rep.disc.push({ ...c, why: 'muestra agua (lago o mar), no el camino' }); continue; }
-        // 4) rol de cada foto según distancia, orientación y contenido
-        let role, conf;
-        if (c.level <= 2 && a.ok && c.oriented !== false && (c.oriented === true || c.dist <= 25)) { role = 'camino'; conf = c.oriented === true ? 'alta' : 'media (sin orientación: está sobre el camino y se ve un camino)'; }
-        else if (c.level <= 2 && c.oriented === false) { rep.disc.push({ ...c, why: 'mira hacia otro lado' }); continue; }
-        else if (c.level <= 3) { role = 'entorno'; conf = a.ok ? 'media' : 'baja (no se ve el camino)'; }
-        else { role = 'regional'; conf = 'solo ambiente general'; }
-        const score = Math.round(pre(c) + (a.ok ? 30 : 0) + (role === 'camino' ? 20 : 0));
-        const id = c.src + '_' + String(c.key).replace(/[^\w]+/g, '_').slice(-60);
-        const rec = { id, auto: true, src: c.src, srcId: c.key, name: `${this.SOURCES.find(q => q.id === c.src).name}${c.author ? ' — ' + c.author : ''}`, title: c.title, blob, added: Date.now(), ll: c.ll.map(v => +(+v).toFixed(6)), use: true, a,
-          date: c.date, url: c.url, license: c.license, km: c.km, dist: c.dist, level: c.level, heading: c.heading, oriented: c.oriented, role, conf, score };
-        const prev = await LOCAL.get('refs', id); if (prev && prev.manual) { rec.use = prev.use; rec.role = prev.role; rec.manual = true; } // respeta las correcciones a mano
-        await LOCAL.put('refs', id, rec); rep.sel.push(rec);
-      } catch (e) { rep.disc.push({ ...c, why: e.message.includes('Mapillary') ? e.message : 'no se pudo descargar' }); }
-    }
-    rep.sel.sort((a, b) => a.km - b.km);
-    // 5) cobertura: qué partes del tramo tienen fotos del camino
-    const roadPh = rep.sel.filter(r => r.role === 'camino' && r.use); let cov = 0; for (const q of samples) if (roadPh.some(r => Math.abs(r.km * 1000 - q.d) <= 250)) cov++;
-    rep.coverage = samples.length ? cov / samples.length : 0;
-    this.report = rep; await REFS.load(); return rep;
-  },
-  showOnMap() {
-    if (typeof map === 'undefined' || !window.L || !L.circleMarker) return;
-    if (this.layer) { map.removeLayer(this.layer); this.layer = null; }
-    const R = this.report; if (!R) return; this.layer = L.layerGroup(); const col = { camino: '#22c55e', entorno: '#eab308', regional: '#94a3b8' };
-    for (const r of R.sel) { const m = L.circleMarker(r.ll, { radius: 6, color: '#0b1220', weight: 1, fillColor: col[r.role] || '#fff', fillOpacity: r.use ? 0.95 : 0.3 });
-      m.bindPopup(() => `<div style="width:220px"><img src="${URL.createObjectURL(r.blob)}" style="width:100%;border-radius:4px"><div><b>${r.role === 'camino' ? 'Muestra el camino' : r.role === 'entorno' ? 'Entorno' : 'Ambiente regional'}</b> · km ${r.km} · a ${r.dist} m</div><div>${r.name}, ${r.date || 's/f'} · ${r.license}</div><a href="${r.url}" target="_blank" rel="noopener">Abrir original</a></div>`);
-      this.layer.addLayer(m); }
-    this.layer.addTo(map);
-  },
-};
+// (búsqueda automática de fotos de internet: eliminada. La app no descarga ni usa fotos.)
+const PHOTOS = { report: null, layer: null, showOnMap() { } };
 async function renderPhotoPanel() {
   const el = $('#photoPanel'); if (!el) return; const R = PHOTOS.report;
   if (!R) { el.innerHTML = '<div class="mut">Se ejecuta solo al generar un tramo.</div>'; return; }
@@ -2639,7 +2505,7 @@ const MATLIB = {
     c.__scaleErr = Math.abs(meters / rep - rec.sizeM) / rec.sizeM; this.cache.set(k, c); return c;
   },
   async apply() {
-    const mode = $('#matSrc') ? $('#matSrc').value : 'auto', recs = await this.list(), byTex = {};
+    const mode = 'app', recs = [], byTex = {}; // sin bibliotecas descargadas: solo materiales internos
     for (const r of recs) if (r.tex) byTex[r.tex] = r;
     this.active = mode === 'lib' || (mode === 'auto' && Object.keys(byTex).length >= 6);
     this.used = [];
@@ -2854,24 +2720,10 @@ const DETAIL = {
   src(key) {
     const [pk, lk, gen] = this.SRC[key], p = pk && (PACK.get(pk) || (key === 'dirt' && PACK.get('det_road')));
     if (p) return { cv: p, from: 'pack', id: 'p' + PACK.stamp };
-    if (this.lib[lk]) return { cv: this.lib[lk], from: 'cc0', id: 'l' };
     return { cv: this.cache['def_' + gen] || (this.cache['def_' + gen] = makeDetailTex(gen)), from: 'gen', id: 'g' };
   },
   // baja (una sola vez, queda guardado) los materiales CC0 que hacen falta para el detalle cuando no hay pack
-  async prepare() {
-    const need = ['ripio_fino', 'grava_suelta', 'barro', 'tierra_natural', 'pasto'];
-    for (const k of need) {
-      if (this.lib[k]) continue;
-      try {
-        let rec = await LOCAL.get('mats', k);
-        if (!rec) { const c = MATLIB.CATALOG.find(q => q.key === k); if (!c) continue;
-          const files = await (await fetch(`https://api.polyhaven.com/files/${c.ph}`)).json(), u = files.Diffuse && files.Diffuse['1k'] && files.Diffuse['1k'].jpg && files.Diffuse['1k'].jpg.url; if (!u) continue;
-          const diff = await (await fetch(u)).blob(); rec = { key: c.key, name: c.name, cat: c.cat, tex: c.tex || null, source: 'Poly Haven', license: 'CC0', url: `https://polyhaven.com/a/${c.ph}`, authors: '', sizeM: 2, diff, nor: null, date: new Date().toISOString() }; await LOCAL.put('mats', k, rec); }
-        const bmp = await createImageBitmap(rec.diff), cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height; cv.getContext('2d').drawImage(bmp, 0, 0); this.lib[k] = cv;
-      } catch (e) { /* sin conexión: queda el detalle generado */ }
-    }
-    this.reset();
-  },
+  async prepare() { this.reset(); }, // sin descargas: el detalle es el del pack (si se activó) o el interno
   info() { const f = k => ({ pack: 'tu pack', cc0: 'Poly Haven (CC0)', gen: 'generado' })[this.src(k).from]; return `firme: ${f('road')} · suelto: ${f('loose')} · húmedo: ${f('wet')} · tierra: ${f('dirt')} · pasto: ${f('grass')}`; },
   // una textura de detalle lista (color normalizado), sin repetición evidente
   one(key, strip) {
@@ -2897,7 +2749,7 @@ function maskCanvas(col = '#ff0000') { const c = document.createElement('canvas'
 
 // ---------- Pack de texturas local (de otro tramo): queda solo en esta compu, no se sube a ningún lado ----------
 const PACK = {
-  items: [], on: true, stamp: 0, set: {}, orig: {},
+  items: [], on: false, stamp: 0, set: {}, orig: {},
   ROLES: [['det_road', 'Detalle fino del ripio (de cerca)'], ['det_dirt', 'Detalle fino de tierra / cuneta / bosque'], ['det_grass', 'Detalle fino del pasto'], ['nm_road', 'Relieve fino del camino (mapa normal)'],
     ['grass', 'Pasto y banquina (color base)'], ['side_a', 'Talud con pasto verde'], ['forest', 'Suelo del bosque (ramas, agujas)'], ['side_c', 'Pasto seco'], ['none', 'No usar']],
   get(role) { if (!this.on) return null; const it = this.items.find(i => i.role === role && i.cv); return it ? it.cv : null; },
@@ -2926,10 +2778,11 @@ const PACK = {
     this.changed();
   },
   changed() { this.stamp++; DETAIL.reset(); this.save(); this.apply(); this.render(); refreshPreviewTextures(); },
-  save() { LOCAL.put('pack', 'texpack', { on: this.on, items: this.items.map(({ name, role, blob }) => ({ name, role, blob })) }); },
+  save() { LOCAL.put('pack', 'texpack', { on: this.on, optin: true, items: this.items.map(({ name, role, blob }) => ({ name, role, blob })) }); },
   async load() {
     const v = await LOCAL.get('pack', 'texpack'); if (!v || !v.items || !v.items.length) { this.render(); return; }
-    this.on = v.on !== false;
+    this.on = v.optin ? v.on === true : false; // por defecto, las texturas internas
+    v.items = v.items.filter(i => /\.dds$/i.test(i.name || '')); // solo DDS: fotos guardadas antes no se usan
     for (const it of v.items) { try { it.cv = await fileToCanvas(it.blob, it.name); } catch (e) { it.cv = null; } }
     this.items = v.items.filter(i => i.cv); this.stamp++; this.apply(); this.render();
   },
@@ -2956,8 +2809,9 @@ const PACK = {
 };
 (function initPack() {
   if (!$('#packFiles')) return;
-  $('#packFiles').onchange = async e => { await PACK.add([...e.target.files]); e.target.value = ''; };
-  $('#packDir').onchange = async e => { await PACK.add([...e.target.files]); e.target.value = ''; };
+  const dds = l => [...l].filter(f => /\.dds$/i.test(f.name)); // solo texturas DDS (no fotos)
+  $('#packFiles').onchange = async e => { await PACK.add(dds(e.target.files)); e.target.value = ''; };
+  $('#packDir').onchange = async e => { await PACK.add(dds(e.target.files)); e.target.value = ''; };
   $('#packOn').onchange = () => { PACK.on = $('#packOn').checked; PACK.changed(); };
   $('#packClear').onclick = () => { PACK.items = []; PACK.changed(); };
   $('#mlDetail').onchange = () => refreshPreviewTextures();
@@ -2970,12 +2824,12 @@ function opt() {
   return {
     name: $('#tname').value.trim() || 'Mi pista', width: +$('#width').value, surface: $('#surface').value,
     lines: $('#lines').checked, margin: +$('#margin').value, res: +$('#res').value, hSmooth: +$('#hsmooth').value,
-    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, bridgeRamp: $('#bridgeRamp') ? $('#bridgeRamp').value : 'steep', autoWidth: !$('#autoWidth') || $('#autoWidth').checked, edgeFix: !$('#edgeFix') || $('#edgeFix').checked, realTex: $('#realTex') ? $('#realTex').value : 'none', roadTex: !$('#roadTex') || $('#roadTex').checked, clay: $('#clay') ? ($('#clay').value === 'auto' ? 'auto' : +$('#clay').value) : 'auto', gpsAlt: !$('#gpsAlt') || $('#gpsAlt').checked, fences: $('#fences') ? $('#fences').value : 'auto',
+    z: +$('#zoom').value, pits: Math.max(1, Math.min(24, +$('#pits').value | 0)), closed: $('#closed').checked, zones: !!($('#rallyZones') && $('#rallyZones').checked), objects: !$('#objects') || $('#objects').checked, water: !$('#water') || $('#water').checked, bridgeRamp: $('#bridgeRamp') ? $('#bridgeRamp').value : 'steep', autoWidth: !$('#autoWidth') || $('#autoWidth').checked, edgeFix: !$('#edgeFix') || $('#edgeFix').checked, realTex: 'none', roadTex: !$('#roadTex') || $('#roadTex').checked, clay: $('#clay') ? ($('#clay').value === 'auto' ? 'auto' : +$('#clay').value) : 'auto', gpsAlt: !$('#gpsAlt') || $('#gpsAlt').checked, fences: $('#fences') ? $('#fences').value : 'auto',
     autoBank: Math.max(0, Math.min(20, +$('#autobank').value || 0)),
     snow: $('#snow').checked, snowAlt: +$('#snowAlt').value, snowRoad: $('#snowRoad').checked,
     veg: $('#veg').checked, density: +$('#density').value, treeHit: $('#treeHit').checked,
     treeClear: Math.max(0.3, +$('#treeClear').value || 0.8), forest: $('#forest').value,
-    ditch: $('#ditch') ? $('#ditch').value : 'none', autoMargin: !!($('#autoMargin') && $('#autoMargin').checked), freeImg: !$('#freeImg') || $('#freeImg').checked, autoRefs: !$('#refCal') || $('#refCal').checked, rocks: +$('#rocks').value,
+    ditch: $('#ditch') ? $('#ditch').value : 'none', autoMargin: !!($('#autoMargin') && $('#autoMargin').checked), freeImg: false, autoRefs: false, rocks: +$('#rocks').value,
   };
 }
 const slugify = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'pista';
@@ -3843,22 +3697,7 @@ const IMG_SOURCES = {
   s2_2024: { name: 'Sentinel-2 cloudless 2024 (EOX)', url: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg', z: 14, res: 10, date: '2024',
     lic: 'CC BY-NC-SA 4.0: solo uso no comercial, con atribución, y lo que publiques con ella debe compartirse con la misma licencia', attr: 'Sentinel-2 cloudless - https://s2maps.eu by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2024)' },
 };
-const ORTHO = []; // ortofotos propias (GeoTIFF RGB)
-async function fetchImagery(B, key) {
-  const S0 = IMG_SOURCES[key], b = B.bbox, P = B.P, [n, w] = P.inv(b.minx, b.maxy), [s, e] = P.inv(b.maxx, b.miny), z = S0.z;
-  const tp = (lat, lon) => [(lon + 180) / 360 * 2 ** z, (1 - Math.log(Math.tan(lat * D2R) + 1 / Math.cos(lat * D2R)) / Math.PI) / 2 * 2 ** z];
-  const [X0, Y0] = tp(n, w), [X1, Y1] = tp(s, e), tx0 = Math.floor(X0), ty0 = Math.floor(Y0), tx1 = Math.floor(X1), ty1 = Math.floor(Y1), TW = tx1 - tx0 + 1, TH = ty1 - ty0 + 1;
-  if (TW * TH > 400) throw new Error('zona demasiado grande para la imagen');
-  const cv = document.createElement('canvas'); cv.width = TW * 256; cv.height = TH * 256; const ctx = cv.getContext('2d', { willReadFrequently: true }), jobs = [];
-  for (let x = tx0; x <= tx1; x++) for (let y = ty0; y <= ty1; y++) jobs.push([x, y]); let ok = 0;
-  await Promise.all(Array.from({ length: 6 }, async () => { while (jobs.length) { const [x, y] = jobs.pop();
-    try { const r = await fetch(S0.url.replace('{z}', z).replace('{x}', x).replace('{y}', y)); if (!r.ok) continue; ctx.drawImage(await createImageBitmap(await r.blob()), (x - tx0) * 256, (y - ty0) * 256); ok++; } catch (err) { } } }));
-  if (!ok) return null;
-  const px = ctx.getImageData(0, 0, cv.width, cv.height).data, PW = cv.width, PH = cv.height;
-  return { ...S0, key, rgb: (lat, lon) => { const [fx, fy] = tp(lat, lon), X = (fx - tx0) * 256 - 0.5, Y = (fy - ty0) * 256 - 0.5, i = Math.floor(X), j = Math.floor(Y);
-    if (i < 0 || j < 0 || i >= PW - 1 || j >= PH - 1) return null; const a = X - i, bb = Y - j, k = (j * PW + i) * 4, out = [0, 0, 0];
-    for (let c = 0; c < 3; c++) out[c] = px[k + c] * (1 - a) * (1 - bb) + px[k + 4 + c] * a * (1 - bb) + px[k + PW * 4 + c] * (1 - a) * bb + px[k + PW * 4 + 4 + c] * a * bb; return out; } };
-}
+const ORTHO = []; // (desactivado: no se usan ortofotos; queda vacío)
 // ---------- Imágenes libres de alta resolución del recorrido (OpenAerialMap y datos abiertos de Maxar/Vantor, vía HOT) ----------
 // Se buscan solas en el catálogo STAC; solo se usan las que tienen licencia abierta, y su atribución va en LICENCIAS_DATOS.txt.
 function freeLicense(l) { const L = String(l || '').toUpperCase().replace(/_/g, '-');
@@ -3866,45 +3705,87 @@ function freeLicense(l) { const L = String(l || '').toUpperCase().replace(/_/g, 
   if (/BY-NC|BY NC/.test(L)) return { ok: true, nc: true, name: 'CC BY-NC (solo uso no comercial, con atribución)' };
   if (/CC-BY|CC BY|ODBL|ODC-BY/.test(L)) return { ok: true, nc: false, name: L.includes('ODBL') ? 'ODbL (con atribución)' : 'CC BY (uso libre con atribución)' };
   return { ok: false, name: l || 'sin licencia declarada' }; }
-async function searchFreeImagery(B, routeLL) {
-  let s = 90, n = -90, w = 180, e = -180; for (const [la, lo] of routeLL) { s = Math.min(s, la); n = Math.max(n, la); w = Math.min(w, lo); e = Math.max(e, lo); }
-  const r = await fetch(HOT.stac + '/search', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ bbox: [w - 0.002, s - 0.002, e + 0.002, n + 0.002], collections: ['openaerialmap', 'maxar-opendata', 'vantor-opendata'], limit: 60 }) });
-  if (!r.ok) throw new Error('catálogo HOT: HTTP ' + r.status);
-  const j = await r.json(), out = [];
-  const inPoly = (ring, lo, la) => { let c = false; for (let i = 0, k = ring.length - 1; i < ring.length; k = i++) { const [xi, yi] = ring[i], [xk, yk] = ring[k]; if ((yi > la) !== (yk > la) && lo < (xk - xi) * (la - yi) / (yk - yi) + xi) c = !c; } return c; };
-  for (const f of j.features || []) {
-    const P = f.properties || {}, gsd = +P.gsd || NaN, lic = freeLicense(P.license || (f.links || []).find(l => l.rel === 'license')?.title), g = f.geometry;
-    const rings = g && g.type === 'Polygon' ? [g.coordinates[0]] : g && g.type === 'MultiPolygon' ? g.coordinates.map(p => p[0]) : null;
-    const inside = (la, lo) => rings ? rings.some(rg => inPoly(rg, lo, la)) : (lo >= f.bbox[0] && lo <= f.bbox[2] && la >= f.bbox[1] && la <= f.bbox[3]);
-    const cov = routeLL.filter(([la, lo]) => inside(la, lo)).length / routeLL.length;
-    const asset = ['visual', 'image', 'data'].find(k => f.assets && f.assets[k]);
-    if (cov > 0 && asset) out.push({ id: f.id, coll: f.collection, gsd, cov, lic, asset, date: (P.datetime || P.start_datetime || '').slice(0, 10), title: P.title || f.id, provider: (P.providers && P.providers[0] && P.providers[0].name) || f.collection, inside });
-  }
-  return out.sort((a, b) => (a.lic.ok === b.lic.ok ? 0 : a.lic.ok ? -1 : 1) || a.gsd - b.gsd);
-}
-async function loadFreeOrtho(item, routeLL, halfW) {
-  const lat0 = routeLL[0][0], tp = (la, lo, z) => [(lo + 180) / 360 * 2 ** z, (1 - Math.log(Math.tan(la * D2R) + 1 / Math.cos(la * D2R)) / Math.PI) / 2 * 2 ** z];
-  let z = Math.max(14, Math.min(20, Math.floor(Math.log2(156543.03 * Math.cos(lat0 * D2R) / Math.max(0.05, item.gsd))))), keys;
-  const pick = z => { const set = new Set(), mpp = 156543.03 * Math.cos(lat0 * D2R) / 2 ** z, rpx = halfW / mpp / 256;
-    for (const [la, lo] of routeLL) { if (!item.inside(la, lo)) continue; const [fx, fy] = tp(la, lo, z); for (let x = Math.floor(fx - rpx); x <= Math.floor(fx + rpx); x++) for (let y = Math.floor(fy - rpx); y <= Math.floor(fy + rpx); y++) set.add(x + ',' + y); }
-    return set; };
-  for (keys = pick(z); keys.size > 600 && z > 14; keys = pick(--z));
-  const cv = document.createElement('canvas'); cv.width = cv.height = 256; const ctx = cv.getContext('2d', { willReadFrequently: true }), tiles = new Map(), jobs = [...keys];
-  await Promise.all(Array.from({ length: 6 }, async () => { while (jobs.length) { const k = jobs.pop(), [x, y] = k.split(',').map(Number);
-    try { const b = await LOCAL.fetchBlob(`${HOT.raster}/collections/${item.coll}/items/${encodeURIComponent(item.id)}/tiles/WebMercatorQuad/${z}/${x}/${y}.png?assets=${item.asset}`);
-      ctx.clearRect(0, 0, 256, 256); ctx.drawImage(await createImageBitmap(b), 0, 0); tiles.set(k, ctx.getImageData(0, 0, 256, 256).data); } catch (e) { } } }));
-  if (!tiles.size) return null;
-  const mpp = 156543.03 * Math.cos(lat0 * D2R) / 2 ** z;
-  return { name: `${item.title} (${item.provider})`, resM: mpp, crs: { name: 'tiles del catálogo abierto de HOT' }, auto: true, lic: item.lic, date: item.date, tiles: tiles.size,
-    attr: `${item.provider} — "${item.title}"${item.date ? ', ' + item.date : ''}, vía OpenAerialMap / HOT (licencia ${item.lic.name})`,
-    rgb: (la, lo) => { const [fx, fy] = tp(la, lo, z), X = Math.floor(fx), Y = Math.floor(fy), d = tiles.get(X + ',' + Y); if (!d) return null;
-      const px = Math.min(254.999, Math.max(0, (fx - X) * 256 - 0.5)), py = Math.min(254.999, Math.max(0, (fy - Y) * 256 - 0.5)), i = Math.floor(px), j = Math.floor(py), a = px - i, b = py - j, k = (j * 256 + i) * 4;
-      if (d[k + 3] < 200 || d[k + 7] < 200 || d[k + 1027] < 200 || d[k + 1031] < 200) return null;
-      const c = n => d[k + n] * (1 - a) * (1 - b) + d[k + 4 + n] * a * (1 - b) + d[k + 1024 + n] * (1 - a) * b + d[k + 1028 + n] * a * b; return [c(0), c(1), c(2)]; } };
-}
-// la mejor imagen disponible en cada punto: ortofoto propia > Sentinel-2
 function imageryAt(lat, lon, S2) { for (const R of ORTHO) { const v = R.rgb(lat, lon); if (v) return [v, 'O']; } if (S2) { const v = S2.rgb(lat, lon); if (v) return [v, 'S']; } return [null, 'G']; }
 // textura propia de cada sector del terreno (240 m x 240 m): el detalle de cada suelo + el color real de la imagen
+// ---------- Terreno con materiales internos ----------
+// Cada sector del terreno se pinta mezclando las texturas internas (pasto, bosque, campo, humedal, roca, barro, nieve):
+// cuánto de cada una sale del tipo de suelo del mapa, la pendiente (roca), la cercanía al agua (barro, suelo húmedo) y la
+// altura (pasto más seco arriba). Los límites se corren con ruido: manchas naturales, nunca líneas rectas.
+function bakeInternalTerrain(B, ter, meshes, res, rd, env = {}) {
+  const groups = new Map();
+  for (const m of meshes) if (m.terrain && m.chunk) { const k = m.chunk.join('_'); (groups.get(k) || groups.set(k, []).get(k)).push(m); }
+  const hF = Core.terrainHeightFn(ter, B.bbox, res), H = (x, y) => { const h = hF(x, y); return h == null ? 0 : h; };
+  const hs = []; for (const m of meshes) if (m.terrain) for (let i = 0; i < m.v.length; i += 37) hs.push(m.v[i][2]); hs.sort((a, b) => a - b);
+  const hLo = hs[Math.floor(hs.length * 0.1)] || 0, hHi = hs[Math.floor(hs.length * 0.9)] || 1;
+  const texCache = new Map(), tex = mat => { if (texCache.has(mat)) return texCache.get(mat); const cv = TEX[mat] || TEX.grass, d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data, o = { d, w: cv.width, h: cv.height }; texCache.set(mat, o); return o; };
+  const hsh = (a, b, s) => { const v = Math.sin(a * 127.1 + b * 311.7 + s * 74.7) * 43758.5453; return v - Math.floor(v); };
+  const vn = (x, y, s) => { const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy), a = hsh(i, j, s), b = hsh(i + 1, j, s), c = hsh(i, j + 1, s), e = hsh(i + 1, j + 1, s); return a + (b - a) * u + (c - a) * v + (a - b - c + e) * u * v; };
+  // textura sin patrón repetido: parches de 7 m que toman la textura desde otro lugar, mezclados suave
+  const PO = new Map(), po = (cu, cv) => { const key = cu * 100003 + cv; let v = PO.get(key); if (!v) { v = [hsh(cu, cv, 1) * 9, hsh(cu, cv, 3) * 9]; PO.set(key, v); } return v; };
+  const SC = [0, 0, 0], samp = (D, x, y, tileM) => { const fu = x / 7, fv = y / 7, i0 = Math.floor(fu), j0 = Math.floor(fv), ax = Math.min(1, Math.max(0, (fu - i0 - 0.2) / 0.6)), ay = Math.min(1, Math.max(0, (fv - j0 - 0.2) / 0.6)), wx = ax * ax * (3 - 2 * ax), wy = ay * ay * (3 - 2 * ay);
+    let r = 0, g = 0, b = 0; const xt = x / tileM, yt = -y / tileM;
+    for (let c = 0; c < 4; c++) { const di = c & 1, dj = c >> 1, w = (di ? wx : 1 - wx) * (dj ? wy : 1 - wy); if (w < 0.002) continue;
+      const o = po(i0 + di, j0 + dj), lu = (xt + o[0]) * D.w, lv = (yt + o[1]) * D.h, tx = ((Math.floor(lu) % D.w) + D.w) % D.w, ty = ((Math.floor(lv) % D.h) + D.h) % D.h, k = (ty * D.w + tx) * 4;
+      r += D.d[k] * w; g += D.d[k + 1] * w; b += D.d[k + 2] * w; }
+    SC[0] = r; SC[1] = g; SC[2] = b; return SC; };
+  const nearWater = (x, y) => { let w = 0; if (env.carve) w = Math.max(w, Math.min(1, env.carve(x, y) * 1.4));
+    if (B.landAt) for (const [dx, dy, k] of [[0, 0, 1], [18, 0, 0.6], [-18, 0, 0.6], [0, 18, 0.6], [0, -18, 0.6], [35, 35, 0.35], [-35, -35, 0.35], [35, -35, 0.35], [-35, 35, 0.35]]) { const l = B.landAt(x + dx, y + dy); if (l === 'water' || l === 'wetland') w = Math.max(w, k); }
+    return w; };
+  const used = new Set(); let n = 0;
+  for (const [k, list] of groups) {
+    const [ci, cj] = list[0].chunk, x0 = B.bbox.minx + ci * res, y0 = B.bbox.miny + cj * res, size = ter.CH * res;
+    const near = rd(x0 + size / 2, y0 + size / 2, size) < size * 0.75, N = near ? 1024 : 512, mpp = size / N;
+    // 1) tipo de suelo de cada píxel (de las mallas del terreno)
+    const cls = document.createElement('canvas'); cls.width = cls.height = N; const cx = cls.getContext('2d', { willReadFrequently: true });
+    const base = list.map(m => m.mat);
+    list.forEach((m, mi) => { cx.fillStyle = `rgb(${mi + 1},0,0)`; cx.beginPath();
+      for (const f of m.f) { const p = f.map(i => [(m.v[i][0] - x0) / mpp, N - (m.v[i][1] - y0) / mpp]); cx.moveTo(p[0][0], p[0][1]); cx.lineTo(p[1][0], p[1][1]); cx.lineTo(p[2][0], p[2][1]); cx.closePath(); }
+      cx.fill(); cx.strokeStyle = cx.fillStyle; cx.lineWidth = 1.5; cx.stroke(); });
+    const cd = cx.getImageData(0, 0, N, N).data;
+    // materiales en juego: los del mapa + roca + barro (+ nieve si corresponde)
+    const M = [...new Set([...base.filter(m => m !== 'water'), 'rock', 'mud'])].filter(m => TEX[m]); const mi = Object.fromEntries(M.map((m, i) => [m, i])); M.forEach(m => used.add(m));
+    // 2) pesos en una grilla gruesa (cada ~size/32 m): suelo del mapa (suavizado) + reglas
+    const G = 33, W = new Float32Array(G * G * M.length), DRY = new Float32Array(G * G), WET = new Float32Array(G * G), LV = new Float32Array(G * G), step = N / (G - 1), R0 = Math.max(2, Math.round(step * 0.9));
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) {
+      const px = Math.min(N - 1, Math.round(i * step)), py = Math.min(N - 1, Math.round(j * step)), cnt = new Float32Array(M.length); let tot = 0;
+      for (let q = -2; q <= 2; q++) for (let r = -2; r <= 2; r++) { const sx = Math.max(0, Math.min(N - 1, px + q * R0)), sy = Math.max(0, Math.min(N - 1, py + r * R0)), c = cd[(sy * N + sx) * 4] - 1, m = base[Math.max(0, Math.min(base.length - 1, c))]; if (mi[m] != null) { cnt[mi[m]]++; tot++; } }
+      const x = x0 + i * size / (G - 1), y = y0 + size - j * size / (G - 1), h = H(x, y), e = Math.max(2, res);
+      const slope = Math.hypot(H(x + e, y) - H(x - e, y), H(x, y + e) - H(x, y - e)) / (2 * e), wet = nearWater(x, y), o = (j * G + i) * M.length;
+      for (let q = 0; q < M.length; q++) W[o + q] = tot ? cnt[q] / tot : (q === 0 ? 1 : 0);
+      const rk = Math.max(0, Math.min(1, (slope - 0.55) / 0.6)); W[o + mi.rock] += rk * 1.6; // roca donde la ladera es muy empinada
+      if (wet > 0) W[o + mi.mud] += wet * 0.55; // barro y suelo húmedo junto a ríos y arroyos
+      DRY[j * G + i] = Math.max(0, Math.min(1, (h - hLo) / Math.max(5, hHi - hLo))) * 0.7 + rk * 0.3 - wet * 0.5;
+      WET[j * G + i] = wet; LV[j * G + i] = vn(x / 40, y / 40, 7); // arriba y en laderas, más seco; junto al agua, más verde
+    }
+    // 3) componer
+    const BK = Math.max(1, Math.round(1 / mpp)), NB = Math.ceil(N / BK) + 2, NZ = M.map((_, q) => { const a = new Float32Array(NB * NB);
+      for (let by = 0; by < NB; by++) for (let bx = 0; bx < NB; bx++) { const wx = x0 + bx * BK * mpp, wy = y0 + size - by * BK * mpp; a[by * NB + bx] = 0.45 + 1.1 * (vn(wx / 9, wy / 9, 17 + q * 5) * 0.7 + vn(wx / 2.2, wy / 2.2, 41 + q * 3) * 0.3); } return a; });
+    const D = M.map(tex), out = document.createElement('canvas'); out.width = out.height = N; const ox = out.getContext('2d'), img = ox.createImageData(N, N), od = img.data, w = new Float32Array(M.length);
+    for (let py = 0; py < N; py++) for (let px = 0; px < N; px++) {
+      const o = (py * N + px) * 4, wx = x0 + (px + 0.5) * mpp, wy = y0 + size - (py + 0.5) * mpp;
+      const fx = px / step, fy = py / step, gi = Math.min(G - 2, Math.floor(fx)), gj = Math.min(G - 2, Math.floor(fy)), a = fx - gi, bb = fy - gj;
+      const c00 = (gj * G + gi), c10 = c00 + 1, c01 = c00 + G, c11 = c01 + 1, k00 = (1 - a) * (1 - bb), k10 = a * (1 - bb), k01 = (1 - a) * bb, k11 = a * bb;
+      // el suelo del mapa en ese píxel pesa bastante (respeta bordes de bosque, campos), pero con borde ruidoso
+      const own = mi[base[Math.max(0, Math.min(base.length - 1, cd[o] - 1))]];
+      let sum = 0; const bfx = px / BK, bfy = py / BK, bi = Math.floor(bfx), bj = Math.floor(bfy), ba = bfx - bi, bb2 = bfy - bj, b00 = bj * NB + bi;
+      for (let q = 0; q < M.length; q++) { let v = W[c00 * M.length + q] * k00 + W[c10 * M.length + q] * k10 + W[c01 * M.length + q] * k01 + W[c11 * M.length + q] * k11;
+        if (q === own) v += 0.45; if (v <= 0.004) { w[q] = 0; continue; }
+        const Z = NZ[q]; v *= (Z[b00] * (1 - ba) + Z[b00 + 1] * ba) * (1 - bb2) + (Z[b00 + NB] * (1 - ba) + Z[b00 + NB + 1] * ba) * bb2; v = v * v * v; w[q] = v; sum += v; }
+      let r = 0, g = 0, b = 0; if (sum <= 0) { w[own ?? 0] = 1; sum = 1; }
+      for (let q = 0; q < M.length; q++) { if (w[q] / sum < 0.02) continue; const c = samp(D[q], wx, wy, M[q] === 'rock' ? 6 : 5), t = w[q] / sum; r += c[0] * t; g += c[1] * t; b += c[2] * t; }
+      // variación grande de tono (que no se vea una alfombra pareja) y pasto más seco/amarillento arriba
+      const dry = Math.max(0, Math.min(1, DRY[c00] * k00 + DRY[c10] * k10 + DRY[c01] * k01 + DRY[c11] * k11)), lv = 0.92 + 0.16 * LV[c00] * k00 + 0.16 * LV[c10] * k10 + 0.16 * LV[c01] * k01 + 0.16 * LV[c11] * k11;
+      const wt = WET[c00] * k00 + WET[c10] * k10 + WET[c01] * k01 + WET[c11] * k11, L = (r + g + b) / 3, t = dry * 0.3; // seco → pajizo; húmedo → más verde
+      r = (r * (1 - t) + L * 1.14 * t) * lv * (1 - 0.05 * wt); g = (g * (1 - t) + L * 1.02 * t) * lv * (1 + 0.07 * wt); b = (b * (1 - t) + L * 0.7 * t) * lv * (1 - 0.03 * wt);
+      od[o] = Math.min(255, r); od[o + 1] = Math.min(255, g); od[o + 2] = Math.min(255, b); od[o + 3] = 255;
+    }
+    ox.putImageData(img, 0, 0);
+    const name = 'tc_' + k; TEX[name] = out; TEX[name].__dxt = true;
+    for (const m of list) { m.mat = name; m.uv = m.v.map(v => [(v[0] - x0) / size, (v[1] - y0) / size]); }
+    n++;
+  }
+  return { chunks: n, mats: [...used] };
+}
 function bakeTerrainTextures(B, ter, meshes, res, S2, rd) {
   const groups = new Map();
   for (const m of meshes) if (m.terrain && m.chunk) { const k = m.chunk.join('_'); (groups.get(k) || groups.set(k, []).get(k)).push(m); }
@@ -4148,7 +4029,7 @@ const PHOTOMAT = {
       if (m.dens > 60) f.push('ripio'); if (m.dens > 150) f.push('piedra suelta'); f.push('huellas'); if (m.wet > 0.06) f.push('sectores húmedos'); if (m.wet > 0.12 && m.sheen_col) f.push('huellones (surcos de barro)'); if (m.edge_ratio > 1.12) f.push('grava acumulada en los bordes');
       return { id: r.id, file: r.name, src: 'Foto que subiste', status: 'confirmada', quality: 'buena', desc: 'Analizada automáticamente', w: a.w, h: a.h, orient: a.w > a.h ? 'horizontal' : 'vertical', hash: a.hash, albedo: a.road.map(v => Math.round(v * 0.9)), pal: m.pal,
         stones: { claras: { dens: m.dens, d25: 0.008, d50: 0.012, d90: 0.025, col: null }, oscuras: { col: null } }, edge_ratio: m.edge_ratio, wet: m.wet, wet_col: m.wet_col, sheen_col: m.sheen_col, verge: m.verge, feats: f, lum_sd: 30, user: true }; }); },
-  usable() { return [...(this.nearAB !== false ? this.REF.photos.filter(p => this.used(p)) : []), ...this.userPhotos()]; },
+  usable() { return this.nearAB !== false ? this.REF.photos.filter(p => this.used(p)) : []; }, // solo los materiales internos (sin fotos del usuario)
   weight(p) { return (p.status === 'confirmada' ? 1 : 0.6) * (/^buena/.test(p.quality) ? 1 : /^media/.test(p.quality) ? 0.8 : 0.5); },
   // paleta combinada de varias fotos (colores con su peso), reducida a 6 tonos ordenados de oscuro a claro
   palette(list, pick = () => true, minK = 0.72) {
@@ -4358,7 +4239,7 @@ function renderPhotoMatPanel() {
 // comparación: foto real (si está cargada en este navegador) · material generado · vista 3D del sector donde predomina
 function showAbCompare(mid, pid) {
   const m = mid && PHOTOMAT.all.find(q => q.id === mid), photos = m ? m.from : [pid], R = S.result;
-  const local = photos.map(id => { const p = PHOTOMAT.REF.photos.find(q => q.id === id); return REFS.list.find(r => r.a && r.a.hash && [...r.a.hash].filter((b, i) => b !== p.hash[i]).length <= 10); }).filter(Boolean);
+  const local = []; // no se muestran fotos: solo el material interno
   if (m && R && R.res && PHOTOMAT.sectors.length) { const s = PHOTOMAT.sectors.find(q => q.top[0][0] === mid) || PHOTOMAT.sectors.slice().sort((p, q) => (q.top.find(t => t[0] === mid) || [0, 0])[1] - (p.top.find(t => t[0] === mid) || [0, 0])[1])[0];
     const k = $('#navKm'); if (k && s) { k.value = Math.round((s.a + s.b) / 2 / R.res.total * 1000); k.dispatchEvent(new Event('input', { bubbles: true })); } }
   let cmp = $('#cmpPhoto'); if (!cmp) { cmp = document.createElement('div'); cmp.id = 'cmpPhoto'; cmp.style.cssText = 'position:absolute;left:10px;top:60px;z-index:6;width:min(46%,560px);background:#0b1220e6;padding:6px;border-radius:8px;color:#e8eef7;font:12px system-ui'; ($('#viewer3d') || document.body).appendChild(cmp); }
@@ -4590,37 +4471,8 @@ async function rebuild(keepCam) {
     { PHOTOMAT.zones = []; const t0z = rPts.reduce((a, p, i) => i ? a + Math.hypot(p[0] - rPts[i - 1][0], p[1] - rPts[i - 1][1]) : 0, 0), Z = PHOTOMAT.wetZones(B, rPts, t0z);
       if (Z.length) log(`Huellones en el barro (piso húmedo de las fotos de Aguas Blancas): ${Z.length} tramo(s), ${(Z.reduce((a, z) => a + z.b - z.a, 0) / 1000).toFixed(2)} km — ${Z.map(z => `km ${(z.a / 1000).toFixed(2)}–${(z.b / 1000).toFixed(2)}`).join(', ')}. Dos surcos de hasta ${Math.round((PHOTOMAT.st.p.rutDepth ?? 0.1) * 125)} cm en la malla del camino (la suspensión los siente) y piso de barro (agarre 55%).`, 'ok');
     }
-    // imágenes libres de alta resolución sobre el recorrido (se buscan solas; se usan solo con licencia abierta)
-    for (let i = ORTHO.length - 1; i >= 0; i--) if (ORTHO[i].auto) ORTHO.splice(i, 1);
-    S.freeImg = [];
-    if (o.freeImg) {
-      try {
-        log('Buscando imágenes libres de alta resolución (OpenAerialMap, datos abiertos de Maxar)…'); await tick();
-        const routeLL = []; { let acc = 0; for (let i = 0; i < rPts.length; i++) { if (i) acc += Math.hypot(rPts[i][0] - rPts[i - 1][0], rPts[i][1] - rPts[i - 1][1]); if (!i || acc >= 20) { routeLL.push(B.P.inv(rPts[i][0], rPts[i][1])); acc = 0; } } }
-        const found = await searchFreeImagery(B, routeLL); S.freeImg = found;
-        const use = found.filter(f => f.lic.ok && f.gsd <= 1.5).slice(0, 3);
-        for (const it of use) { const R = await loadFreeOrtho(it, routeLL, (o.width || 6) / 2 + 30); if (R) { ORTHO.push(R); log(`Imagen libre: ${R.attr} — ${(R.resM * 100).toFixed(0)} cm por píxel, cubre ${Math.round(it.cov * 100)}% del recorrido.${it.lic.nc ? ' Licencia no comercial: no vendas la pista.' : ''}`, 'ok'); } }
-        if (!use.length) log(found.length ? `Hay ${found.length} imagen(es) sobre el recorrido, pero ninguna con licencia abierta y menos de 1,5 m por píxel: se usa Sentinel-2.` : 'No hay imágenes libres de alta resolución sobre este recorrido: se usa Sentinel-2 (10 m) para el color y el detalle cercano es generado.');
-      } catch (e) { log('Catálogo de imágenes libres no disponible (' + e.message + '): se usa Sentinel-2.'); }
-      renderImgSources();
-    }
-    // AUTOMATIC REAL-WORLD PHOTO DISCOVERY: busca, verifica y aplica fotos reales del recorrido (nunca se exportan)
-    REFS.area = null;
-    if (o.autoRefs) {
-      REFS.area = ll => { const [x, y] = B.P.fwd(ll[0], ll[1]); let m = Infinity; for (let i = 0; i < rPts.length; i += 4) m = Math.min(m, Math.hypot(rPts[i][0] - x, rPts[i][1] - y)); return m < 2100; };
-      try {
-        log('Buscando fotos reales del recorrido (Wikimedia Commons, Panoramax, Mapillary)…'); await tick();
-        const R = await PHOTOS.discover(rPts, B.P, m => log(m));
-        const by = r => R.sel.filter(q => q.role === r).length, fails = Object.values(R.src).filter(s => s.err && !s.err.includes('token')).map(s => s.name + ': ' + s.err);
-        log(R.found ? `Fotos reales: ${R.found} cerca del recorrido, ${R.sel.length} seleccionadas (${by('camino')} del camino, ${by('entorno')} del entorno, ${by('regional')} regionales), ${R.disc.length} descartadas. ${Math.round(R.coverage * 100)}% del tramo respaldado por fotos del camino.` : 'Fotos reales: no hay fotos libres geolocalizadas de este recorrido. Se usa satélite, biblioteca de materiales y generación procedural.', R.sel.length ? 'ok' : '');
-        if (fails.length) log('Fuentes con problemas (se siguió con las demás): ' + fails.join(' · '));
-      } catch (e) { log('Fotos reales: ' + e.message + '. Se sigue sin fotos.'); }
-      const c = REFS.calibrate(true);
-      if (c) { log(`Materiales calibrados con ${c.n} foto(s) del camino, km a km: color del piso, banquina y piedras sueltas.`, 'ok'); if (c.verge && TEX.grass) { TEX.grass = tint(TEX_DEFAULT.grass, `rgb(${c.verge.join(',')})`, 0.3); TEX.verge = makeVergeTex(); TEX.ditchside = makeDitchTex(); } }
-      renderPhotoPanel(); PHOTOS.showOnMap();
-    }
-
-    if (!REFS.area) REFS.cal = null;
+    ORTHO.length = 0; S.freeImg = [];
+    REFS.cal = null; REFS.area = null; // sin fotos externas ni propias
     S.water = o.water ? collectWaterways(B) : { ww: [], bridgesOSM: [] };
     S.crossings = o.water ? findCrossings(rPts, S.water) : [];
     const BRs = S.crossings.filter(b => b.bridge);
@@ -4748,20 +4600,13 @@ async function rebuild(keepCam) {
   const ter = Core.buildTerrain(terOpts, p => { $('#prog').textContent = `Terreno ${(p * 100).toFixed(0)}%`; });
   if (B.mode === 'route') S.live.terOpts = terOpts; else S.live = null;
   meshes.push(...ter.meshes);
-  // texturas reales del terreno (Sentinel-2 con licencia abierta y/u ortofotos propias)
+  // texturas del terreno: solo materiales internos, mezclados según suelo, pendiente, altura y cercanía a ríos
   S.imgStats = null;
-  if (o.realTex !== 'none' || ORTHO.length) {
-    try {
-      log('Armando las texturas reales del terreno…'); await tick();
-      let S2 = null; if (o.realTex !== 'none') { if (!B.s2 || B.s2.key !== o.realTex) B.s2 = await fetchImagery(B, o.realTex); S2 = B.s2; }
-      if (S2 || ORTHO.length) {
-        const st = bakeTerrainTextures(B, ter, ter.meshes, o.res, S2, Core.roadDistFn(res.segs, true));
-        S.imgStats = { ...st, src: S2 };
-        log(`Texturas reales: ${st.chunks} sectores de terreno · ${Math.round(st.pO * 100)}% ortofoto o imagen libre de alta resolución, ${Math.round(st.pS * 100)}% ${S2 ? S2.name + ' (' + S2.res + ' m por píxel: color real del suelo, el detalle fino es generado)' : 'Sentinel-2'}, ${Math.round(st.pG * 100)}% textura generada (sin imagen).`);
-      } else log('No se pudo descargar la imagen satelital con licencia abierta; el terreno usa texturas generadas.', 'err');
-      if (PV.mats) { for (const k in PV.mats) if (k.startsWith('tc_')) { try { PV.mats[k].map.dispose(); PV.mats[k].dispose(); } catch (e) { } delete PV.mats[k]; } }
-    } catch (e) { log('Texturas reales: ' + e.message, 'err'); }
-  }
+  try { log('Pintando el terreno con los materiales internos…'); await tick();
+    const st = bakeInternalTerrain(B, ter, ter.meshes, o.res, Core.roadDistFn(res.segs, true), { carve: CARVE, snow: o.snow, snowAlt: o.snowAlt });
+    log(`Terreno: ${st.chunks} sectores pintados con materiales internos (${st.mats.join(', ')}). Roca en pendientes fuertes, barro y suelo húmedo cerca de ríos y arroyos, pasto más seco en lo alto; bordes irregulares, sin cortes rectos.`);
+    if (PV.mats) { for (const k in PV.mats) if (k.startsWith('tc_')) { try { PV.mats[k].map.dispose(); PV.mats[k].dispose(); } catch (e) { } delete PV.mats[k]; } }
+  } catch (e) { log('Texturas del terreno: ' + e.message, 'err'); }
   let wallN = 0; const wallCounter = () => ++wallN;
   if (CARVE) { meshes.push(...waterMeshes(S.water, ter, B.bbox, o.res)); }
   if (B.mode === 'route' && S.crossings && S.crossings.some(b => b.bridge)) { meshes.push(...bridgeMeshes(res, S.crossings, wallCounter)); res.bridges = S.crossings.filter(b => b.bridge && b.d != null); info.notes = paceNotes(res, info.grip); }
@@ -5212,7 +5057,7 @@ async function buildZip(R) {
   if (PV.renderer) { PV.render(); const b = await new Promise(r => PV.renderer.domElement.toBlob(r, 'image/png')); if (b) ui.file('preview.png', b); }
   const tags = R.mode === 'route' ? (R.closed ? ['circuit', 'real world'] : ['point to point', 'rally', 'real world']) : ['open world', 'real world'];
   if (o.snow) tags.push('snow');
-  tr.file('LICENCIAS_DATOS.txt', ['Datos usados para generar esta pista:', '- Calles, agua y edificios: © colaboradores de OpenStreetMap (ODbL), vía OpenFreeMap.', '- Elevación: ' + [DEM.used && DEM.used.cop ? COP_ATTR : '', DEM.used && DEM.used.ter ? 'Terrain Tiles (AWS Open Data / Mapzen)' : '', ...DEM.custom.map(r => r.name)].filter(Boolean).join('; ') + '.', ...ORTHO.filter(r => r.auto).map(r => '- Imagen del camino: ' + r.attr + '.'), MATLIB.used.length ? '- Materiales: ' + MATLIB.used.map(m => m.name + ' (' + m.source + ', ' + m.license + ')').join(', ') + '.' : '', S.imgStats && S.imgStats.src ? '- Texturas del terreno: ' + S.imgStats.src.attr + ' — licencia ' + S.imgStats.src.lic + '.' : '', ORTHO.some(r => !r.auto) ? '- Ortofotos propias: ' + ORTHO.filter(r => !r.auto).map(r => r.name).join(', ') + ' (verificá su licencia antes de publicar la pista).' : '', '- La imagen satelital de Esri se usó solo para analizar (ubicar bosque, techos y ancho del camino); no está incluida en la pista.'].filter(Boolean).join('\n'));
+  tr.file('LICENCIAS_DATOS.txt', ['Datos usados para generar esta pista:', '- Calles, agua y edificios: © colaboradores de OpenStreetMap (ODbL), vía OpenFreeMap.', '- Elevación: ' + [DEM.used && DEM.used.cop ? COP_ATTR : '', DEM.used && DEM.used.ter ? 'Terrain Tiles (AWS Open Data / Mapzen)' : '', ...DEM.custom.map(r => r.name)].filter(Boolean).join('; ') + '.', '- Texturas: todas generadas por la app (materiales internos)' + (PACK.on && PACK.items.length ? '; detalle fino de tu pack DDS local (verificá su licencia antes de publicar la pista)' : '') + '.', '- La imagen satelital se usó solo para analizar (ancho del camino, piso, bosque); no está incluida en la pista.'].filter(Boolean).join('\n'));
   ui.file('ui_track.json', JSON.stringify({ name: o.name, description: `Generada desde datos reales (OpenStreetMap + elevación). ${(R.length / 1000).toFixed(2)} km.${S.imgStats && S.imgStats.src ? ' Texturas del terreno: ' + S.imgStats.src.attr : ''}`, tags, geotags: [R.lat0.toFixed(5), R.lon0.toFixed(5)], country: '', city: '', length: Math.round(R.length) + 'm', width: o.width + 'm', pitboxes: String(o.pits), run: R.closed ? 'clockwise' : '' }, null, 2));
   if (R.mode === 'route') {
     const r = R.res, g = R.info.grip, ll = R.info.ll;
@@ -5402,7 +5247,7 @@ setMode('route'); $('#traceMode').onchange();
 // la edición directa en 3D (selección, manipuladores, curvas) está en editor3d.js
 
 PV.sat = false; PV.satTex = null; PV.satKey = null;
-$('#satBtn').onclick = async () => {
+if ($('#satBtn')) $('#satBtn').onclick = async () => {
   PV.sat = !PV.sat; $('#satBtn').classList.toggle('on', PV.sat);
   if (PV.sat) { try { await loadSat(); } catch (e) { PV.sat = false; $('#satBtn').classList.remove('on'); log('No se pudo cargar la foto satelital: ' + e.message, 'err'); } }
   applySat();
@@ -6112,12 +5957,9 @@ if ($('#orthoFile')) $('#orthoFile').onchange = async ev => {
 };
 function renderImgSources() {
   const el = $('#imgInfo'); if (!el) return;
-  const rows = (S.freeImg || []).map(f => `<b>${f.title}</b> (${f.provider}, ${f.coll === 'openaerialmap' ? 'OpenAerialMap' : f.coll}) — ${f.gsd < 1 ? (f.gsd * 100).toFixed(0) + ' cm' : f.gsd.toFixed(1) + ' m'} por píxel${f.date ? ', ' + f.date : ''}, cubre ${Math.round(f.cov * 100)}% del recorrido. Licencia: ${f.lic.name}. ${f.lic.ok ? (f.gsd <= 1.5 ? '<b>Se usa en la pista.</b>' : 'Muy gruesa: no se usa.') : 'No se usa (licencia no abierta).'}`);
-  rows.push(...ORTHO.filter(R => !R.auto).map(R => `<b>${R.name}</b> — ortofoto propia, ${R.resM < 1 ? (R.resM * 100).toFixed(0) + ' cm' : R.resM.toFixed(1) + ' m'} por píxel, ${R.crs.name}. Máxima prioridad donde cubre. Verificá su licencia antes de publicar.`));
-  for (const k in IMG_SOURCES) { const s = IMG_SOURCES[k]; rows.push(`<b>${s.name}</b> — ${s.res} m por píxel, captura ${s.date}, cobertura mundial. Licencia: ${s.lic}. Da el color real del suelo; el detalle fino (piedras, pasto) es generado.`); }
-  if (!(S.freeImg || []).length) rows.unshift('<b>OpenAerialMap y datos abiertos de Maxar</b> — imágenes de drones y satélites con licencia libre, de 3 cm a 1 m por píxel. Se buscan solas al generar; donde hay, se usan para el camino y sus costados, con su atribución.');
-  rows.push('<b>Esri World Imagery</b> (el satélite del mapa) — mayor resolución, pero sus condiciones no permiten exportar sus imágenes: se usa solo para ver y para analizar (bosque, techos, ancho del camino), nunca dentro de la pista.');
-  el.innerHTML = rows.map(r => `<div style="margin:4px 0">• ${r}</div>`).join('');
+  el.innerHTML = ['<b>Texturas</b> — todas internas de la app (y tu pack DDS, solo si lo activaste). No se descargan fotos ni ortofotos, y no se pueden subir imágenes.',
+    '<b>Satélite (Esri World Imagery y Sentinel-2)</b> — solo para analizar: ancho del camino, tipo de piso, dónde hay bosque, bioma. Ningún píxel de esas imágenes entra en la pista.',
+    '<b>Calles, agua, edificios</b> — OpenStreetMap. <b>Elevación</b> — Copernicus GLO-30 / Terrain Tiles o tu archivo de elevación.'].map(r => `<div style="margin:4px 0">• ${r}</div>`).join('');
 }
 renderImgSources();
 
@@ -6166,7 +6008,7 @@ if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') ||
 
 
 // ---------- Versión: qué compilación es esta y si es la última publicada en GitHub ----------
-const BUILD = {"id": "70892c27f658", "date": "2026-11-13T16:47:52Z", "version": "2026.11.13+70892c2", "base": "9a972719ff2bda406c5b05ea2fc0c7281c50c53a"};
+const BUILD = {"id": "cc19b09233fc", "date": "2026-11-13T17:25:38Z", "version": "2026.11.13+cc19b09", "base": "6c61f8f8860887bd471a4cce8d7a67512dcf99fe"};
 const VER = {
   repo: 'lucasbarria/generador-de-pistas',
   set(state, txt, cls) { const el = $('#verInfo'); if (!el) return; const b = BUILD || {}; const dt = b.date ? new Date(b.date).toLocaleString() : '?';
