@@ -1476,6 +1476,8 @@ function ddsToCanvas(buf) {
       if (four === 'RGBA') { o[i * 4] = b[i * 4]; o[i * 4 + 1] = b[i * 4 + 1]; o[i * 4 + 2] = b[i * 4 + 2]; o[i * 4 + 3] = b[i * 4 + 3]; continue; }
       o[i * 4] = (v >>> rs) & 255; o[i * 4 + 1] = (v >>> gs) & 255; o[i * 4 + 2] = (v >>> bsh) & 255; o[i * 4 + 3] = as < 0 ? 255 : (v >>> as) & 255; }
   } else throw new Error('formato DDS no soportado: ' + four);
+  // el alfa de las texturas de suelo es brillo/especular, no transparencia: se guarda aparte y el canvas queda opaco (si no, el navegador premultiplica y destruye el color)
+  const al = new Uint8Array(W * H); for (let i = 0; i < W * H; i++) { al[i] = o[i * 4 + 3]; o[i * 4 + 3] = 255; } cv.__alpha = al;
   x.putImageData(img, 0, 0); return cv;
 }
 async function fileToCanvas(blob, name) {
@@ -1593,7 +1595,7 @@ function maskCanvas(col = '#ff0000') { const c = document.createElement('canvas'
 // ---------- Pack de texturas local (de otro tramo): queda solo en esta compu, no se sube a ningún lado ----------
 const PACK = {
   items: [], on: false, stamp: 0, set: {}, orig: {},
-  ROLES: [['det_road', 'Detalle fino del ripio (de cerca)'], ['det_dirt', 'Detalle fino de tierra / cuneta / bosque'], ['det_grass', 'Detalle fino del pasto'], ['det_forest', 'Detalle: suelo de bosque'], ['det_rock', 'Detalle: roca'], ['det_ditch', 'Detalle: cuneta'], ['bank', 'Talud / barranco (próxima etapa)'], ['brake', 'Marcas de frenada (próxima etapa)'], ['nm_road', 'Relieve fino del camino (mapa normal)'],
+  ROLES: [['det_road', 'Detalle fino del ripio (de cerca)'], ['det_dirt', 'Detalle fino de tierra / cuneta / bosque'], ['det_grass', 'Detalle fino del pasto'], ['det_forest', 'Detalle: suelo de bosque'], ['det_rock', 'Detalle: roca'], ['det_ditch', 'Detalle: cuneta'], ['bank', 'Talud / barranco (cara del talud)'], ['road_strip', 'Tira del camino (ripio)'], ['road_loose', 'Tira del camino (ripio suelto)'], ['brake', 'Marcas de frenada (próxima etapa)'], ['nm_road', 'Relieve fino del camino (mapa normal)'],
     ['grass', 'Pasto y banquina (color base)'], ['side_a', 'Talud con pasto verde'], ['forest', 'Suelo del bosque (ramas, agujas)'], ['side_c', 'Pasto seco'], ['none', 'No usar']],
   get(role) { if (!this.on) return null; const L = this.items.filter(i => i.role === role && i.cv); if (!L.length) return null; const P = this.PREF[role] || [], sc = i => { const n = i.name.toLowerCase(), k = P.findIndex(p => n.startsWith(p)); return k < 0 ? 99 : k; };
     L.sort((a, b) => sc(a) - sc(b)); return L[0].cv; },
@@ -1606,9 +1608,9 @@ const PACK = {
   LIBNAMES: [[/^(ground|penkka|risteys|road_plate)_?\d*_?(diff|mask|nm)?\./, 'none', 'pintada para el mapa de otro tramo'], [/^(otpo|otpt|ttpo|postilaatikot|sahkopla|katos|kanniranni|merkit|lidi3d|nauha|fence|punto|blank|collision|jarvi|nm\.|penkka_diff)/, 'none', 'objeto o atlas (no es suelo)'],
     [/_nm\b|_nm\.|normal/, 'none', 'mapa de normales (va con su textura)'], [/^grass_02\./, 'grass'], [/^ruoho_p01\./, 'side_a'], [/^metsa_google\./, 'forest'], [/^ruoho_p02\./, 'side_c'], [/^(ruoho_0[123]|grass_0\d|pelto|kulunut)/, 'det_grass'], [/^(metsa|mustikka)/, 'det_forest'], [/^(maasto|ruoho_p02)/, 'det_dirt'],
     [/^(kallio6?|kivet)\./, 'det_rock'], [/^(sora|gravel_\d+_detail|rajatievix_detail)\./, 'det_road'], [/^oja\./, 'det_ditch'], [/^(tienpenkka|ojanpenkka|ruotsipenkka|kallioleikkaus)/, 'bank'],
-    [/^(rajatievix|road_|rajatievix_kumpu)/, 'none', 'textura del camino de otro tramo (próxima etapa)'], [/^(treewall|mantymetsaa|horisontti)/, 'none', 'fondo de bosque boreal (pino/abeto, no lenga)'], [/^(lapinakyva_jarrutus)/, 'brake'], [/^(vesi|pohja)/, 'none', 'agua / base lejana']],
+    [/^(rajatievix|rajatievix_kumpu)\.dds$/, 'road_strip'], [/^rajatievix_sora\.dds$/, 'road_loose'], [/^(rajatievix_2kuoppa|road_)/, 'none', 'camino con pozos pintados en lugares fijos (no coincidirían con los pozos reales de la malla)'], [/^(treewall|mantymetsaa|horisontti)/, 'none', 'fondo de bosque boreal (pino/abeto, no lenga)'], [/^(lapinakyva_jarrutus)/, 'brake'], [/^(vesi|pohja)/, 'none', 'agua / base lejana']],
   // la mejor de cada rol cuando hay varias (orden de preferencia por nombre)
-  PREF: { det_grass: ['ruoho_02', 'grass_01', 'ruoho_03', 'ruoho_01', 'grass_02', 'pelto', 'kulunut'], det_forest: ['mustikkapohja2', 'metsa_google', 'mustikka4_metsa', 'mustikkapohja4', 'metsa_02'], det_dirt: ['maasto_02', 'maasto_01', 'ruoho_p02'], det_rock: ['kallio.', 'kallio6', 'kivet'], det_road: ['gravel_01_detail', 'rajatievix_detail', 'sora'], det_ditch: ['oja'] },
+  PREF: { det_grass: ['ruoho_02', 'grass_01', 'ruoho_03', 'ruoho_01', 'grass_02', 'pelto', 'kulunut'], det_forest: ['mustikkapohja2', 'metsa_google', 'mustikka4_metsa', 'mustikkapohja4', 'metsa_02'], det_dirt: ['maasto_02', 'maasto_01', 'ruoho_p02'], det_rock: ['kallio.', 'kallio6', 'kivet'], det_road: ['gravel_01_detail', 'rajatievix_detail', 'sora'], det_ditch: ['oja'], bank: ['tienpenkka_4', 'tienpenkka_7', 'tienpenkka_6', 'ojanpenkka4', 'ojanpenkka'], road_strip: ['rajatievix.', 'rajatievix_kumpu'] },
   classify(it) {
     const n0 = it.name.toLowerCase().replace(/^.*[\\/]/, ''); for (const [re, role, why] of this.LIBNAMES) if (re.test(n0)) { it.why = why || ''; return role; }
     const n = it.name.toLowerCase(), s = this.stats(it.cv), big = Math.max(it.cv.width, it.cv.height) >= 1024, green = s.g > s.r * 1.04 && s.g > s.b * 1.1;
@@ -1640,6 +1642,9 @@ const PACK = {
   },
   // colores base del pack (pasto, bosque, pasto seco): reemplazan las texturas de fábrica mientras el pack esté activo
   apply() {
+    { const bk = this.on ? this.get('bank') : null; if (bk) { if (!TEX.bank || TEX.bank.__src !== bk) { const W0 = bk.width, H0 = bk.height, src = bk.getContext('2d').getImageData(0, 0, W0, H0).data, c = document.createElement('canvas'); c.width = H0; c.height = W0;
+          const x = c.getContext('2d'), im = x.createImageData(H0, W0); for (let ny = 0; ny < W0; ny++) for (let nx = 0; nx < H0; nx++) { const si = ((H0 - 1 - nx) * W0 + ny) * 4, di = (ny * H0 + nx) * 4; im.data[di] = src[si]; im.data[di + 1] = src[si + 1]; im.data[di + 2] = src[si + 2]; im.data[di + 3] = 255; }
+          x.putImageData(im, 0, 0); c.__src = bk; TEX.bank = c; } } else delete TEX.bank; } // abajo de la imagen (tierra) junto a la cuneta, arriba (pasto) lejos
     const want = {}; if (this.on) { const g = this.get('grass'), a = this.get('side_a'), f = this.get('forest'), c = this.get('side_c');
       if (g) want.grass = g; if (a) want.side_a = a; if (f) { want.forest = f; want.side_b = f; } if (c) want.side_c = c; if (!a && g) want.side_a = g; }
     let grassCh = false;
@@ -1662,8 +1667,10 @@ const PACK = {
 (function initPack() {
   if (!$('#packFiles')) return;
   const dds = l => [...l].filter(f => /\.dds$/i.test(f.name)); // solo texturas DDS (no fotos)
-  $('#packFiles').onchange = async e => { await PACK.add(dds(e.target.files)); e.target.value = ''; };
-  $('#packDir').onchange = async e => { await PACK.add(dds(e.target.files)); e.target.value = ''; };
+  const load = async l => { const f = dds(l); if (!f.length) return; await PACK.add(f); PACK.on = true; $('#packOn').checked = true; PACK.changed(); // si cargás una biblioteca es para usarla
+    const used = PACK.items.filter(i => i.role !== 'none').length; log(`Biblioteca: ${PACK.items.length} texturas leídas, ${used} en uso (camino, taludes, terreno, banquinas). Volvé a generar el tramo para que entren en la pista y en el .kn5.`, 'ok'); };
+  $('#packFiles').onchange = async e => { await load(e.target.files); e.target.value = ''; };
+  $('#packDir').onchange = async e => { await load(e.target.files); e.target.value = ''; };
   $('#packOn').onchange = () => { PACK.on = $('#packOn').checked; PACK.changed(); };
   $('#packClear').onclick = () => { PACK.items = []; PACK.changed(); };
   $('#mlDetail').onchange = () => refreshPreviewTextures();
@@ -2871,6 +2878,7 @@ const RELIEF = {
         if (e2 < 0.1) z += (H(k2, 9, 146) < 0.6 ? 1 : -1) * (0.003 + 0.005 * H(k2, 9, 147)) * Math.min(1, (0.1 - e2) / 0.1) * g.patch; } }
     return z * A * Math.min(1, (hw - a) / 0.5);
   },
+  twAt(d, hw) { const sd = (this.SD ?? 1) * 7.31; return Math.min(hw * 0.62, 0.78 + 0.08 * (vn2(d / 40, 1.1, 122 + sd) - 0.5)); },
   // mezcla de materiales del piso en (d, s): [firme, suelto/piedras, húmedo] (suman 1). La usa la máscara del shader multicapa.
   mat(d, s, hw, c) {
     const Wr = this.W ?? 1, sd = (this.SD ?? 1) * 7.31, N = (x, y, k) => vn2(x, y, k + sd), a = Math.abs(s), f = a / hw, K = c.K || 0;
@@ -3171,6 +3179,9 @@ function buildRoadStrips(B, res, o = {}, opt = {}) {
     return [rr, gg, bb];
   };
   const matAtD = d => matAt[Math.max(0, Math.min(matAt.length - 1, Math.round(d / 2)))] || 'gravel';
+  const libDat = cv => cv ? (cv.__dat || (cv.__dat = { d: cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data, w: cv.width, h: cv.height })) : null;
+  const LIBR = PACK.on && PACK.get('road_strip') ? { base: PACK.items.filter(i => i.role === 'road_strip' && i.cv).map(i => libDat(i.cv)), loose: libDat(PACK.get('road_loose') || PACK.get('road_strip')) } : null;
+  const LT = 16.7, URUT = 0.16, UEDGE = 0.42; // largo de cada repetición (m) · huella y borde del camino en la textura (fracción del ancho)
   const paint = (k, cv) => {
     const d0 = k * STRIP_LEN, HW = strips[k].HW, cx = cv.getContext('2d'), img = cx.createImageData(STRIP_W, STRIP_H), od = img.data, sc = 5 * (ABP.scale || 1), br = 1;
     // relieve del piso (el mismo de la malla) en una grilla de ~10 cm, para pintar baches con agua y morros
@@ -3198,6 +3209,16 @@ function buildRoadStrips(B, res, o = {}, opt = {}) {
         // en el bosque la foto aérea muestra las copas que tapan el camino: esos píxeles no son suelo y no se usan
         if (col) { const l = 0.3 * col[0] + 0.59 * col[1] + 0.11 * col[2], veg = (col[1] > col[0] + 6 && col[1] >= col[2]) || l < 45; if (veg) col = null; }
         if (col) { od[o] = col[0]; od[o + 1] = col[1]; od[o + 2] = col[2]; od[o + 3] = 255; realPx++; continue; }
+        if (LIBR && dirt) { // tira de camino de la biblioteca: huellas alineadas con las de la malla, variantes cada ~17 m, cambio de material con manchas
+          const pm = matAtD(d + (vn(s / 1.6 + 41, d / 4.5) - 0.5) * 22 + (vn(s / 0.45 + 7, d / 0.6 + 9) - 0.5) * 5), a2 = Math.abs(s), tw = RELIEF.twAt ? RELIEF.twAt(d, P.hw) : 0.78;
+          const uo = a2 <= tw ? URUT * a2 / tw : a2 <= P.hw ? URUT + (UEDGE - URUT) * (a2 - tw) / Math.max(0.1, P.hw - tw) : UEDGE + (0.5 - UEDGE) * Math.min(1, (a2 - P.hw) / 0.6);
+          const smp = (T, j) => { const fl = hashU(j, 0, 61) < 0.5 ? 1 : -1, u = 0.5 + Math.sign(s || 1) * fl * uo, v = (d / LT + hashU(j, 0, 62) * 0.37) % 1, tx = Math.min(T.w - 1, Math.max(0, Math.floor(u * T.w))), ty = Math.floor(v * T.h) % T.h, k0 = (ty * T.w + tx) * 4; return [T.d[k0], T.d[k0 + 1], T.d[k0 + 2]]; };
+          const pick = j => pm === 'loose' ? LIBR.loose : LIBR.base[Math.floor(hashU(j, 0, 63) * LIBR.base.length)];
+          const j = Math.floor(d / LT), fr = d / LT - j; let c = smp(pick(j), j);
+          if (fr > 0.88) { const t = (fr - 0.88) / 0.12, c2 = smp(pick(j + 1), j + 1), k = t * t * (3 - 2 * t); c = [0, 1, 2].map(i => c[i] + (c2[i] - c[i]) * k); }
+          let [rr, gg, bb] = c; if (pm === 'clay') { rr *= 0.9; gg *= 0.84; bb *= 0.76; } else if (pm === 'mud') { rr *= 0.7; gg *= 0.64; bb *= 0.56; }
+          [rr, gg, bb] = shade(rr, gg, bb, px, py, s, d, false); od[o] = rr; od[o + 1] = gg; od[o + 2] = bb; od[o + 3] = 255; continue;
+        }
         if (ab) { // superficie desde las fotos reales: mezcla de los dos materiales del sector con manchas naturales de ~3 m
           const nm = vn(s / 3.2 + 17, d / 3.2) * 0.7 + vn(s / 1.1, d / 1.1 + 5) * 0.3, t = ab.b < 0 ? 0 : Math.max(0, Math.min(1, (ab.pb - nm) / 0.16 + 0.5));
           let c = samp(ABT[ab.a], s, d, sc); if (t > 0.01) { const c2 = samp(ABT[ab.b], s, d, sc); c = t > 0.99 ? c2 : [c[0] + (c2[0] - c[0]) * t, c[1] + (c2[1] - c[1]) * t, c[2] + (c2[2] - c[2]) * t]; }
@@ -3284,7 +3305,7 @@ function buildRoadStrips(B, res, o = {}, opt = {}) {
     for (const P of parts.values()) out.push(P.m);
   }
   r.meshes = r.meshes.filter(m => !(m.road && m.ds)).concat(out);
-  return { n: strips.length, real: realPx / (allPx || 1), ab: !!AB };
+  return { n: strips.length, real: realPx / (allPx || 1), ab: !!AB, lib: !!LIBR };
 }
 // mapa de normales (relieve fino de la superficie) a partir de la textura: es generado, no medido
 function normalFromCanvas(cv, strength = 2.2, scale = 1) {
@@ -3382,7 +3403,7 @@ async function rebuild(keepCam) {
             if (!ACCS.some(z => Math.abs(z.d - cum[bi]) < 12 && z.sd === sd)) ACCS.push({ d: cum[bi], sd, w, osm: true }); } }
       } }
     const routeArgs = { bareAt: S.autoW ? S.autoW.bare : null, clearAt: S.autoW ? S.autoW.clear : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, terrRes: o.res, shoulder: Math.min(3.5, o.res * 1.5 + 1),
-      humAt: RELIEF.humAt, forestAt: RELIEF.forestAt, sideMatAt: SIDECAT.on ? (d, sd) => SIDECAT.typeAt(d, sd) : null, sideLumpAt: SIDECAT.on ? (d, sd, e) => SIDECAT.lumpAt(d, sd, e) : null, reliefAt: RELIEF.A ? (d, s, hw, c) => RELIEF.at(d, s, hw, c) : null, accesses: ACCS, procAccess: !$('#access') || $('#access').checked };
+      humAt: RELIEF.humAt, forestAt: RELIEF.forestAt, bankMat: TEX.bank && PACK.on ? 'bank' : null, bankLen: 5, sideMatAt: SIDECAT.on ? (d, sd) => SIDECAT.typeAt(d, sd) : null, sideLumpAt: SIDECAT.on ? (d, sd, e) => SIDECAT.lumpAt(d, sd, e) : null, reliefAt: RELIEF.A ? (d, s, hw, c) => RELIEF.at(d, s, hw, c) : null, accesses: ACCS, procAccess: !$('#access') || $('#access').checked };
     S.live = { routeArgs, cache: { keyFn: () => JSON.stringify(S.edits.filter(e => e.kind === 'shape')) }, sideArgs: null, sideSegs: [] };
     res = Core.buildRoute({ ...routeArgs, ...editFns(o, S.lastTotal, B.closed), cache: S.live.cache });
     S.lastTotal = res.total;
@@ -3396,6 +3417,8 @@ async function rebuild(keepCam) {
     if (useZ) log('Largada y llegada: se tomaron 30 m antes de la largada para la presentación (control horario) y 30 m después de la llegada para el control stop, donde se entrega el carnet y los tiempos. El reloj corre desde la largada hasta la llegada.');
     if (o.roadTex) { try { log('Armando la textura continua del camino…'); await tick(); const st = buildRoadStrips(B, res, o);
       if (st && st.ab) { const M = PHOTOMAT.all, U = PHOTOMAT.usable(); log(`Materiales desde fotos reales: ${U.length} fotos usadas (${U.filter(p => !p.user).length} de Aguas Blancas, ${U.filter(p => p.user).length} que subiste), ${M.length} materiales (${M.map(m => m.id).join(', ')}). El satélite los reparte por sector; detalle en "Reconstrucción de materiales desde fotos reales".`, 'ok'); }
+      if (st && st.lib) log(`Camino con la tira de tu biblioteca (${PACK.items.filter(i => i.role === 'road_strip' || i.role === 'road_loose').map(i => i.name).join(', ')}): las huellas de la textura caen sobre las huellas de la malla, y baches y charcos se pintan donde está la geometría.`, 'ok');
+      if (TEX.bank && PACK.on) log(`Taludes con la tira de barranco de tu biblioteca (${(PACK.items.find(i => i.cv === TEX.bank.__src) || {}).name || ''}).`, 'ok');
       if (st) log(`Textura del camino: ${st.n} tramos de ${STRIP_LEN} m · ${Math.round(st.real * 100)}% de ortofoto real, ${Math.round((1 - st.real) * 100)}% generado (ripio sin patrón repetido, huellas y piedras en los bordes).`); } catch (e) { log('Textura del camino: ' + e.message, 'err'); } }
     meshes.push(...res.meshes, ...cattleMeshes(res)); length = res.total; outline = [res.C];
     res.sideJ = [];
@@ -3569,7 +3592,7 @@ async function rebuild(keepCam) {
   showPreview(S.result, keepCam);
   $('#editor').style.display = B.mode === 'route' ? '' : 'none';
   if (B.mode === 'route') { drawProfile(); drawHeat(); renderCrit(); renderEdits(); drawSel(); renderNotes(); edRefresh(); }
-  $('#zipBtn').style.display = 'block'; $('#dl').style.display = 'none';
+  $('#zipBtn').style.display = 'block'; $('#dl').style.display = 'none'; if (PACK.items.length && !PACK.on) log('Ojo: tenés la biblioteca de texturas cargada pero apagada ("Usar el pack"): la pista sale con las texturas internas.', 'err');
   log(`Listo en ${((performance.now() - t0) / 1000).toFixed(1)} s · ${(length / 1000).toFixed(2)} km · ${vcount.toLocaleString()} vértices, ${fcount.toLocaleString()} triángulos.`, 'ok');
 }
 
@@ -3904,7 +3927,7 @@ async function buildZip(R) {
   const tr = zip.folder('content').folder('tracks').folder(slug), src = $('#withSrc').checked ? zip.folder('fuente_' + slug) : null, ref = zip.folder('referencia_rbr_btb');
   const usedMats = [...new Set(R.meshes.map(m => m.mat))];
   const keys = [...new Set(R.meshes.filter(m => !/^(LINES|TREES|ROCKS|BANNERS|OBJECTS)_/.test(m.name)).map(m => m.name.replace(/^\d+/, '')))];
-  const kd = m => (m === 'line' || m === 'tree' || m === 'tuft' || m === 'lenga' || m === 'bark' || m.startsWith('side_') || m === 'people' || m.startsWith('tc_') || m.startsWith('rs_')) ? '1 1 1' : (TEXDEF[m] || SURF[MAT2KEY[m]]).col.map(v => (v / 255).toFixed(2)).join(' ');
+  const kd = m => (m === 'line' || m === 'tree' || m === 'tuft' || m === 'lenga' || m === 'bark' || m.startsWith('side_') || m === 'people' || m.startsWith('tc_') || m.startsWith('rs_')) ? '1 1 1' : (TEXDEF[m] || SURF[MAT2KEY[m]] || { col: [128, 128, 128] }).col.map(v => (v / 255).toFixed(2)).join(' ');
   $('#prog').textContent = 'Escribiendo modelo 3D…'; await tick();
   if ($('#withSrc').checked) {
     src.file('track.obj', Core.toOBJ(R.meshes, 'track.mtl')); await tick();

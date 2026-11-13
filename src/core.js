@@ -383,16 +383,23 @@ const Core = (() => {
       for (let i = 0; i < segCount; i++) { const k = sideKey(i), last = runs2[runs2.length - 1]; if (last && last.key === k) last.i1 = i; else runs2.push({ key: k, i0: i, i1: i }); }
       for (const run of runs2) {
         if (run.key === 'NONE') continue; // en los puentes no hay banquina: se ve el río abajo
-        const isD = run.key.startsWith('DITCH'), cut = isD ? CUT_D : CUT_V, U = isD ? UD : UV, inner = [], outer = [];
+        const isD = run.key.startsWith('DITCH'), cut = isD ? CUT_D : CUT_V, U = isD ? UD : UV, inner = [], outer = [], wall = [], bankP = [], BK = !!o.bankMat;
         for (let ii = run.i0; ii <= run.i1 + 1; ii++) {
           const i = ii % n, hw = W[i] / 2, sp0 = SP[i][side > 0 ? 0 : 1], P = (sp0.Dd > 0.12) === isD ? sp0.pts : sideProf(i, side, isD).pts;
           const col = ([e, h], u) => { const [x, y] = pos(i, side * (hw + e)); return { x, y, h, u, i, sc: side * hw }; }, d = dist[i] + (ii >= n ? total : 0);
           const A = P.slice(0, cut + 1).map((q, k) => col(q, U[k])), Bc = P.slice(cut).map((q, k) => { const c = col(q, q[0] / 5);
             if (o.sideLumpAt && k > 0 && k < P.length - cut - 2) c.h += o.sideLumpAt(d, side, q[0]); return c; }); // montículos del talud (catálogo de costados)
-          inner.push({ cols: side > 0 ? A : A.reverse(), d, step }); outer.push({ cols: side > 0 ? Bc : Bc.reverse(), d, step, mat: o.sideMatAt ? o.sideMatAt(d, side) : null });
+          // tira de barranco (biblioteca): en la cuneta va en la pared de afuera (del fondo al borde); sin cuneta, en el primer tramo del talud. u = 0 abajo, 1 arriba, a escala real
+          const rv = a => side > 0 ? a : a.slice().reverse(), nz = (arr, P0, k0) => { const e0 = P0[k0][0], e1 = P0[k0 + arr.length - 1][0]; return arr.map((c, k) => ({ ...c, u: (P0[k0 + k][0] - e0) / Math.max(0.3, e1 - e0) })); };
+          let Ain = A, Bout = Bc;
+          if (BK && isD && A.length > 4) { wall.push({ cols: rv(nz(A.slice(3), P, 3)), d, step }); Ain = A.slice(0, 4); }
+          else if (BK && !isD && Bc.length > 2) { const kb = Math.min(3, Bc.length - 1); bankP.push({ cols: rv(nz(Bc.slice(0, kb), P, cut)), d, step }); Bout = Bc.slice(kb - 1); }
+          inner.push({ cols: rv(Ain), d, step }); outer.push({ cols: rv(Bout), d, step, mat: o.sideMatAt ? o.sideMatAt(d, side) : null });
         }
         const key = run.key === 'DITCHMUD' ? 'SOFT' : isD ? 'DITCH' : 'GRASS', mat = run.key === 'DITCHMUD' ? 'ditchmud' : run.key === 'DITCHROCK' ? 'ditchrock' : isD ? 'ditchside' : 'verge';
         for (const m of ribbonMeshes(inner, false, key, mat, 7, { next: () => (key === 'GRASS' ? 500 : key === 'SOFT' ? 700 : 0) + cnt(key) })) meshes.push(m);
+        if (wall.length > 1) for (const m of ribbonMeshes(wall, false, key, o.bankMat, o.bankLen || 5, { next: () => (key === 'GRASS' ? 500 : key === 'SOFT' ? 700 : 0) + cnt(key) })) meshes.push(m);
+        if (bankP.length > 1) for (const m of ribbonMeshes(bankP, false, 'GRASS', o.bankMat, o.bankLen || 5, { next: () => 500 + cnt('GRASS') })) meshes.push(m);
         // el talud cambia de tipo a lo largo (pasto con flores, tierra con agujas de pino, pasto seco con piedras): una malla por tramo
         let a0 = 0; for (let k = 1; k <= outer.length; k++) { if (k < outer.length && (outer[k].mat || 'grass') === (outer[a0].mat || 'grass')) continue;
           const part = outer.slice(a0, Math.min(outer.length, k + 1)); if (part.length > 1) for (const m of ribbonMeshes(part, false, 'GRASS', outer[a0].mat || 'grass', 7, { next: () => 500 + cnt('GRASS') })) meshes.push(m); a0 = k; }
