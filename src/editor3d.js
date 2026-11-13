@@ -242,6 +242,11 @@ function liveRoute() {
     oldRoute.forEach(pvRemove);
     for (const k of ['zone', 'sideJ', 'bridges']) nr[k] = old[k];
     nr.segs = nr.segs.concat(L.sideSegs);
+    // el camino nuevo vuelve a llevar la textura continua (ripio, huellas, transiciones); la zona tocada se repinta al soltar
+    if (S.stripCtx) { try { const painted = []; buildRoadStrips(B, nr, R.o, { reuse: true, prev: S.stripCtx.strips, painted }); stripsRefresh(painted);
+      let sa = i0, sb = i1; if (nr.SURF && old.SURF && nr.SURF.length === old.SURF.length) nr.SURF.forEach((k, i) => { if (k !== old.SURF[i]) { sa = Math.min(sa, i); sb = Math.max(sb, i + 1); } });
+      if (!(sb >= sa)) { sa = 0; sb = -1; }
+      const da = sb >= 0 ? (nr.dist[Math.max(0, sa)] || 0) - 20 : Infinity, db = sb >= 0 ? (nr.dist[Math.min(nr.n - 1, sb)] || nr.total) + 20 : -Infinity; if (db >= da) L.stripRange = L.stripRange ? [Math.min(L.stripRange[0], da), Math.max(L.stripRange[1], db)] : [da, db]; } catch (e) { console.warn('tiras del camino', e); } }
     R.res = nr; R.meshes = [...keep, ...nr.meshes];
     nr.meshes.forEach(pvAdd);
     if (prof.C !== old.C) { R.info.ll = nr.C.map(p => B.P.inv(p[0], p[1])); R.outline = [nr.C]; }
@@ -324,6 +329,7 @@ function liveCommit() {
     }
     touched.forEach(pvSync);
   }
+  if (L.stripRange) { try { repaintStrips(L.stripRange); } catch (e) { console.warn('tiras del camino', e); } L.stripRange = null; }
   // análisis y paneles
   R.info.grip = gripAnalysis(r); r.bridges = r.bridges || []; R.info.notes = paceNotes(r, R.info.grip);
   R.spawnList = routeEmpties(r, R.o, r.closed);

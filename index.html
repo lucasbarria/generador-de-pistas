@@ -1883,7 +1883,7 @@ const SURF = {
   ROAD:   { name: 'Asfalto',        mu: 0.99, col: [58, 58, 60],    amp: 14, sin: [0, 0],        damp: 0,    ui: '#6b6f75' },
   GRAVEL: { name: 'Ripio (huellas firmes)', mu: 0.82, col: [140, 118, 86],  amp: 30, sin: [0.004, 0.6],  damp: 0.02, ui: '#b08d5f' },
   WET:    { name: 'Mojado',         mu: 0.78, col: [34, 36, 40],    amp: 7,  sin: [0, 0],        damp: 0,    ui: '#3d6fa8' },
-  CLAY:   { name: 'Tierra arcillosa', mu: 0.74, col: [128, 98, 70],  amp: 24, sin: [0.006, 0.7],  damp: 0.03, ui: '#8a6446' },
+  CLAY:   { name: 'Tierra arcillosa', mu: 0.79, col: [132, 108, 80],  amp: 26, sin: [0.005, 0.65], damp: 0.024, ui: '#8a6446' },
   LOOSE:  { name: 'Ripio suelto y piedras (centro y bordes)', mu: 0.72, col: [162, 140, 106], amp: 42, sin: [0.009, 0.4],   damp: 0.05, ui: '#d9b26f' },
   MUD:    { name: 'Barro',          mu: 0.55, col: [86, 64, 42],    amp: 18, sin: [0.012, 0.9],  damp: 0.12, ui: '#6e4b2a' },
   SNOW:   { name: 'Nieve',          mu: 0.50, col: [232, 236, 242], amp: 9,  sin: [0.006, 0.8],  damp: 0.04, ui: '#e8eef6' },
@@ -2279,18 +2279,15 @@ function makeDitchTex(variant = 'normal') {
   return c;
 }
 // tierra arcillosa compactada (camino de Aguas Blancas): beige grisáceo, liso, grano fino, pocas piedritas y manchas de humedad
+// tierra arcillosa: el mismo ripio (con sus piedras), más marrón y algo más húmedo; no es otro piso
 function makeClayRoadTex() {
-  const N = 512, c = document.createElement('canvas'); c.width = c.height = N; const x = c.getContext('2d'), img = x.createImageData(N, N), o = img.data;
-  const n1 = noiseField(N, 4), n2 = noiseField(N, 16), n3 = noiseField(N, 64), n4 = noiseField(N, 160), wetN = noiseField(N, 2);
-  for (let py = 0; py < N; py++) for (let px = 0; px < N; px++) {
-    const k = (py * N + px) * 4, f = n1(px, py) * 0.35 + n2(px, py) * 0.3 + n3(px, py) * 0.2 + n4(px, py) * 0.15 + (Math.random() - 0.5) * 0.25;
-    let r = 166 + f * 16, g = 153 + f * 15, b = 138 + f * 14;
-    const w = Math.max(0, wetN(px, py) - 0.62) * 1.6; if (w > 0) { const t = Math.min(0.3, w); r *= 1 - t * 0.5; g *= 1 - t * 0.52; b *= 1 - t * 0.53; } // alguna mancha de humedad, suave
-    o[k] = r; o[k + 1] = g; o[k + 2] = b; o[k + 3] = 255;
-  }
-  x.putImageData(img, 0, 0);
-  for (let i = 0; i < 900; i++) { const l = rnd(-30, 25), r0 = rnd(0.6, 2.2); x.fillStyle = `rgba(${150 + l},${142 + l},${132 + l},0.85)`; x.beginPath(); x.arc(rnd(0, N), rnd(0, N), r0, 0, Math.PI * 2); x.fill(); } // piedritas
-  return c;
+  const src = TEX.gravel, N = src.width, M = src.height, c = document.createElement('canvas'); c.width = N; c.height = M; const x = c.getContext('2d');
+  x.drawImage(src, 0, 0); const img = x.getImageData(0, 0, N, M), o = img.data, wet = noiseField(Math.max(N, M), 3), fine = noiseField(Math.max(N, M), 24);
+  for (let py = 0; py < M; py++) for (let px = 0; px < N; px++) {
+    const k = (py * N + px) * 4, l = (o[k] + o[k + 1] + o[k + 2]) / 3, stone = Math.max(0, Math.min(1, (l - 120) / 60)); // lo claro son piedras: se oscurecen menos
+    const w = 0.5 + 0.5 * Math.max(-1, Math.min(1, wet(px, py) * 1.4 + fine(px, py) * 0.4)), dk = 0.9 - 0.07 * w + 0.07 * stone;
+    o[k] = o[k] * dk * 1.01; o[k + 1] = o[k + 1] * dk * 0.985; o[k + 2] = o[k + 2] * dk * 0.94; }
+  x.putImageData(img, 0, 0); return c;
 }
 function soften(src, k) {
   const c = document.createElement('canvas'); c.width = src.width; c.height = src.height; const x = c.getContext('2d');
@@ -2581,7 +2578,7 @@ renderRefs();
 const MATLIB = {
   CATALOG: [
     // superficies de caminos
-    { key: 'tierra_compactada', name: 'Tierra compactada', cat: 'camino', ph: 'forest_ground_06', tex: 'clay' },
+    { key: 'tierra_compactada', name: 'Tierra compactada', cat: 'camino', ph: 'forest_ground_06' },
     { key: 'tierra_seca', name: 'Tierra seca', cat: 'camino', ph: 'dry_mud_field_001' },
     { key: 'tierra_humeda', name: 'Tierra húmeda', cat: 'camino', ph: 'brown_mud' },
     { key: 'ripio_fino', name: 'Ripio fino', cat: 'camino', ph: 'gravel_ground_01', tex: 'gravel' },
@@ -2631,11 +2628,11 @@ const MATLIB = {
     for (const r of recs) if (r.tex) byTex[r.tex] = r;
     this.active = mode === 'lib' || (mode === 'auto' && Object.keys(byTex).length >= 6);
     this.used = [];
-    if (!this.active) { if (this.orig) { for (const t in this.orig) TEX[t] = TEX_DEFAULT[t] = this.orig[t]; this.orig = null; TEX.verge = TEX_DEFAULT.verge = makeVergeTex(); TEX.ditchside = TEX_DEFAULT.ditchside = makeDitchTex(); } return false; }
+    if (!this.active) { if (this.orig) { for (const t in this.orig) TEX[t] = TEX_DEFAULT[t] = this.orig[t]; this.orig = null; TEX.verge = TEX_DEFAULT.verge = makeVergeTex(); TEX.ditchside = TEX_DEFAULT.ditchside = makeDitchTex(); TEX.clay = TEX_DEFAULT.clay = makeClayRoadTex(); } return false; }
     if (!this.orig) { this.orig = {}; for (const t of ['gravel', 'clay', 'loose', 'mud', 'grass', 'forest', 'snow', 'powder', 'sand', 'rock', 'wetland', 'asphalt']) this.orig[t] = TEX[t]; }
     for (const t in byTex) { const c = await this.canvasOf(byTex[t]); TEX[t] = TEX_DEFAULT[t] = c; this.used.push(byTex[t]); }
     if (byTex.snow) TEX.powder = TEX_DEFAULT.powder = TEX.snow;
-    TEX.verge = TEX_DEFAULT.verge = makeVergeTex(); TEX.ditchside = TEX_DEFAULT.ditchside = makeDitchTex();
+    TEX.verge = TEX_DEFAULT.verge = makeVergeTex(); TEX.ditchside = TEX_DEFAULT.ditchside = makeDitchTex(); TEX.clay = TEX_DEFAULT.clay = makeClayRoadTex();
     return true;
   },
   async exportZip() {
@@ -4382,8 +4379,12 @@ async function regenRoadTextures(range) {
 }
 
 const STRIP_LEN = 80, STRIP_W = 256, STRIP_H = 2048;
+function stripsRefresh(names) { if (!PV.mats) return; for (const nm of names) { delete NMAP[nm]; const mat = PV.mats[nm]; if (mat && mat.map) { mat.map.image = TEX[nm]; mat.map.needsUpdate = true; if (mat.normalMap) { mat.normalMap.image = normalOf(nm); mat.normalMap.needsUpdate = true; } } } }
+function repaintStrips(range) { const C = S.stripCtx; if (!C || !range) return 0; const names = [];
+  C.strips.forEach((st, k) => { if (st.d0 + STRIP_LEN < range[0] || st.d0 > range[1]) return; C.paint(k, TEX[st.name]); names.push(st.name); });
+  stripsRefresh(names); return names.length; }
 function hashU(a, b, s) { const v = Math.sin(a * 127.1 + b * 311.7 + s * 74.7) * 43758.5453; return v - Math.floor(v); }
-function buildRoadStrips(B, res, o = {}) {
+function buildRoadStrips(B, res, o = {}, opt = {}) {
   const r = res, total = r.total, nSeg = Math.max(1, Math.ceil(total / STRIP_LEN)), roads = r.meshes.filter(m => m.road && m.ds);
   if (!roads.length) return null;
   // superficie (material) en cada punto del camino
@@ -4409,6 +4410,7 @@ function buildRoadStrips(B, res, o = {}) {
     }
     return [rr, gg, bb];
   };
+  const matAtD = d => matAt[Math.max(0, Math.min(matAt.length - 1, Math.round(d / 2)))] || 'gravel';
   const paint = (k, cv) => {
     const d0 = k * STRIP_LEN, HW = strips[k].HW, cx = cv.getContext('2d'), img = cx.createImageData(STRIP_W, STRIP_H), od = img.data, sc = 5 * (ABP.scale || 1), br = 1;
     // relieve del piso (el mismo de la malla) en una grilla de ~10 cm, para pintar baches con agua y morros
@@ -4458,6 +4460,8 @@ function buildRoadStrips(B, res, o = {}) {
           [rr, gg, bb] = shade(rr, gg, bb, px, py, s, d, true);
           od[o] = rr; od[o + 1] = gg; od[o + 2] = bb; od[o + 3] = 255; continue;
         }
+        // transición entre pisos: cada píxel toma el material de unos metros más adelante o atrás, con manchas (~10 m de mezcla)
+        const pm = matAtD(d + (vn(s / 1.6 + 41, d / 4.5) - 0.5) * 22 + (vn(s / 0.45 + 7, d / 0.6 + 9) - 0.5) * 5), Dp = pm === mat ? D : tdat(pm), dirtP = pm !== 'asphalt' && pm !== 'snow' && pm !== 'ice' && pm !== 'wet', clayP = dirtP ? (clayD || (o.clay === 'auto' ? (S.autoSurf ? S.autoSurf.clay(d) : 0.4) : +(o.clay ?? 0.4))) : 0;
         // ripio sin patrón repetido: cada parche de 2,5 m toma la textura desde otro lugar y con otra orientación
         // mezcla suave entre los 4 parches vecinos (sin cortes visibles)
         const fu = s / 2.5, fv = d / 2.5, i0 = Math.floor(fu), j0 = Math.floor(fv), ax = Math.min(1, Math.max(0, (fu - i0 - 0.15) / 0.7)), ay = Math.min(1, Math.max(0, (fv - j0 - 0.15) / 0.7));
@@ -4465,29 +4469,29 @@ function buildRoadStrips(B, res, o = {}) {
         let rr = 0, gg = 0, bb = 0;
         for (const [di, dj, wgt] of [[0, 0, (1 - wxs) * (1 - wys)], [1, 0, wxs * (1 - wys)], [0, 1, (1 - wxs) * wys], [1, 1, wxs * wys]]) {
           if (wgt < 0.001) continue; const cu = i0 + di, cvv = j0 + dj, flip = hashU(cu, cvv, 2) > 0.5; // sin girar: el ripio tiene dirección (huellas a lo largo)
-          let lu = ((flip ? -s : s) / 5 + hashU(cu, cvv, 1) * 7) * D.w, lv = (d / 5 + hashU(cu, cvv, 3) * 7) * D.h;
-          const tx = ((Math.floor(lu) % D.w) + D.w) % D.w, ty = ((Math.floor(lv) % D.h) + D.h) % D.h, k0 = (ty * D.w + tx) * 4;
-          rr += D.d[k0] * wgt; gg += D.d[k0 + 1] * wgt; bb += D.d[k0 + 2] * wgt;
+          let lu = ((flip ? -s : s) / 5 + hashU(cu, cvv, 1) * 7) * Dp.w, lv = (d / 5 + hashU(cu, cvv, 3) * 7) * Dp.h;
+          const tx = ((Math.floor(lu) % Dp.w) + Dp.w) % Dp.w, ty = ((Math.floor(lv) % Dp.h) + Dp.h) % Dp.h, k0 = (ty * Dp.w + tx) * 4;
+          rr += Dp.d[k0] * wgt; gg += Dp.d[k0 + 1] * wgt; bb += Dp.d[k0 + 2] * wgt;
         }
         // piedras sueltas hacia los bordes (el ripio que tiran las ruedas)
         const edge = Math.max(0, (Math.abs(s) - (P.hw - 0.9)) / 0.9);
-        if (edge > 0 && mat === 'gravel') { const ex = ((Math.floor(s / 5 * E.w) % E.w) + E.w) % E.w, ey = ((Math.floor(d / 5 * E.h) % E.h) + E.h) % E.h, e0 = (ey * E.w + ex) * 4, w = Math.min(1, edge); rr = rr * (1 - w) + E.d[e0] * w; gg = gg * (1 - w) + E.d[e0 + 1] * w; bb = bb * (1 - w) + E.d[e0 + 2] * w; }
+        if (edge > 0 && pm === 'gravel') { const ex = ((Math.floor(s / 5 * E.w) % E.w) + E.w) % E.w, ey = ((Math.floor(d / 5 * E.h) % E.h) + E.h) % E.h, e0 = (ey * E.w + ex) * 4, w = Math.min(1, edge); rr = rr * (1 - w) + E.d[e0] * w; gg = gg * (1 - w) + E.d[e0 + 1] * w; bb = bb * (1 - w) + E.d[e0 + 2] * w; }
         // huellas de las ruedas: más lisas y algo más oscuras
         // huellas de las ruedas: tierra arcillosa apisonada, lisa y más oscura, con surcos finos a lo largo
-        const tw = P.hw * 0.42 + Math.sin(d * 0.013 + h1) * 0.15, tr = (dirt ? 1 : 0.25) * Math.exp(-((Math.abs(s) - tw) ** 2) / (2 * 0.38 ** 2)) * (0.8 + 0.2 * Math.sin(d * 0.05 + h1));
+        const tw = P.hw * 0.42 + Math.sin(d * 0.013 + h1) * 0.15, tr = (dirtP ? 1 : 0.25) * Math.exp(-((Math.abs(s) - tw) ** 2) / (2 * 0.38 ** 2)) * (0.8 + 0.2 * Math.sin(d * 0.05 + h1));
         const groove = 1 - 0.08 * tr * (0.5 + 0.5 * Math.sin(s * 41 + hashU(Math.floor(d / 7), 0, 5) * 6)), mean = (rr + gg + bb) / 3, smooth = tr * 0.55;
         rr = (rr * (1 - smooth) + mean * smooth) * (1 - 0.13 * tr) * groove; gg = (gg * (1 - smooth) + mean * smooth) * (1 - 0.14 * tr) * groove; bb = (bb * (1 - smooth) + mean * smooth) * (1 - 0.15 * tr) * groove; // huellas apenas marcadas (tierra apisonada, no surcos negros)
         // lomo central y bordes con ripio suelto y más claro (lo que las ruedas no pisan)
-        const ridge = dirt ? Math.exp(-(s * s) / (2 * (P.hw * 0.16) ** 2)) * 0.18 : 0; rr *= 1 + ridge; gg *= 1 + ridge; bb *= 1 + ridge * 0.9;
+        const ridge = dirtP ? Math.exp(-(s * s) / (2 * (P.hw * 0.16) ** 2)) * 0.18 : 0; rr *= 1 + ridge; gg *= 1 + ridge; bb *= 1 + ridge * 0.9;
         // tono arcilloso (tierra marrón entre el ripio), con manchas de barro seco
-        const clay = clayD * (0.75 + 0.5 * hashU(Math.floor(s / 1.5), Math.floor(d / 4), 9)), cl = (REFS.calAt(d) || {}).road || [165, 160, 150], lum = (rr + gg + bb) / 3 / 150; // beige grisáceo de la tierra compactada (medido en fotos de Aguas Blancas)
+        const clay = clayP * (0.75 + 0.5 * hashU(Math.floor(s / 1.5), Math.floor(d / 4), 9)), cl = (REFS.calAt(d) || {}).road || [165, 160, 150], lum = (rr + gg + bb) / 3 / 150; // beige grisáceo de la tierra compactada (medido en fotos de Aguas Blancas)
         rr = rr * (1 - clay) + cl[0] * lum * clay; gg = gg * (1 - clay) + cl[1] * lum * clay; bb = bb * (1 - clay) + cl[2] * lum * clay;
         // piedras sueltas claras (3–8 cm), con la densidad medida en las fotos de referencia
-        if (dirt) { const st = (REFS.calAt(d) || {}).stones ?? 0.012, cx = Math.floor(s / 0.06), cy = Math.floor(d / 0.06);
+        if (dirtP) { const st = (REFS.calAt(d) || {}).stones ?? 0.012, cx = Math.floor(s / 0.06), cy = Math.floor(d / 0.06);
           if (hashU(cx, cy, 31) < st * (0.6 + 0.8 * Math.min(1, Math.abs(s) / P.hw))) { const b = 1.25 + 0.25 * hashU(cx, cy, 32); rr = Math.min(255, rr * b); gg = Math.min(255, gg * b); bb = Math.min(255, bb * b * 1.02); } }
         // fuera del ancho real del camino (en tramos más angostos) se ve la banquina
         if (Math.abs(s) > P.hw) { rr *= 0.9; gg *= 0.92; bb *= 0.85; }
-        [rr, gg, bb] = shade(rr, gg, bb, px, py, s, d, dirt);
+        [rr, gg, bb] = shade(rr, gg, bb, px, py, s, d, dirtP);
         od[o] = rr; od[o + 1] = gg; od[o + 2] = bb; od[o + 3] = 255;
       }
     }
@@ -4501,8 +4505,11 @@ function buildRoadStrips(B, res, o = {}) {
   for (let k = 0; k < nSeg; k++) {
     const d0 = k * STRIP_LEN, d1 = Math.min(total, d0 + STRIP_LEN); let hwMax = 0;
     for (let d = d0; d <= d1; d += 4) hwMax = Math.max(hwMax, at(d).hw);
-    const HW = hwMax + 0.15, cv = document.createElement('canvas'); cv.width = STRIP_W; cv.height = STRIP_H;
-    const name = 'rs_' + k; strips.push({ name, d0, HW }); paint(k, cv); TEX[name] = cv; TEX[name].__dxt = true; TEX[name].__normal = true;
+    const name = 'rs_' + k, old = opt.prev && opt.prev[k];
+    // en el editor: la tira ya pintada se reusa (la textura va por metros del camino, igual que el relieve) salvo que el camino se haya ensanchado
+    if (opt.reuse && old && TEX[name] && hwMax + 0.15 <= old.HW + 1e-6) { strips.push({ name, d0, HW: old.HW }); continue; }
+    const HW = hwMax + 0.15, cv = TEX[name] && opt.reuse ? TEX[name] : document.createElement('canvas'); cv.width = STRIP_W; cv.height = STRIP_H;
+    strips.push({ name, d0, HW }); paint(k, cv); TEX[name] = cv; TEX[name].__dxt = true; TEX[name].__normal = true; if (opt.painted) opt.painted.push(name);
   }
   S.stripCtx = { paint, strips, total, B, res: r };
   // partir las mallas del camino por tramo y mapear la textura (u: a lo ancho, v: a lo largo)
@@ -6143,7 +6150,7 @@ if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') ||
 
 
 // ---------- Versión: qué compilación es esta y si es la última publicada en GitHub ----------
-const BUILD = {"id": "5419820f2efd", "date": "2026-11-13T15:48:33Z", "version": "2026.11.13+5419820", "base": "7221cecd1b5636c0729d9a8c0763afb7966fe541"};
+const BUILD = {"id": "7b4f3be61638", "date": "2026-11-13T16:04:16Z", "version": "2026.11.13+7b4f3be", "base": "c3e9d7a4bb715d9829dc481bcfece1b37cb80819"};
 const VER = {
   repo: 'lucasbarria/generador-de-pistas',
   set(state, txt, cls) { const el = $('#verInfo'); if (!el) return; const b = BUILD || {}; const dt = b.date ? new Date(b.date).toLocaleString() : '?';
@@ -6415,6 +6422,11 @@ function liveRoute() {
     oldRoute.forEach(pvRemove);
     for (const k of ['zone', 'sideJ', 'bridges']) nr[k] = old[k];
     nr.segs = nr.segs.concat(L.sideSegs);
+    // el camino nuevo vuelve a llevar la textura continua (ripio, huellas, transiciones); la zona tocada se repinta al soltar
+    if (S.stripCtx) { try { const painted = []; buildRoadStrips(B, nr, R.o, { reuse: true, prev: S.stripCtx.strips, painted }); stripsRefresh(painted);
+      let sa = i0, sb = i1; if (nr.SURF && old.SURF && nr.SURF.length === old.SURF.length) nr.SURF.forEach((k, i) => { if (k !== old.SURF[i]) { sa = Math.min(sa, i); sb = Math.max(sb, i + 1); } });
+      if (!(sb >= sa)) { sa = 0; sb = -1; }
+      const da = sb >= 0 ? (nr.dist[Math.max(0, sa)] || 0) - 20 : Infinity, db = sb >= 0 ? (nr.dist[Math.min(nr.n - 1, sb)] || nr.total) + 20 : -Infinity; if (db >= da) L.stripRange = L.stripRange ? [Math.min(L.stripRange[0], da), Math.max(L.stripRange[1], db)] : [da, db]; } catch (e) { console.warn('tiras del camino', e); } }
     R.res = nr; R.meshes = [...keep, ...nr.meshes];
     nr.meshes.forEach(pvAdd);
     if (prof.C !== old.C) { R.info.ll = nr.C.map(p => B.P.inv(p[0], p[1])); R.outline = [nr.C]; }
@@ -6497,6 +6509,7 @@ function liveCommit() {
     }
     touched.forEach(pvSync);
   }
+  if (L.stripRange) { try { repaintStrips(L.stripRange); } catch (e) { console.warn('tiras del camino', e); } L.stripRange = null; }
   // análisis y paneles
   R.info.grip = gripAnalysis(r); r.bridges = r.bridges || []; R.info.notes = paceNotes(r, R.info.grip);
   R.spawnList = routeEmpties(r, R.o, r.closed);
