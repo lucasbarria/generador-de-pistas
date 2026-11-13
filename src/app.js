@@ -3586,7 +3586,7 @@ async function rebuild(keepCam) {
     log('Plantando vegetación…'); await tick();
     const SP = { wood: 3.6, scrub: 11, wetland: 12, grass: 70, urban: 28, farmland: 150, rock: 70, none: 90 };
     const frac = (x, y) => { const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453; return s - Math.floor(s); };
-    TEX.leaves = makeLeafAtlas(($('#season') && $('#season').value) || 'summer'); if (PV.mats && PV.mats.leaves) { PV.mats.leaves.map.image = TEX.leaves; PV.mats.leaves.map.needsUpdate = true; }
+    TEX.leaves = makeLeafAtlas(($('#season') && $('#season').value) || 'summer'); if (PV.mats && PV.mats.leaves && PV.mats.leaves.map) { PV.mats.leaves.map.image = TEX.leaves; PV.mats.leaves.map.needsUpdate = true; }
     const tr = Core.buildTrees({ season: ($('#season') && $('#season').value) || 'summer',
       trunkDist: o.treeHit ? 30 : 0, wallCounter, clear: o.treeClear,
       ter, bbox: B.bbox, res: o.res, segs: res.segs, base: 3, maxTrees: { 0.5: 30000, 1: 60000, 1.8: 100000 }[o.density] || 60000,

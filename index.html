@@ -4813,7 +4813,7 @@ async function rebuild(keepCam) {
     log('Plantando vegetación…'); await tick();
     const SP = { wood: 3.6, scrub: 11, wetland: 12, grass: 70, urban: 28, farmland: 150, rock: 70, none: 90 };
     const frac = (x, y) => { const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453; return s - Math.floor(s); };
-    TEX.leaves = makeLeafAtlas(($('#season') && $('#season').value) || 'summer'); if (PV.mats && PV.mats.leaves) { PV.mats.leaves.map.image = TEX.leaves; PV.mats.leaves.map.needsUpdate = true; }
+    TEX.leaves = makeLeafAtlas(($('#season') && $('#season').value) || 'summer'); if (PV.mats && PV.mats.leaves && PV.mats.leaves.map) { PV.mats.leaves.map.image = TEX.leaves; PV.mats.leaves.map.needsUpdate = true; }
     const tr = Core.buildTrees({ season: ($('#season') && $('#season').value) || 'summer',
       trunkDist: o.treeHit ? 30 : 0, wallCounter, clear: o.treeClear,
       ter, bbox: B.bbox, res: o.res, segs: res.segs, base: 3, maxTrees: { 0.5: 30000, 1: 60000, 1.8: 100000 }[o.density] || 60000,
@@ -6168,7 +6168,7 @@ if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') ||
 
 
 // ---------- Versión: qué compilación es esta y si es la última publicada en GitHub ----------
-const BUILD = {"id": "c1a34e27bdde", "date": "2026-11-13T19:43:27Z", "version": "2026.11.13+c1a34e2", "base": "f951c1a55aa6c47db9eddf50acea686560a2f619"};
+const BUILD = {"id": "ea10481b4b77", "date": "2026-11-13T20:09:20Z", "version": "2026.11.13+ea10481", "base": "03e71db2479382c60ac15c30f5d6a3e966b5aa3d"};
 const VER = {
   repo: 'lucasbarria/generador-de-pistas',
   set(state, txt, cls) { const el = $('#verInfo'); if (!el) return; const b = BUILD || {}; const dt = b.date ? new Date(b.date).toLocaleString() : '?';
