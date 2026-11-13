@@ -164,10 +164,11 @@ function liveRoute() {
     if (i1 >= 0) for (const m of R.meshes) {
       if (!m.route || !m.ri) continue;
       if (m.riMin == null) { m.riMin = Infinity; m.riMax = -1; for (const i of m.ri) { if (i < m.riMin) m.riMin = i; if (i > m.riMax) m.riMax = i; } }
-      if (m.riMax < i0 || m.riMin > i1) continue;
+      if (m.riMax < i0 - 1 || m.riMin > i1 + 1) continue;
       const mesh = PV.byMesh && PV.byMesh.get(m), a = mesh && mesh.geometry.attributes.position.array; let t = false;
       for (let v = 0; v < m.v.length; v++) {
-        const i = m.ri[v], dz = dh[i] + ds[i] * m.rs[v]; if (dz === 0) continue;
+        // índice del eje fraccionario (secciones intermedias cada 0,5 m): el cambio se interpola entre los dos puntos del eje
+        const fi = m.ri[v], i = Math.floor(fi), u = fi - i, j = Math.min(n - 1, i + 1), dz = (dh[i] + ds[i] * m.rs[v]) * (1 - u) + (dh[j] + ds[j] * m.rs[v]) * u; if (dz === 0) continue;
         m.v[v][2] += dz; if (a) a[v * 3 + 1] += dz; t = true;
       }
       if (t && mesh) { mesh.geometry.attributes.position.needsUpdate = true; mesh.geometry.computeVertexNormals(); mesh.geometry.computeBoundingSphere(); }

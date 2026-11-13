@@ -1631,10 +1631,11 @@ function editFns(o, total, closed) {
           // punto: campana de radio r. Tramo: de h (inicio) a h1 (final) = pendiente, con transiciones f0 / f1 a cada lado
           if (e.d1 - e.d0 < 1) s += e.h * bell(wrap(d, e.d0), e.r || 30);
           else {
-            const h1 = e.h1 != null ? e.h1 : e.h, f0 = Math.max(0.5, e.f0 != null ? e.f0 : 25), f1 = Math.max(0.5, e.f1 != null ? e.f1 : 25);
-            if (d < e.d0) { const x = (e.d0 - d) / f0; if (x < 1) s += e.h * ss(1 - x); }
-            else if (d > e.d1) { const x = (d - e.d1) / f1; if (x < 1) s += h1 * ss(1 - x); }
-            else s += e.h + (h1 - e.h) * (d - e.d0) / (e.d1 - e.d0);
+            const h1 = e.h1 != null ? e.h1 : e.h, f0 = Math.max(0.5, e.f0 != null ? e.f0 : 25), f1 = Math.max(0.5, e.f1 != null ? e.f1 : 25), g = (h1 - e.h) / (e.d1 - e.d0);
+            // transiciones de Hermite: llegan a los extremos con la misma pendiente del tramo (sin quiebre ni pico)
+            if (d < e.d0) { const v = 1 - (e.d0 - d) / f0; if (v > 0) s += e.h * (3 * v * v - 2 * v * v * v) + g * f0 * (v * v * v - v * v); }
+            else if (d > e.d1) { const u = (d - e.d1) / f1; if (u < 1) s += h1 * (2 * u * u * u - 3 * u * u + 1) + g * f1 * (u * u * u - 2 * u * u + u); }
+            else s += e.h + g * (d - e.d0);
           }
         } else if (e.kind === 'bump') s += e.h * bell(wrap(d, e.d), e.len / 2);
         else if (e.kind === 'pothole') s -= e.h * bell(wrap(d, e.d), e.len / 2);
@@ -1663,6 +1664,26 @@ function editFns(o, total, closed) {
       return o.surface === 'gravel' || o.surface === 'auto' ? 'GRAVEL' : 'ROAD';
     },
     smoothSecs: S.edits.filter(e => e.kind === 'smooth'),
+    // aplanar y pendiente constante: reemplazan la altura del sector por una recta (horizontal o con pendiente),
+    // con transiciones de 5.º grado a cada lado (continuas en altura, pendiente y curvatura) y una intensidad 0–1
+    levelApply: S.edits.some(e => e.kind === 'flat' || e.kind === 'grade') ? (dist, hs) => {
+      let h = hs.slice(); const n = h.length;
+      const hAt = d => { let i = 0, j = n - 1; while (j - i > 1) { const m = (i + j) >> 1; if (dist[m] <= d) i = m; else j = m; } const t = Math.max(0, Math.min(1, (d - dist[i]) / ((dist[j] - dist[i]) || 1))); return h[i] * (1 - t) + h[j] * t; };
+      const sm5 = t => t * t * t * (t * (t * 6 - 15) + 10);
+      for (const e of S.edits) { if (e.kind !== 'flat' && e.kind !== 'grade') continue;
+        let T0, g;
+        if (e.kind === 'flat') { g = 0; T0 = e.ref === 'end' ? hAt(e.d1) : e.ref === 'avg' ? (() => { let a = 0, c = 0; for (let i = 0; i < n; i++) if (dist[i] >= e.d0 && dist[i] <= e.d1) { a += h[i]; c++; } return c ? a / c : hAt(e.d0); })() : e.ref === 'abs' ? e.h - (S.base ? S.base.h0 : 0) : hAt(e.d0); }
+        else { T0 = hAt(e.d0); g = e.pct != null ? e.pct / 100 : (e.dh || 0) / Math.max(1, e.d1 - e.d0); }
+        const k = Math.max(0, Math.min(1, e.k ?? 1)), out = h.slice(), fb = Math.max(2, e.f ?? 20);
+        // la transición se alarga sola si el salto a absorber es grande: la pendiente agregada no pasa del 12 %
+        const D0 = Math.abs(T0 - hAt(e.d0)) * k, D1 = Math.abs(T0 + g * (e.d1 - e.d0) - hAt(e.d1)) * k, fa = Math.max(fb, 1.875 * D0 / 0.12), fz = Math.max(fb, 1.875 * D1 / 0.12);
+        e._fa = fa; e._fz = fz;
+        for (let i = 0; i < n; i++) { const d = dist[i]; if (d < e.d0 - fa || d > e.d1 + fz) continue;
+          const w = d < e.d0 ? sm5(1 - (e.d0 - d) / fa) : d > e.d1 ? sm5(1 - (d - e.d1) / fz) : 1;
+          const tgt = T0 + g * (d - e.d0); out[i] = h[i] + (tgt - h[i]) * w * k; }
+        h = out; }
+      return h;
+    } : null,
     // perfiles por puntos de control: reemplazan la altura base (antes de saltos, lomadas, etc.)
     profileApply: (() => {
       const P = S.edits.filter(e => e.kind === 'profile' && e.pts && e.pts.length > 1).map(e => {
@@ -3008,7 +3029,7 @@ function buildRoadStrips(B, res, o = {}) {
     for (const f of m.f) {
       const dm = (m.ds[f[0]][0] + m.ds[f[1]][0] + m.ds[f[2]][0]) / 3, k = Math.max(0, Math.min(strips.length - 1, Math.floor(dm / STRIP_LEN))), S0 = strips[k];
       let P = parts.get(k); if (!P) { P = { m: { name: `${9600 + (++nn)}${key}`, mat: S0.name, v: [], uv: [], f: [], road: true, route: m.route, ds: [], ri: m.ri ? [] : undefined, rs: m.rs ? [] : undefined }, map: new Map() }; parts.set(k, P); }
-      P.m.f.push(f.map(i => { if (P.map.has(i)) return P.map.get(i); const [d, s] = m.ds[i]; P.m.v.push(m.v[i]); P.m.ds.push(m.ds[i]); if (m.ri) { P.m.ri.push(m.ri[i]); P.m.rs.push(m.rs[i]); } P.m.uv.push([(s + S0.HW) / (2 * S0.HW), (d - S0.d0) / STRIP_LEN]); P.map.set(i, P.m.v.length - 1); return P.m.v.length - 1; }));
+      P.m.f.push(f.map(i => { if (P.map.has(i)) return P.map.get(i); const [d, s] = m.ds[i]; P.m.v.push(m.v[i].slice()); P.m.ds.push(m.ds[i]); /* copia: un vértice compartido entre dos tramos no debe moverse dos veces al editar */ if (m.ri) { P.m.ri.push(m.ri[i]); P.m.rs.push(m.rs[i]); } P.m.uv.push([(s + S0.HW) / (2 * S0.HW), (d - S0.d0) / STRIP_LEN]); P.map.set(i, P.m.v.length - 1); return P.m.v.length - 1; }));
     }
     for (const P of parts.values()) out.push(P.m);
   }
@@ -3423,7 +3444,7 @@ function renderCrit() {
 const EDIT_TXT = {
   raise: e => e.h1 != null && e.d1 - e.d0 >= 1 && Math.abs(e.h1 - e.h) > 0.005 ? `Pendiente ${fmtH(e.h)} → ${fmtH(e.h1)} m` : `${e.h > 0 ? 'Subir' : 'Bajar'} ${Math.abs(+e.h.toFixed(2))} m`,
   profile: e => `Perfil por puntos (${e.pts.length})`, rasante: e => `${RAS_NAME[e.type] || 'Rasante'} ${fmtH(+(+e.h).toFixed(2))} m`,
-  smooth: () => 'Suavizar', bump: e => `Lomada ${+e.h.toFixed(2)} m`, jump: e => `Salto ${+e.h.toFixed(2)} m`, cattle: () => 'Guardaganado',
+  smooth: () => 'Suavizar', flat: e => `Aplanar (${{ start: 'altura inicial', end: 'altura final', avg: 'promedio', abs: (e.h ?? 0).toFixed(1) + ' m' }[e.ref || 'start']}${(e.k ?? 1) < 1 ? ', ' + Math.round(e.k * 100) + '%' : ''})`, grade: e => `Pendiente constante ${e.pct != null ? (e.pct > 0 ? '+' : '') + e.pct.toFixed(1) + '%' : fmtH(e.dh) + ' m'}`, bump: e => `Lomada ${+e.h.toFixed(2)} m`, jump: e => `Salto ${+e.h.toFixed(2)} m`, cattle: () => 'Guardaganado',
   shape: e => `Curva movida ${Math.hypot(e.dx, e.dy).toFixed(1)} m`, pothole: e => `Bache ${+e.h.toFixed(2)} m`, width: e => `Ancho ${+e.w.toFixed(1)} m`,
   bank: e => e.abs ? `Inclinación ${+e.deg.toFixed(1)}°` : `Peralte ${+e.deg.toFixed(1)}°`, surface: e => SURF[e.key].name,
 };
@@ -3448,6 +3469,11 @@ const num = (id, def) => { const v = parseFloat($(id).value); return isFinite(v)
 function addEdit(e) { edPushUndo(); S.edits.push(e); ED.active = e; editsChanged(); }
 $('#tRaise').onclick = () => { if (!needSel()) return; const s = S.sel; addEdit({ kind: 'raise', d0: s.d0, d1: s.d1, h: num('#dh', 1) }); };
 $('#tSmooth').onclick = () => { if (!needSel()) return; addEdit({ kind: 'smooth', ...secSel() }); };
+if ($('#tFlat')) $('#tFlat').onclick = () => { if (!needSel()) return; const ref = $('#flatRef').value; addEdit({ kind: 'flat', ...secSel(), ref, h: ref === 'abs' ? num('#flatH', 0) : undefined, k: Math.max(0, Math.min(1, num('#flatK', 100) / 100)), f: Math.max(2, num('#flatF', 20)) }); };
+const gradeEdit = sign => { if (!needSel()) return; const sec = secSel(), len = sec.d1 - sec.d0, mode = $('#gradeMode').value, v = Math.abs(num('#gradeV', 6)) * sign;
+  addEdit({ kind: 'grade', ...sec, ...(mode === 'pct' ? { pct: v } : { dh: v }), f: Math.max(2, num('#flatF', 20)) }); log(`Pendiente constante en ${len.toFixed(0)} m: ${mode === 'pct' ? v + '% (' + (v * len / 100).toFixed(1) + ' m de desnivel)' : v + ' m (' + (v / len * 100).toFixed(1) + '%)'}.`); };
+if ($('#tUp')) $('#tUp').onclick = () => gradeEdit(1);
+if ($('#tDown')) $('#tDown').onclick = () => gradeEdit(-1);
 $('#tBump').onclick = () => { if (!needSel()) return; addEdit({ kind: 'bump', d: ptSel(), h: Math.abs(num('#fh', 0.4)), len: 10 }); };
 $('#tJump').onclick = () => { if (!needSel()) return; addEdit({ kind: 'jump', d: ptSel(), h: Math.abs(num('#fh', 1)), len: 24 }); };
 $('#tPot').onclick = () => { if (!needSel()) return; addEdit({ kind: 'pothole', d: ptSel(), h: Math.abs(num('#fh', 0.25)), len: 5 }); };

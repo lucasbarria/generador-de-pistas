@@ -212,6 +212,7 @@ const Core = (() => {
     }
     if (o.profileApply) hs = hs.map((h, i) => o.profileApply(dist[i], h)); // perfiles por puntos de control
     if (o.offsetAt) hs = hs.map((h, i) => h + o.offsetAt(dist[i]));
+    if (o.levelApply) hs = o.levelApply(dist, hs); // aplanar / pendiente constante (después de las demás ediciones de altura)
     if (o.raise) hs = hs.map((h, i) => h + o.raise(C[i][0], C[i][1])); // rampas de acceso a puentes
     // ancho, peralte, superficie
     let W = dist.map(d => o.widthAt ? o.widthAt(d) : o.width);
@@ -328,7 +329,7 @@ const Core = (() => {
       for (const q of sc.cols) if (Math.abs(q.s) < hw - 0.01) q.h += o.reliefAt(sc.d, q.s, hw, c); return sc; };
     // secciones intermedias cada 0,5 m (entre los puntos del eje, que van cada 2 m): los baches necesitan esa resolución
     const subSecs = (A, B, parts) => { const out = []; for (let k = 1; k < parts; k++) { const t = k / parts;
-      out.push({ cols: A.cols.map((a, j) => { const b = B.cols[j]; return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, h: a.h + (b.h - a.h) * t, u: a.u + (b.u - a.u) * t, s: a.s + (b.s - a.s) * t, i: a.i, sc: a.sc + (b.sc - a.sc) * t }; }), d: A.d + (B.d - A.d) * t, step: A.step / parts }); } return out; };
+      out.push({ cols: A.cols.map((a, j) => { const b = B.cols[j]; return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, h: a.h + (b.h - a.h) * t, u: a.u + (b.u - a.u) * t, s: a.s + (b.s - a.s) * t, i: b.i === a.i + 1 ? a.i + t : a.i, sc: a.sc + (b.sc - a.sc) * t }; }), /* índice fraccionario: el editor interpola el cambio de altura */ d: A.d + (B.d - A.d) * t, step: A.step / parts }); } return out; };
     // tramos consecutivos con la misma superficie
     const runs = [];
     for (let i = 0; i < segCount; i++) {
