@@ -519,6 +519,9 @@ const Core = (() => {
     let DRs = SLR.map((sl, i) => mode === 'both' ? 0.45 : mode === 'auto' ? autoD(sl, i, -1) : 0);
     DLs = smooth1D(DLs, 5, closed); DRs = smooth1D(DRs, 5, closed);
     if (ACC.length) { DLs = DLs.map((v, i) => v * (1 - accCut(i, 1))); DRs = DRs.map((v, i) => v * (1 - accCut(i, -1))); }
+    // claros, playones y cruces: donde el satélite muestra suelo pelado ancho junto al camino no hay cuneta (es una explanada)
+    if (o.clearAt) { const open = (i, sd) => { const b = o.clearAt(dist[i], sd); return b == null ? 0 : Math.max(0, Math.min(1, (b - 0.45) / 0.25)); };
+      DLs = smooth1D(DLs.map((v, i) => v * (1 - open(i, 1))), 3, closed); DRs = smooth1D(DRs.map((v, i) => v * (1 - open(i, -1))), 3, closed); }
     // perfil transversal de cada costado (distancias desde el borde del ripio):
     // berma de piedras → cuneta en V con fondo → contratalud que sube (o baja) hasta el terreno real de ese lado
     const sideProf = (i, sd, force) => {
@@ -3135,7 +3138,7 @@ function autoWidthProfile(B, pts, o) {
     let i = 0; while (i < cum.length - 2 && cum[i + 1] < d) i++;
     const a = pts[i], b = pts[i + 1] || a, L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, t = (d - cum[i]) / L, x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t, nx = -(b[1] - a[1]) / L, ny = (b[0] - a[0]) / L;
     const cls = clsAt(x, y), rg = RANGE[cls] || [3, 12];
-    let w = null, bareL = null, bareR = null;
+    let w = null, bareL = null, bareR = null, clearL = null, clearR = null;
     if (SV && SV.lum) {
       const prof = []; for (let s = -14; s <= 14.01; s += 0.5) prof.push(SV.lum(x + nx * s, y + ny * s));
       if (!prof.some(v => v == null)) {
@@ -3155,11 +3158,14 @@ function autoWidthProfile(B, pts, o) {
           const T2 = Lb + (Lc - Lb) * 0.18; let bl = l, br = r;
           while (bl > -13.5 && at(bl - 0.5) > T2) bl -= 0.5; while (br < 13.5 && at(br + 0.5) > T2) br += 0.5;
           bareL = Math.min(5, l - bl); bareR = Math.min(5, br - r);
+          // claro / explanada al costado: parte clara (suelo pelado) entre 3 y 20 m más allá del borde
+          const clr = dir => { let c = 0, n = 0; for (let e = 3; e <= 20; e += 1) { const v = SV.lum(x + nx * (dir < 0 ? l - e : r + e), y + ny * (dir < 0 ? l - e : r + e)); if (v != null) { n++; if (v > T2) c++; } } return n ? c / n : null; };
+          clearL = clr(-1); clearR = clr(1);
         }
       }
     }
     const wl = SV ? SV(x + nx * 12, y + ny * 12) > 0.42 : false, wr = SV ? SV(x - nx * 12, y - ny * 12) > 0.42 : false;
-    samples.push({ d, w, rg, cls, bareL, bareR, wood: wl || wr, wood2: wl && wr });
+    samples.push({ d, w, rg, cls, bareL, bareR, clearL, clearR, wood: wl || wr, wood2: wl && wr });
   }
   // suavizar: mediana de 70 m, acotada al rango del tipo de camino; donde no se pudo medir, el ancho típico del tipo
   const out = samples.map((s, k) => {
@@ -3180,6 +3186,9 @@ function autoWidthProfile(B, pts, o) {
     return raw.map(v => Math.max(0.3, Math.min(4.5, v))); };
   const BL = bare(1), BR = bare(-1);
   const fn = d => { const f = Math.max(0, Math.min(out.length - 1, d / 10)), k = Math.floor(f), u = f - k; return out[k] * (1 - u) + (out[Math.min(out.length - 1, k + 1)]) * u; };
+  const clearP = side => { const key = side > 0 ? 'clearR' : 'clearL'; return samples.map((s, k) => { const win = samples.slice(Math.max(0, k - 2), k + 3).map(q => q[key]).filter(v => v != null).sort((p, q) => p - q); return win.length >= 3 && !s.wood ? win[Math.floor(win.length / 2)] : 0; }); };
+  const CL = clearP(1), CR = clearP(-1);
+  fn.clear = (d, side) => { const A = side > 0 ? CL : CR; return A[Math.max(0, Math.min(A.length - 1, Math.round(d / 10)))]; }; // 0..1: cuánto claro pelado hay al costado
   fn.bare = (d, side) => { const A = side > 0 ? BL : BR, f = Math.max(0, Math.min(A.length - 1, d / 10)), k = Math.floor(f), u = f - k; return A[k] * (1 - u) + A[Math.min(A.length - 1, k + 1)] * u; };
   fn.bareAvg = (BL.reduce((a, b) => a + b, 0) + BR.reduce((a, b) => a + b, 0)) / (BL.length + BR.length);
   fn.min = Math.min(...out); fn.max = Math.max(...out); fn.avg = out.reduce((a, b) => a + b, 0) / out.length; fn.measured = measured / samples.length;
@@ -3637,7 +3646,7 @@ const SIDECAT = {
   // tipo de costado en d (lado sd): húmedo y abierto → pasto con flores; bosque y ladera que sube → tierra con agujas; seco → pasto seco con piedras
   typeAt(d, sd) { if (this.alt && this.altAt(d) > this.tl + (vn2(d / 120, sd, 204) - 0.5) * 120) return 'side_d'; // sobre el límite de los árboles: roca y tierra
     const h = RELIEF.humAt ? RELIEF.humAt(d) : 0.4, f = RELIEF.forestAt ? RELIEF.forestAt(d) : 0.5, n = vn2(d / 90, sd * 3.3, 201), n2 = vn2(d / 35, sd * 5.1, 202);
-    const a = 0.45 + h * 0.6 + n * 0.5, b = 0.2 + f * 0.7 + n2 * 0.45, c = 0.3 + (1 - h) * 0.5 + (1 - n) * 0.35; return a >= b && a >= c ? 'side_a' : b >= c ? 'side_b' : 'side_c'; },
+    const a = 0.4 + h * 0.35 + n * 0.5 - Math.abs(f - 0.5) * 0.5, b = 0.2 + f * 0.7 + n2 * 0.45, c = 0.3 + (1 - f) * 0.45 + (1 - n) * 0.35; /* flores en el borde del bosque; campo abierto (mallín) más pasto seco */ return a >= b && a >= c ? 'side_a' : b >= c ? 'side_b' : 'side_c'; },
   lumpAt(d, sd, e) { const t = this.TYPES[this.typeAt(d, sd)].a; return t.mounds * 0.28 * Math.max(0, vn2(d / 3.5, e / 2.5 + sd * 9, 203) - 0.35) * Math.min(1, e / 2); },
 };
 function makeSideTex(key, a) {
@@ -3999,7 +4008,7 @@ function buildRoadStrips(B, res, o = {}) {
       const fx = px / 4, fy = py / 8, ix = Math.min(GW - 2, Math.floor(fx)), iy = Math.min(GH - 2, Math.floor(fy)), ux = fx - ix, uy = fy - iy;
       const z = (Z[iy * GW + ix] * (1 - ux) + Z[iy * GW + ix + 1] * ux) * (1 - uy) + (Z[(iy + 1) * GW + ix] * (1 - ux) + Z[(iy + 1) * GW + ix + 1] * ux) * uy, w = HM[iy];
       if (z < 0) { const k2 = 1 - Math.min(0.3, -z * 4); rr *= k2; gg *= k2; bb *= k2 * 1.01;
-        if (w > 0.5 && z < -0.03) { const t = Math.min(0.75, (-z - 0.03) * 16) * Math.min(1, (w - 0.5) * 3), sh = (PHOTOMAT.wetInfo && PHOTOMAT.wetInfo.sheen) || [150, 156, 160]; rr += (sh[0] - rr) * t; gg += (sh[1] - gg) * t; bb += (sh[2] - bb) * t; } } // charco
+        if (w > 0.62 && z < -0.035) { const t = Math.min(0.45, (-z - 0.035) * 12) * Math.min(1, (w - 0.62) * 3), sh0 = (PHOTOMAT.wetInfo && PHOTOMAT.wetInfo.sheen) || [150, 156, 160], sh = sh0.map(v => v * 0.62); /* agua turbia: refleja, pero no blanca */ rr += (sh[0] - rr) * t; gg += (sh[1] - gg) * t; bb += (sh[2] - bb) * t; } } // charco
       else { const k2 = 1 + Math.min(0.1, z * 1.2); rr *= k2; gg *= k2; bb *= k2; }
       return [rr, gg, bb];
     };
@@ -4197,8 +4206,22 @@ async function rebuild(keepCam) {
     SIDECAT.on = SIDECAT.active(); if (SIDECAT.on) { SIDECAT.build(); SIDECAT.prepAlt(B, rPts); }
     const ACCS = []; { const cum = [0]; for (let i = 1; i < rPts.length; i++) cum.push(cum[i - 1] + Math.hypot(rPts[i][0] - rPts[i - 1][0], rPts[i][1] - rPts[i - 1][1]));
       for (const sr of (S.side || [])) for (const end of [sr.pts[0], sr.pts[sr.pts.length - 1]]) { const [x, y] = B.P.fwd(end[0], end[1]); let bd = 15, bi = -1; for (let i = 0; i < rPts.length; i += 2) { const dd = Math.hypot(rPts[i][0] - x, rPts[i][1] - y); if (dd < bd) { bd = dd; bi = i; } }
-        if (bi < 1) continue; const a = rPts[bi - 1], b = rPts[bi], cr = (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]); ACCS.push({ d: cum[bi], sd: cr > 0 ? 1 : -1, w: 5 }); } }
-    const routeArgs = { bareAt: S.autoW ? S.autoW.bare : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, terrRes: o.res, shoulder: Math.min(3.5, o.res * 1.5 + 1),
+        if (bi < 1) continue; const a = rPts[bi - 1], b = rPts[bi], cr = (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]); ACCS.push({ d: cum[bi], sd: cr > 0 ? 1 : -1, w: 5 }); }
+      // cruces y bifurcaciones del mapa (OpenStreetMap) que tocan el recorrido: ahí no hay cuneta, hay entrada
+      const GR = new Map(), gk = (x, y) => Math.floor(x / 25) + ',' + Math.floor(y / 25); rPts.forEach((p, i) => { const k = gk(p[0], p[1]); (GR.get(k) || GR.set(k, []).get(k)).push(i); });
+      const near = (x, y) => { let bd = Infinity, bi = -1; const cx = Math.floor(x / 25), cy = Math.floor(y / 25); for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (const i of (GR.get((cx + dx) + ',' + (cy + dy)) || [])) { const dd = Math.hypot(rPts[i][0] - x, rPts[i][1] - y); if (dd < bd) { bd = dd; bi = i; } } return [bd, bi]; };
+      for (const v of T.cache.values()) for (const ln of v.lines) {
+        const P2 = ln.g.map(g => { const [a2, b2] = g2ll(g[0], g[1]); return B.P.fwd(a2, b2); }); if (P2.length < 2) continue;
+        // vértices de la calle pegados al recorrido con otra dirección (no es el mismo camino): ahí sale o cruza una calle
+        for (let k = 0; k < P2.length; k++) { const [bd, bi] = near(P2[k][0], P2[k][1]); if (bd > 9 || bi < 1 || cum[bi] < 5 || cum[bi] > cum.at(-1) - 5) continue;
+          const a = rPts[bi - 1], b = rPts[bi], tx = b[0] - a[0], ty = b[1] - a[1], tl = Math.hypot(tx, ty) || 1;
+          for (const k1 of [k - 1, k + 1]) { if (k1 < 0 || k1 >= P2.length) continue; const q = P2[k1], vx = q[0] - P2[k][0], vy = q[1] - P2[k][1], vl = Math.hypot(vx, vy) || 1;
+            if (Math.abs((vx * tx + vy * ty) / (vl * tl)) > 0.85) continue; // va paralela: es el mismo camino
+            const [bq] = near(q[0], q[1]); if (bq < 6) continue;
+            const cr = tx * (q[1] - a[1]) - ty * (q[0] - a[0]), sd = cr > 0 ? 1 : -1, w = ln.cls === 'track' || ln.cls === 'path' ? 4 : 6;
+            if (!ACCS.some(z => Math.abs(z.d - cum[bi]) < 12 && z.sd === sd)) ACCS.push({ d: cum[bi], sd, w, osm: true }); } }
+      } }
+    const routeArgs = { bareAt: S.autoW ? S.autoW.bare : null, clearAt: S.autoW ? S.autoW.clear : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, terrRes: o.res, shoulder: Math.min(3.5, o.res * 1.5 + 1),
       humAt: RELIEF.humAt, forestAt: RELIEF.forestAt, sideMatAt: SIDECAT.on ? (d, sd) => SIDECAT.typeAt(d, sd) : null, sideLumpAt: SIDECAT.on ? (d, sd, e) => SIDECAT.lumpAt(d, sd, e) : null, reliefAt: RELIEF.A ? (d, s, hw, c) => RELIEF.at(d, s, hw, c) : null, accesses: ACCS, procAccess: !$('#access') || $('#access').checked };
     S.live = { routeArgs, cache: { keyFn: () => JSON.stringify(S.edits.filter(e => e.kind === 'shape')) }, sideArgs: null, sideSegs: [] };
     res = Core.buildRoute({ ...routeArgs, ...editFns(o, S.lastTotal, B.closed), cache: S.live.cache });
@@ -4206,7 +4229,7 @@ async function rebuild(keepCam) {
     if ($('#biome') && $('#biome').value === 'auto') { const bd = detectBiome(res.total); if (bd) log(`Bioma detectado en el satélite: ${bd}. Vegetación, suelo, piedras, cunetas y relieve se ajustan solos por tramo.`); }
     { const H = res.HUM || [], wet = H.filter(v => v > 0.55).length / (H.length || 1), dry = H.filter(v => v < 0.3).length / (H.length || 1), hol = (res.HO || []).filter(v => v > 0.3).length * 2;
       if (RELIEF.A) log(`Relieve del piso: ${Math.round(dry * 100)}% firme (pocos baches), ${Math.round(wet * 100)}% húmedo (baches, surcos de agua y piso blando)${hol ? `, ${(hol / 1000).toFixed(2)} km en hondonadas` : ''}${RELIEF.ok ? ' — humedad según el satélite y la altura' : ' — sin satélite: humedad por ruido'}. Morros suaves cada ~260 m. Todo en la malla del camino: la suspensión lo absorbe, sin golpes secos.`);
-      if (res.accessPts && res.accessPts.length) log(`Accesos y entradas: ${res.accessPts.length} (${res.accessPts.filter(a => a.osm).length} de caminos de OpenStreetMap, el resto agregados donde el terreno es llano). La cuneta se corta y sale un paso de tierra.`); }
+      if (res.accessPts && res.accessPts.length) log(`Accesos y entradas: ${res.accessPts.length} (${res.accessPts.filter(a => a.osm).length} cruces y caminos del mapa, el resto agregados donde el terreno es llano). La cuneta se corta y sale un paso de tierra.`); }
     // origen de la altura de cada punto del camino: GPS, modelo propio (MDE-Ar/LiDAR) o satélite
     res.hsrc = res.C.map(p => roadH && roadH(p[0], p[1]) != null ? 'G' : (() => { const [la, lo] = B.P.inv(p[0], p[1]); return DEM.covered(la, lo) ? 'M' : 'S'; })());
     res.zone = useZ ? { pres: ZPRE - 30, start: ZPRE, finish: res.total - ZPOST, stop: res.total - ZPOST + 30 } : null;

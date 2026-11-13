@@ -255,6 +255,9 @@ const Core = (() => {
     let DRs = SLR.map((sl, i) => mode === 'both' ? 0.45 : mode === 'auto' ? autoD(sl, i, -1) : 0);
     DLs = smooth1D(DLs, 5, closed); DRs = smooth1D(DRs, 5, closed);
     if (ACC.length) { DLs = DLs.map((v, i) => v * (1 - accCut(i, 1))); DRs = DRs.map((v, i) => v * (1 - accCut(i, -1))); }
+    // claros, playones y cruces: donde el satélite muestra suelo pelado ancho junto al camino no hay cuneta (es una explanada)
+    if (o.clearAt) { const open = (i, sd) => { const b = o.clearAt(dist[i], sd); return b == null ? 0 : Math.max(0, Math.min(1, (b - 0.45) / 0.25)); };
+      DLs = smooth1D(DLs.map((v, i) => v * (1 - open(i, 1))), 3, closed); DRs = smooth1D(DRs.map((v, i) => v * (1 - open(i, -1))), 3, closed); }
     // perfil transversal de cada costado (distancias desde el borde del ripio):
     // berma de piedras → cuneta en V con fondo → contratalud que sube (o baja) hasta el terreno real de ese lado
     const sideProf = (i, sd, force) => {
