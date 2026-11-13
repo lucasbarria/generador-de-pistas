@@ -163,6 +163,9 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
       <div class="mut" id="biomeInfo" style="margin:2px 0 6px"></div>
       <div data-only="route">
         <label class="f">Relieve del piso (baches, surcos, morros) <select id="relief"><option value="0">Liso</option><option value="0.6">Suave</option><option value="1" selected>Real (según humedad)</option><option value="1.6">Muy roto</option></select></label>
+        <label class="f">Desgaste del camino (0 = nuevo · 2 = muy castigado) <span><input type="range" id="wear" min="0" max="2" step="0.1" value="1" style="width:110px"></span></label>
+        <label class="f">Tránsito <select id="traffic"><option value="0.6">Poco (camino rural)</option><option value="1" selected>Normal</option><option value="1.6">Camiones / mucho tránsito</option></select></label>
+        <label class="f">Semilla del desgaste (mismo número = mismos baches) <span><input type="number" id="wearSeed" value="1" step="1" style="width:70px"></span></label>
       </div>
       <label class="f">Vegetación y suelos reales <span><input type="checkbox" id="veg" checked></span></label>
       <label class="f">Nieve <span><input type="checkbox" id="snow"></span></label>

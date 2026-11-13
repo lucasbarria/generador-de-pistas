@@ -254,6 +254,9 @@ const Core = (() => {
     const accCut = (i, sd) => { let c = 0; for (const a of ACC) if (a.sd === sd) { const x = Math.abs(dist[i] - a.d) - a.w / 2; c = Math.max(c, x <= 0 ? 1 : Math.max(0, 1 - x / 3)); } return c; };
     let DLs = SLL.map((sl, i) => mode === 'both' ? 0.45 : mode === 'auto' ? autoD(sl, i, 1) : 0);
     let DRs = SLR.map((sl, i) => mode === 'both' ? 0.45 : mode === 'auto' ? autoD(sl, i, -1) : 0);
+    // sectores casi sin cuneta y sectores con cuneta marcada, distinto a cada lado (ruido largo, transiciones suaves)
+    const gate = (i, sd) => { const v = vn1(dist[i] / 110, sd * 59 + 4) * 0.7 + vn1(dist[i] / 37, sd * 61 + 8) * 0.3, t = Math.max(0, Math.min(1, (v - 0.2) / 0.25)); return 0.12 + 0.88 * t * t * (3 - 2 * t); };
+    DLs = DLs.map((v, i) => v * gate(i, 1)); DRs = DRs.map((v, i) => v * gate(i, -1));
     DLs = smooth1D(DLs, 5, closed); DRs = smooth1D(DRs, 5, closed);
     if (ACC.length) { DLs = DLs.map((v, i) => v * (1 - accCut(i, 1))); DRs = DRs.map((v, i) => v * (1 - accCut(i, -1))); }
     // claros, playones y cruces: donde el satélite muestra suelo pelado ancho junto al camino no hay cuneta (es una explanada)
@@ -279,14 +282,16 @@ const Core = (() => {
         const ox = (vn1(d / 9, sd * 37 + 1) - 0.5) * 0.55 + (vn1(d / 27, sd * 41 + 3) - 0.5) * 1.0; // corrimiento del fondo (m)
         const ww = wf * (0.75 + 0.55 * vn1(d / 13, sd * 43 + 5));                                // ancho que respira
         // tierra que sacaron al cavar, amontonada sin forma (en ladera que sube no hay bordo: está el talud)
-        const nL = vn1(d / 7, sd * 11 + 3) * 0.6 + vn1(d / 2.2, sd * 13 + 5) * 0.4, lump = (0.03 + 0.34 * Math.pow(Math.max(0, nL - 0.25), 1.3)) * (1 - 0.75 * open) * (1 - up);
+        const outC = sd === -Math.sign(K[i] || 0) ? Math.min(1, Math.abs(K[i]) * 60) : 0;
+        const nL = vn1(d / 7, sd * 11 + 3) * 0.6 + vn1(d / 2.2, sd * 13 + 5) * 0.4, lump = (0.03 + 0.34 * Math.pow(Math.max(0, nL - 0.25), 1.3)) * (1 - 0.75 * open) * (1 - up) * (1 + 1.4 * outC);
         const mw = 0.8 + 0.8 * vn1(d / 12, sd * 17 + 2);
         const a0 = 0.08 + 0.06 * vn1(d / 6, sd * 53 + 1), a2 = Math.max(a0 + 0.22, a0 + 0.42 * ww + ox), a1 = a0 + (a2 - a0) * 0.55, a3 = a2 + Math.max(0.2, 0.36 * ww * mw), a4 = a3 + 0.42 * ww * mw;
         const bot = edge - D, crest = Math.max(edge + 0.02, tg(a4)), mtop = (edge + Math.max(0.02, lump)) * (1 - up) + crest * up;
         xe = a4 + 0.8; for (let k = 0; k < 3; k++) { const dh = tg(xe) - mtop; xe = Math.min(9, a4 + Math.max(0.8, Math.abs(dh) * (dh < 0 ? 1.5 : 1.1))); }
         const top = tg(xe), mid = mtop + (top - mtop) * 0.5 + lump * 0.3;
         // paredes redondeadas (labio, fondo cóncavo, hombro) para que se funda con la banquina y el terreno sin escalón
-        pts = [[0, edge], [a0, edge - D * 0.16], [a1, bot + D * 0.2], [a2, bot], [a3, bot + (mtop - bot) * 0.58], [a4, mtop - 0.02 - lump * 0.15], [(a4 + xe) / 2, mid], [xe, top]];
+        const ero = (vn1(d / 3.1, sd * 67 + 2) - 0.5) * 0.06; // labio erosionado, desparejo
+        pts = [[0, edge], [a0, edge - D * 0.16 + ero], [a1, bot + D * 0.2], [a2, bot], [a3, bot + (mtop - bot) * 0.58], [a4, mtop - 0.02 - lump * 0.15], [(a4 + xe) / 2, mid], [xe, top]];
         clear = a4 + 0.3;
       } else {
         const b0 = edge - 0.06; xe = bw + 1;
@@ -329,12 +334,16 @@ const Core = (() => {
         const S2 = [-hw, ...side.map(v => -v), 0, ...side.slice().reverse(), hw];
         return { cols: S2.map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s) + rutOff(r, s), u: (s + hw) / W[i], s, i, sc: s }; }), d: dist[i] + dOff, step };
       }
-      const SC = o.reliefAt ? [-1, -0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1] : [-1, -0.5, 0, 0.5, 1];
+      const SC = o.reliefAt ? [-1, -0.86, -0.72, -0.58, -0.44, -0.3, -0.15, 0, 0.15, 0.3, 0.44, 0.58, 0.72, 0.86, 1] : [-1, -0.5, 0, 0.5, 1];
       return { cols: SC.map(f => { const s = f * hw, [x, y] = pos(i, s); return { x, y, h: surfH(i, s), u: (s + hw) / W[i], s, i, sc: s }; }), d: dist[i] + dOff, step };
     };
     // relieve del piso (baches, surcos de agua, morros suaves): se suma a la malla del camino, que es la superficie física.
     // Es todo continuo (sin bordes verticales): la suspensión lo copia y no hay golpes fantasma.
-    const ctxAt = d => { const f = Math.max(0, Math.min(n - 1.001, d / step)), k = Math.floor(f), u = f - k; return { hum: HUM[k] * (1 - u) + HUM[k + 1] * u, hollow: HO[k] * (1 - u) + HO[k + 1] * u, forest: FOR[k] }; };
+    // contexto del desgaste en cada punto: curvatura, pendiente, y frenada/aceleración (antes y después de las curvas cerradas)
+    const GR = smooth1D(hs.map((h, i) => (hs[Math.min(n - 1, i + 1)] - hs[Math.max(0, i - 1)]) / (2 * step)), 4, closed);
+    const BZ = (() => { const sharp = K.map(k => Math.max(0, Math.min(1, (Math.abs(k) - 1 / 120) / (1 / 25 - 1 / 120)))), z = new Float32Array(n), W0 = Math.round(70 / step), W1 = Math.round(35 / step);
+      for (let i = 0; i < n; i++) { let b = 0; for (let j = i; j <= Math.min(n - 1, i + W0); j++) b = Math.max(b, sharp[j] * (1 - (j - i) / W0)); for (let j = Math.max(0, i - W1); j < i; j++) b = Math.max(b, 0.7 * sharp[j] * (1 - (i - j) / W1)); z[i] = b; } return z; })();
+    const ctxAt = d => { const f = Math.max(0, Math.min(n - 1.001, d / step)), k = Math.floor(f), u = f - k; return { hum: HUM[k] * (1 - u) + HUM[k + 1] * u, hollow: HO[k] * (1 - u) + HO[k + 1] * u, forest: FOR[k], K: K[k] * (1 - u) + K[k + 1] * u, G: GR[k] * (1 - u) + GR[k + 1] * u, BZ: BZ[k] * (1 - u) + BZ[k + 1] * u }; };
     const addRelief = sc => { if (!o.reliefAt) return sc; const c = ctxAt(sc.d), hw = W[sc.cols[0].i] / 2;
       for (const q of sc.cols) if (Math.abs(q.s) < hw - 0.01) q.h += o.reliefAt(sc.d, q.s, hw, c); return sc; };
     // secciones intermedias cada 0,5 m (entre los puntos del eje, que van cada 2 m): los baches necesitan esa resolución
@@ -355,7 +364,10 @@ const Core = (() => {
         if (prev && o.reliefAt) for (const q of subSecs(prev, cur, 4)) secs.push(addRelief(q));
         secs.push(prev = cur); }
       if (o.reliefAt) for (const q of secs) if (q.step === step) addRelief(q);
-      for (const m of ribbonMeshes(secs, false, run.key, MAT[run.key], 7, { next: () => cnt(run.key) })) { m.road = true; meshes.push(m); }
+      const bands = o.reliefAt && !rutMode && (run.key === 'GRAVEL' || run.key === 'CLAY') && secs.length && secs[0].cols.length === 15
+        ? [[0, 2, 'LOOSE'], [2, 6, run.key], [6, 8, 'LOOSE'], [8, 12, run.key], [12, 14, 'LOOSE']] : [[0, secs.length ? secs[0].cols.length - 1 : 0, run.key]];
+      for (const [a, b, key] of bands) { const part = bands.length > 1 ? secs.map(q => ({ ...q, cols: q.cols.slice(a, b + 1) })) : secs;
+        for (const m of ribbonMeshes(part, false, key, MAT[run.key], 7, { next: () => cnt(key) })) { m.road = true; meshes.push(m); } }
     }
     // costados: berma, cuneta y contratalud (o banquina y terraplén donde no hay cuneta)
     // dos cintas por costado: la zanja (o la berma) con su textura a lo ancho, y el talud de pasto con textura
