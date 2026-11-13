@@ -4951,7 +4951,8 @@ if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') ||
 (function coordHud() {
   const host = document.getElementById('viewer3d'); if (!host) return;
   const hud = document.createElement('div'); hud.id = 'coordHud';
-  hud.style.cssText = 'position:absolute;right:10px;bottom:10px;z-index:5;background:#0b1220d9;color:#e8eef7;font:12px system-ui;padding:6px 8px;border-radius:8px;display:none;gap:6px;align-items:center;flex-wrap:wrap;max-width:min(560px,calc(100% - 20px))';
+  hud.style.cssText = 'position:absolute;left:10px;bottom:136px;z-index:3;background:#0b1220c0;color:#e8eef7;font:11.5px system-ui;padding:3px 6px;border-radius:7px;display:none;gap:5px;align-items:center;flex-wrap:wrap;max-width:min(520px,calc(100% - 330px))';
+  const st2 = document.createElement('style'); st2.textContent = '#coordHud .b{padding:2px 7px;font-size:11px}#coordHud a.b{color:#d6e6ff;text-decoration:none}#viewer.noprof #coordHud{bottom:10px!important}'; document.head.appendChild(st2);
   hud.innerHTML = '<span id="chTxt" style="font-variant-numeric:tabular-nums"></span><button class="b" id="chCopy" title="Copiar las coordenadas">Copiar</button><a class="b" id="chEarth" target="_blank" rel="noopener" title="Abrir este punto en Google Earth, mirando hacia donde mira la cámara">Google Earth</a><a class="b" id="chSV" target="_blank" rel="noopener" title="Abrir el Street View más cercano a este punto">Street View</a><a class="b" id="chMly" target="_blank" rel="noopener" title="Fotos libres de Mapillary cerca de este punto">Mapillary</a>';
   if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
   host.appendChild(hud); let txt = '';

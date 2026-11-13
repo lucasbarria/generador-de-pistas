@@ -488,16 +488,59 @@ function edPlaceGizmos() {
 function edFrame() {
   if (PV.onFrameOB) PV.onFrameOB();
   if (ED.gz.length && PV.camera) for (const g of ED.gz) { const k = PV.camera.position.distanceTo(g.mesh.position) * 0.011 * (ED.hover === g || (ED.drag && ED.drag.g === g) ? 1.45 : 1); g.mesh.scale.setScalar(Math.max(0.05, k)); }
-  // teclado: WASD / flechas = desplazarse, Q/E = girar, R/F = acercar/alejar
-  if (ED.keys.size && PV.camera && $('#viewer').style.display !== 'none') {
-    const c = PV.controls, cam = PV.camera, off = cam.position.clone().sub(c.target), dist = off.length(), sp = Math.max(0.6, dist * 0.02);
-    const fw = new THREE.Vector3(-off.x, 0, -off.z).normalize(), rt = new THREE.Vector3(-fw.z, 0, fw.x), mv = new THREE.Vector3();
-    if (ED.keys.has('w') || ED.keys.has('arrowup')) mv.add(fw); if (ED.keys.has('s') || ED.keys.has('arrowdown')) mv.sub(fw);
-    if (ED.keys.has('d') || ED.keys.has('arrowright')) mv.add(rt); if (ED.keys.has('a') || ED.keys.has('arrowleft')) mv.sub(rt);
-    if (mv.lengthSq()) { mv.normalize().multiplyScalar(sp); cam.position.add(mv); c.target.add(mv); }
-    if (ED.keys.has('q') || ED.keys.has('e')) { const a = (ED.keys.has('q') ? 1 : -1) * 0.025; off.applyAxisAngle(new THREE.Vector3(0, 1, 0), a); cam.position.copy(c.target).add(off); }
-    if (ED.keys.has('r') || ED.keys.has('f')) { const k = ED.keys.has('r') ? 0.97 : 1.03; if (dist * k > 1.5) cam.position.copy(c.target).add(off.multiplyScalar(k)); }
-  }
+  camStep();
+}
+// ---------- cámara del editor: suave, lenta y que nunca se "escapa" ----------
+// suelo bajo un punto (cacheado por resultado): para seguir el terreno y no meterse debajo
+function camGround() { const R = S.result; if (!R) return null; if (ED.gnd && ED.gnd.R === R && ED.gnd.ter === R.ter) return ED.gnd.f;
+  try { const f = obGround(); ED.gnd = { R, ter: R.ter, f }; return f; } catch (e) { return null; } }
+function camH(x, z) { const f = camGround(); if (!f) return null; const h = f(x, -z); return isFinite(h) ? h : null; }
+// punto del suelo (terreno o camino) bajo un rayo, hasta una distancia máxima
+function camGroundHit(rc, maxD) {
+  if (!PV.byMesh) return null; rc.far = maxD;
+  const list = []; for (const [m, mesh] of PV.byMesh) if (m.route || m.terrain || m.road) list.push(mesh);
+  const h = rc.intersectObjects(list, false)[0]; rc.far = Infinity; return h ? h.point.clone() : null;
+}
+// el centro de giro pasa a ser lo que está en el medio de la pantalla (la vista no cambia, solo el pivote)
+function camRepivot() {
+  const c = PV.controls, cam = PV.camera; if (!c || !cam) return;
+  const rc = new THREE.Raycaster(); rc.setFromCamera({ x: 0, y: 0 }, cam);
+  const d0 = cam.position.distanceTo(c.target), hit = camGroundHit(rc, Math.max(400, d0 * 3));
+  if (hit && hit.distanceTo(cam.position) > 1) c.target.copy(hit);
+}
+function camStep() {
+  const c = PV.controls, cam = PV.camera; if (!c || !cam || !c.target || !c.target.clone || $('#viewer').style.display === 'none' || PV.drive) { ED.camT = 0; return; }
+  const now = performance.now(), dt = Math.min(0.05, ED.camT ? (now - ED.camT) / 1000 : 0.016); ED.camT = now;
+  const K = ED.keys, fast = K.has('shift') ? 3 : 1;
+  // --- teclado: velocidad con aceleración y frenado suaves; la rapidez depende de la altura (cerca del piso, lento)
+  const fw = c.target.clone().sub(cam.position); fw.y = 0; if (fw.lengthSq() < 1e-6) fw.set(0, 0, -1); fw.normalize();
+  const rt = new THREE.Vector3(-fw.z, 0, fw.x), want = new THREE.Vector3();
+  if (K.has('w') || K.has('arrowup')) want.add(fw); if (K.has('s') || K.has('arrowdown')) want.sub(fw);
+  if (K.has('d') || K.has('arrowright')) want.add(rt); if (K.has('a') || K.has('arrowleft')) want.sub(rt);
+  const g = camH(cam.position.x, cam.position.z), agl = g == null ? 30 : Math.max(1, cam.position.y - g);
+  const speed = Math.max(5, Math.min(45, agl * 0.5)) * fast; // m/s (a 10 m del piso ≈ 4,5 m/s)
+  if (want.lengthSq()) want.normalize().multiplyScalar(speed);
+  if (K.has('e')) want.y += speed * 0.6; if (K.has('q')) want.y -= speed * 0.6;
+  ED.vel = ED.vel || new THREE.Vector3(); ED.vel.lerp(want, 1 - Math.exp(-dt * (want.lengthSq() ? 5 : 7)));
+  if (ED.vel.lengthSq() > 1e-4) {
+    const mv = ED.vel.clone().multiplyScalar(dt), gt0 = camH(c.target.x, c.target.z);
+    cam.position.add(mv); c.target.add(mv);
+    // el pivote sigue el suelo (lomas y bajadas) y la cámara lo acompaña: se mantiene la altura sobre el terreno
+    const gt1 = camH(c.target.x, c.target.z); if (gt0 != null && gt1 != null && !K.has('q') && !K.has('e')) { const dy = gt1 - gt0; cam.position.y += dy; c.target.y += dy; }
+  } else ED.vel.set(0, 0, 0);
+  // --- rueda: se reparte en varios cuadros (zoom suave); cerca del objetivo sigue avanzando en vez de trabarse
+  const Z = ED.zoom;
+  if (Z && Math.abs(Z.left) > 0.01) {
+    const part = Z.left * Math.min(1, dt * 9); Z.left -= part;
+    const f = Math.pow(0.85, part), A = Z.anchor, dA = cam.position.distanceTo(A);
+    if (part > 0 && dA * f < 2.5) { // muy cerca: avanzar mirando hacia adelante
+      const dir = c.target.clone().sub(cam.position).normalize(); const st = dir.multiplyScalar(1.2 * part * fast); cam.position.add(st); c.target.add(st);
+    } else { cam.position.sub(A).multiplyScalar(f).add(A); c.target.sub(A).multiplyScalar(f).add(A); }
+    if (c.target.distanceTo(cam.position) < 1) { const dir = c.target.clone().sub(cam.position).normalize(); c.target.copy(cam.position).addScaledVector(dir, 1.5); }
+  } else ED.zoom = null;
+  // --- nunca debajo del terreno, y nunca demasiado lejos
+  const gc = camH(cam.position.x, cam.position.z); if (gc != null && cam.position.y < gc + 1.2) { const up = gc + 1.2 - cam.position.y; cam.position.y += up; }
+  if (cam.position.distanceTo(c.target) > 12000) { const off = cam.position.clone().sub(c.target).setLength(12000); cam.position.copy(c.target).add(off); }
 }
 // franja celeste sobre la selección
 function edBuildSelMesh() {
@@ -633,7 +676,7 @@ function edPanel(light) {
   const R = S.result, r = edR(); if (!r || !ED.panelOn) return;
   document.querySelectorAll('#vpTools button').forEach(b => b.classList.toggle('on', b.dataset.tool === ED.tool));
   const s = S.sel, h0 = R.h0;
-  if (!s) { $('#vpSel').textContent = 'Hacé clic sobre el camino'; $('#vpData').innerHTML = '<div class="mut">Clic = elegir un punto · Shift+clic = elegir hasta ahí (tramo).</div>'; $('#vpParams').innerHTML = ''; $('#vpNear').innerHTML = ''; return; }
+  if (!s) { $('#vpSum').textContent = 'Cómo empezar'; $('#vpSel').textContent = 'Hacé clic sobre el camino'; $('#vpData').innerHTML = '<div class="mut">Clic = elegir un punto · Shift+clic = elegir hasta ahí (tramo).</div>'; $('#vpParams').innerHTML = ''; $('#vpNear').innerHTML = ''; return; }
   const d = (s.d0 + s.d1) / 2, p = edAt(d), i = p.i, g = R.info.grip;
   const hAt = x => edAt(x).hs, grade = (hAt(d + 4) - hAt(d - 4)) / 8 * 100;
   const k = r.K[i], tilt = Math.atan(p.SL) / D2R, rad = Math.abs(k) > 1 / 2000 ? 1 / Math.abs(k) : 0;
@@ -654,6 +697,7 @@ function edPanel(light) {
       ['Pendiente máxima', `${gmax.toFixed(1)} %`], ['Mín / máx', `${(mn + h0).toFixed(1)} / ${(mx + h0).toFixed(1)} m`], ['Peralte al medio', bankTxt]);
   }
   rows.push(['Desde el inicio', `${(d / 1000).toFixed(3)} km de ${(r.total / 1000).toFixed(2)}`]);
+  { const sf = rows.find(q => q[0] === 'Superficie'), pe = rows.find(q => /^Pendiente/.test(q[0])); $('#vpSum').innerHTML = `<b>${rows[0][1]}</b>${pe ? ' · ' + String(pe[1]).split(' (')[0] : ''}${sf ? ' · ' + sf[1] : ''}`; }
   $('#vpData').innerHTML = rows.map(([k, v]) => `<div class="vr"><span>${k}</span><span>${v}</span></div>`).join('') +
     `<label class="vp-p" style="margin-top:6px">Precisión de altura <select id="vpPrec">${[0.01, 0.02, 0.05, 0.1, 0.25, 0.5].map(v => `<option value="${v}"${v === ED.prec ? ' selected' : ''}>${String(v).replace('.', ',')} m</option>`).join('')}</select></label>`;
   $('#vpPrec').onchange = ev => { ED.prec = +ev.target.value; edPanel(); };
@@ -912,14 +956,17 @@ $('#dragR').onchange = () => edRefresh();
 function edHookViewer() {
   const el = PV.renderer && PV.renderer.domElement; if (!el || el.__ed) return; el.__ed = true;
   const c = PV.controls;
-  // navegación: izquierdo o central = desplazar, derecho (o Ctrl+izquierdo) = girar, rueda = acercar hacia el cursor
-  c.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
-  c.screenSpacePanning = false; c.enableZoom = false; c.maxPolarAngle = Math.PI * 0.495; c.panSpeed = 1; c.rotateSpeed = 0.7;
+  // navegación: izquierdo = elegir (no mueve la cámara), derecho = girar la cámara, rueda apretada = desplazar,
+  // rueda = acercar/alejar hacia el cursor, WASD = moverse, Q/E = bajar/subir, Shift = más rápido. Todo con inercia suave.
+  c.mouseButtons = { LEFT: -1, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
+  c.screenSpacePanning = false; c.enableZoom = false; c.maxPolarAngle = Math.PI * 0.495; c.panSpeed = 0.6; c.rotateSpeed = 0.32;
+  c.enableDamping = true; c.dampingFactor = 0.12; c.enableKeys = false;
   c.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
   PV.onFrame = edFrame;
   let down = null;
   el.addEventListener('pointerdown', ev => {
     down = { x: ev.clientX, y: ev.clientY, b: ev.button };
+    if (ev.button === 2 || ev.button === 1) { camRepivot(); ED.zoom = null; }
     if (ev.button !== 0 || !edOn()) return;
     if (ED.tool === 'place') {   // objetos: pintar árboles o arrastrar el objeto elegido
       if (OB.onDown(ev)) { PV.controls.enabled = false; el.setPointerCapture(ev.pointerId); ev.stopImmediatePropagation(); ev.preventDefault(); }
@@ -951,11 +998,13 @@ function edHookViewer() {
   el.addEventListener('contextmenu', ev => ev.preventDefault());
   el.addEventListener('wheel', ev => {
     ev.preventDefault(); if (PV.drive) return;
-    const cam = PV.camera, t = c.target, f = Math.pow(1.0012, ev.deltaY * (ev.deltaMode === 1 ? 30 : 1));
-    const hit = edPlaneHit(edRay(ev), new THREE.Plane(new THREE.Vector3(0, 1, 0), -t.y)) || t.clone();
-    if (f < 1 && cam.position.distanceTo(t) < 2) return;
-    if (hit.distanceTo(cam.position) > 20000) hit.copy(t);
-    cam.position.sub(hit).multiplyScalar(f).add(hit); t.sub(hit).multiplyScalar(f).add(hit);
+    const notch = -Math.max(-3, Math.min(3, (ev.deltaMode === 1 ? ev.deltaY * 33 : ev.deltaY) / 100)); // rueda hacia adelante = acercar
+    const cam = PV.camera, dist = cam.position.distanceTo(c.target), rc = edRay(ev);
+    let hit = notch > 0 ? camGroundHit(rc, Math.max(300, dist * 4)) : null; // acercar: hacia el cursor · alejar: desde el centro de la vista
+    if (hit && hit.distanceTo(cam.position) < 1.5) hit = null;
+    if (!hit && notch > 0) hit = rc.ray.at(Math.max(5, dist), new THREE.Vector3()); // cielo: hacia donde apunta el cursor, a la distancia actual
+    if (!hit) { camRepivot(); hit = c.target.clone(); }
+    ED.zoom = { anchor: hit, left: (ED.zoom && Math.sign(ED.zoom.left) === Math.sign(notch) ? ED.zoom.left : 0) + notch };
   }, { passive: false });
   el.addEventListener('dblclick', ev => {
     const rc = edRay(ev), list = [...PV.byMesh.entries()].filter(([m]) => m.route || m.terrain).map(([, mesh]) => mesh), h = rc.intersectObjects(list, false)[0];
@@ -976,9 +1025,10 @@ function edHookViewer() {
     if ((k === 'delete' || k === 'backspace') && ED.active) { ev.preventDefault(); edDelete(ED.active); return; }
     if (k === 'escape' && ED.tool === 'place' && OB.sel) { OB.sel = null; obRings(); obPanel(); return; }
     if (k === 'escape') { S.sel = null; ED.active = null; selInfo(); drawSel(); drawProfile(); edRefresh(); edBuildSelMesh(); return; }
-    if (['w', 'a', 's', 'd', 'q', 'e', 'r', 'f', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k) && !ev.ctrlKey && !ev.metaKey) { ED.keys.add(k); if (k.startsWith('arrow')) ev.preventDefault(); }
+    if ((k === 'h' || k === '?') && !ev.ctrlKey) { camHelp(); return; }
+    if (['w', 'a', 's', 'd', 'q', 'e', 'shift', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k) && !ev.ctrlKey && !ev.metaKey) { ED.keys.add(k); if (k.startsWith('arrow')) ev.preventDefault(); }
   });
-  window.addEventListener('keyup', ev => ED.keys.delete(ev.key.toLowerCase()));
+  window.addEventListener('keyup', ev => { const k = ev.key.toLowerCase(); ED.keys.delete(k); if (k === 'shift') ED.keys.delete('shift'); });
   window.addEventListener('blur', () => ED.keys.clear());
 }
 
@@ -992,3 +1042,27 @@ function edHookViewer() {
   window.addEventListener('beforeunload', ev => { if (edPending()) { ev.preventDefault(); ev.returnValue = ''; } });
   edBar();
 })();
+
+// ---------- ayuda de controles y paneles plegables de la vista 3D ----------
+function camHelp(show) { const h = $('#vhelp'); if (!h) return; const on = show != null ? show : h.style.display === 'none'; h.style.display = on ? '' : 'none'; const b = $('#helpBtn'); if (b) b.classList.toggle('on', on); }
+(function viewUI() {
+  const st = (() => { try { return JSON.parse(localStorage.getItem('gp_view') || '{}'); } catch (e) { return {}; } })();
+  const save = () => { try { localStorage.setItem('gp_view', JSON.stringify(st)); } catch (e) { } };
+  const tog = (btn, key, apply, def) => { const b = $(btn); if (!b) return; const set = v => { st[key] = v; b.classList.toggle('on', v); apply(v); save(); };
+    b.onclick = () => set(!(st[key] ?? def)); set(st[key] ?? def); };
+  tog('#mapBtn', 'map', v => $('#vnavbox').classList.toggle('hid', !v), true);
+  tog('#profBtn', 'prof', v => { $('#viewer').classList.toggle('noprof', !v); if (v) setTimeout(drawProfile, 0); }, true);
+  const pm = $('#vpMin'); if (pm) { const set = v => { st.pmin = v; $('#vpanel').classList.toggle('min', v); pm.textContent = v ? '▸' : '▾'; pm.title = v ? 'Mostrar el panel' : 'Achicar el panel'; save(); }; pm.onclick = () => set(!st.pmin); set(!!st.pmin); }
+  const dd = $('#vpDataBox'); if (dd) { dd.open = !!st.data; dd.addEventListener('toggle', () => { st.data = dd.open; save(); }); }
+  if ($('#helpBtn')) $('#helpBtn').onclick = () => camHelp();
+  if ($('#vhelpX')) $('#vhelpX').onclick = () => camHelp(false);
+  if (!st.helpSeen) { st.helpSeen = 1; save(); const o = new MutationObserver(() => { if ($('#viewer').style.display !== 'none') { camHelp(true); setTimeout(() => camHelp(false), 9000); o.disconnect(); } }); o.observe($('#viewer'), { attributes: true, attributeFilter: ['style'] }); }
+  // vistas rápidas
+  const view = (dist, h) => { const c = PV.controls, cam = PV.camera; if (!c) return; camRepivot(); const off = cam.position.clone().sub(c.target); off.y = 0; if (off.lengthSq() < 1e-6) off.set(0, 0, 1); off.normalize().multiplyScalar(dist); off.y = h;
+    const c0 = cam.position.clone(), c1 = c.target.clone().add(off), T0 = performance.now(); const step = () => { const k = Math.min(1, (performance.now() - T0) / 600), s2 = k * k * (3 - 2 * k); cam.position.lerpVectors(c0, c1, s2); if (k < 1) requestAnimationFrame(step); }; step(); };
+  if ($('#navTop')) $('#navTop').onclick = () => view(10, 180);
+  if ($('#navLow')) $('#navLow').onclick = () => view(16, 3.5);
+})();
+
+// el mapa chico va siempre debajo de la barra de arriba (aunque la barra ocupe dos renglones)
+(function vtopWatch() { const t = $('#vtop'), nb = $('#vnavbox'); if (!t || !nb || !window.ResizeObserver) return; new ResizeObserver(() => { nb.style.top = (t.offsetTop + t.offsetHeight + 8) + 'px'; }).observe(t); })();

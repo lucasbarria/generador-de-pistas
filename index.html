@@ -43,20 +43,26 @@ input[type=checkbox]{width:auto}
 #mapwrap{flex:1;position:relative;min-width:0;display:flex}
 #viewer{display:none;position:absolute;inset:0;z-index:900;background:#000}
 #viewer3d{position:absolute;inset:0}#viewer3d canvas{width:100%;height:100%;display:block}
-#vbar{position:absolute;top:12px;left:12px;z-index:2;display:flex;gap:8px}
+#vtop{position:absolute;top:10px;left:10px;right:300px;z-index:4;display:flex;flex-wrap:wrap;gap:6px;align-items:center;pointer-events:none}#vtop>*{pointer-events:auto}
+#vbar{display:flex;flex-wrap:wrap;gap:5px;align-items:center}.vsep{width:1px;height:22px;background:#fff3;margin:0 2px}
+#vbar .vsel{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:3px 8px;font-size:12px;display:flex;gap:5px;align-items:center}#vbar .vsel select{padding:2px 4px}
 #vbar button.on{background:#ffd200;color:#111;border-color:#ffd200}
 .vsel{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:4px 8px;font-size:13px;display:flex;align-items:center;gap:6px}.vsel select{width:auto;padding:3px 4px}
-#vhint{position:absolute;bottom:176px;left:50%;transform:translateX(-50%);z-index:2;background:#000c;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px}
-#edBar{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:4;display:flex;gap:6px;align-items:center;background:#000b;border:1px solid #fff3;border-radius:9px;padding:5px 8px;color:#e6e9ec;font-size:12.5px}
+#viewer.noprof #vprof{display:none!important}#viewer.noprof #vhint{bottom:20px}#vnavbox.hid{display:none}
+#vhelp{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;background:#121519f4;color:#e6e9ec;border:1px solid #fff3;border-radius:12px;padding:14px 18px;font-size:13px;max-width:min(560px,92%)}#vhelp .kg{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin-top:10px;align-items:center}#vhelp kbd{background:#ffffff1a;border:1px solid #fff3;border-radius:5px;padding:1px 6px;font:12px system-ui;white-space:nowrap}#vhelpX{position:absolute;right:8px;top:6px;background:none;border:0;color:#fff;cursor:pointer;font-size:15px}
+#vhint{position:absolute;bottom:142px;left:50%;transform:translateX(-50%);z-index:2;background:#000c;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px}
+#edBar{position:relative;display:flex;gap:6px;align-items:center;background:#000b;border:1px solid #fff3;border-radius:9px;padding:5px 8px;color:#e6e9ec;font-size:12.5px}
 #edBar button{background:#ffffff14;color:#fff;border:1px solid #fff3;border-radius:6px;padding:5px 10px;cursor:pointer;font-weight:600}#edBar button:disabled{opacity:.35;cursor:default}
 #edBar.pend{border-color:#ffd200}#edBar.pend #edState{color:#ffd200}#edBar #edOk:not(:disabled){background:#1f8f4e;border-color:#1f8f4e}#edBar #edCancel:not(:disabled){background:#8f2a1f;border-color:#8f2a1f}
 #edBar.flash{animation:edfl .5s 3}@keyframes edfl{50%{background:#ffd20066}}
 #edHist{position:absolute;top:100%;left:0;right:0;margin-top:4px;background:#121519f2;border:1px solid #fff3;border-radius:8px;padding:6px 8px;max-height:240px;overflow:auto}
-@media(max-width:900px){#edBar{top:56px;flex-wrap:wrap;max-width:94%}}
+@media(max-width:900px){#vtop{right:10px}}
 #verInfo .vst{font-weight:700}#verInfo .vst.ok{color:#2fbf71}#verInfo .vst.warn{color:#e0a800}#verInfo .vst.err{color:#e05252}
-#vbar button{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:8px 12px;cursor:pointer;font-weight:600}
-#vpanel{position:absolute;top:58px;right:12px;bottom:12px;width:300px;z-index:3;background:#121519ee;color:#e6e9ec;border:1px solid #fff2;border-radius:10px;padding:10px 12px;overflow:auto;font-size:12.5px}
-#vpanel .vp-h{font-size:14px;color:#00c8ff;margin-bottom:6px}
+#vbar button{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:6px 10px;cursor:pointer;font-weight:600;font-size:12.5px}
+#vpanel{position:absolute;top:10px;right:10px;max-height:calc(100% - 20px);width:278px;box-sizing:border-box;z-index:3;background:#121519ee;color:#e6e9ec;border:1px solid #fff2;border-radius:10px;padding:10px 12px;overflow:auto;font-size:12.5px}
+#vpanel .vp-h{font-size:13.5px;color:#00c8ff;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:6px}#vpMin{background:none;border:1px solid #fff3;color:#fff;border-radius:5px;cursor:pointer;padding:0 7px;font-size:13px}
+#vpanel.min>*:not(.vp-h){display:none}#vpanel.min .vp-h{margin:0}#vpanel.min{width:auto;max-width:278px}
+#vpDataBox summary{cursor:pointer;color:#cfd6dd;padding:3px 0;list-style:none}#vpDataBox summary::before{content:'▸ ';color:#8b939c}#vpDataBox[open] summary::before{content:'▾ '}#vpDataBox summary b{color:#fff}
 #vpanel .vr{display:flex;justify-content:space-between;gap:8px;padding:2px 0;border-bottom:1px solid #fff1}#vpanel .vr span:first-child{color:#8b939c}
 #vpanel .nbh{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;text-align:right}
 #vpTools{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:10px 0}#vpTools .b{padding:6px 4px;font-size:12px}#vpTools .b.on{background:#ffd200;color:#111;border-color:#ffd200}
@@ -65,11 +71,11 @@ input[type=checkbox]{width:auto}
 #vpanel .b.sm{padding:4px 8px;font-size:12px}#vpanel .vp-surf{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:8px}#vpanel .vp-surf select{padding:4px}
 #vpanel .vp-n{padding:4px 6px;border-radius:5px;cursor:pointer}#vpanel .vp-n:hover,#vpanel .vp-n.on{background:#ffffff14}
 #vpanel .vp-help{color:#8b939c;font-size:11.5px;margin-top:10px;line-height:1.5}
-#vprof{position:absolute;left:12px;width:calc(100% - 338px);bottom:12px;height:150px;z-index:3;background:#0f1114ee;border:1px solid #fff2;border-radius:10px;cursor:crosshair;touch-action:none}
+#vprof{position:absolute;left:10px;width:calc(100% - 308px);bottom:10px;height:118px;z-index:3;background:#0f1114ee;border:1px solid #fff2;border-radius:10px;cursor:crosshair;touch-action:none}
 .edit.on{background:#ff7ad91a}.edit{cursor:pointer}
-@media(max-width:900px){#vpanel{top:auto;height:42%;width:auto;left:12px;bottom:174px}#vprof{width:calc(100% - 24px)}}
-#vnavbox{position:absolute;top:58px;left:12px;width:200px;z-index:3;display:flex;flex-direction:column;gap:6px}
-#vmini{width:200px;height:170px;background:#0f1114dd;border:1px solid #fff2;border-radius:10px;cursor:crosshair;touch-action:none}
+@media(max-width:900px){#vpanel{top:auto;max-height:40%;width:auto;left:10px;bottom:138px}#vprof{width:calc(100% - 20px)}}
+#vnavbox{position:absolute;top:56px;left:10px;width:170px;z-index:3;display:flex;flex-direction:column;gap:6px}
+#vmini{width:170px;height:130px;background:#0f1114dd;border:1px solid #fff2;border-radius:10px;cursor:crosshair;touch-action:none}
 #vnav{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}#vnav .b,#navLow{background:#000a;color:#fff;border-color:#fff3;padding:7px 0;font-size:15px;touch-action:none;user-select:none}#navLow{font-size:12.5px;padding:6px}
 .navkm{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:5px 8px;font-size:12px;display:grid;gap:3px}.navkm input{padding:0}
 .ob-types{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:4px 0 8px}.ob-types .b{padding:6px 4px;font-size:12px}.ob-types .b.on{background:#7cff7c;color:#111;border-color:#7cff7c}
@@ -101,31 +107,40 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
     <div id="map"></div>
     <form id="search"><input id="q" placeholder="Buscar lugar o coordenadas (ej. Paso de Jama)"><button>Ir</button></form>
     <div id="viewer"><div id="viewer3d"></div>
-      <div id="vbar"><button id="closeViewer">← Volver al mapa</button><button id="drive">▶ Recorrer</button><button id="editCurves" title="Mostrar u ocultar el editor directo">✏️ Editor</button>
-        <label class="vsel" id="dragRw">Alcance <select id="dragR"><option value="15">15 m</option><option value="30">30 m</option><option value="50" selected>50 m</option><option value="100">100 m</option><option value="200">200 m</option></select></label>
-        <button id="satBtn">🛰 Satélite</button></div>
-      <div id="edBar"><button id="edUndoB" title="Deshacer (Ctrl+Z)">↶</button><button id="edRedoB" title="Rehacer (Ctrl+Y o Ctrl+Shift+Z)">↷</button>
-        <span id="edState">Todo confirmado</span><button id="edHistB" title="Historial de la sesión">Historial</button>
-        <button id="edCancel" title="Descartar todo lo hecho desde el último OK">✕ Cancelar</button><button id="edOk" title="Confirmar y guardar los cambios (Ctrl+Enter)">✓ OK</button>
-        <div id="edHist" style="display:none"></div></div>
+      <div id="vtop">
+        <div id="vbar"><button id="closeViewer" title="Volver al mapa">← Mapa</button><button id="drive" title="Recorrer el tramo con la cámara">▶ Recorrer</button><button id="editCurves" title="Mostrar u ocultar el editor">✏️ Editor</button>
+          <span class="vsep"></span>
+          <button id="navLow" title="Cámara a ras del piso">👁 Piso</button><button id="navTop" title="Vista desde arriba">⬇ Arriba</button>
+          <button id="satBtn" title="Foto satelital sobre el terreno">🛰</button><button id="mapBtn" title="Mostrar u ocultar el mapa chico">🗺</button><button id="profBtn" title="Mostrar u ocultar el perfil de alturas">📈</button><button id="helpBtn" title="Controles (H)">?</button>
+          <label class="vsel" id="dragRw" title="Cuánto camino se mueve al arrastrar un punto amarillo">Alcance <select id="dragR"><option value="15">15 m</option><option value="30">30 m</option><option value="50" selected>50 m</option><option value="100">100 m</option><option value="200">200 m</option></select></label></div>
+        <div id="edBar"><button id="edUndoB" title="Deshacer (Ctrl+Z)">↶</button><button id="edRedoB" title="Rehacer (Ctrl+Y o Ctrl+Shift+Z)">↷</button>
+          <span id="edState">Todo confirmado</span><button id="edHistB" title="Historial de la sesión">Historial</button>
+          <button id="edCancel" title="Descartar todo lo hecho desde el último OK">✕ Cancelar</button><button id="edOk" title="Confirmar y guardar los cambios (Ctrl+Enter)">✓ OK</button>
+          <div id="edHist" style="display:none"></div></div>
+      </div>
+      <div id="vhelp" style="display:none"><button id="vhelpX" title="Cerrar">✕</button><b>Controles</b>
+        <div class="kg"><kbd>Clic izquierdo</kbd><span>elegir un punto del camino · <kbd>Shift</kbd>+clic: elegir un tramo</span>
+        <kbd>Clic derecho + arrastrar</kbd><span>girar la cámara alrededor de lo que mirás</span>
+        <kbd>Rueda</kbd><span>acercar / alejar hacia el cursor</span>
+        <kbd>Rueda apretada + arrastrar</kbd><span>desplazar la vista</span>
+        <kbd>W A S D</kbd><span>moverse (también las flechas)</span>
+        <kbd>Q / E</kbd><span>bajar / subir</span>
+        <kbd>Shift</kbd><span>mantener apretado: moverse 3 veces más rápido</span>
+        <kbd>Doble clic</kbd><span>centrar la vista en ese punto</span>
+        <kbd>Supr</kbd><span>borrar el cambio elegido · <kbd>Esc</kbd> soltar la selección</span>
+        <kbd>Ctrl+Z / Ctrl+Y</kbd><span>deshacer / rehacer · <kbd>Ctrl+Enter</kbd> OK</span></div></div>
       <div id="vhint" style="display:none"></div>
       <div id="vpanel" style="display:none">
-        <div class="vp-h"><b id="vpSel">Hacé clic sobre el camino</b></div>
-        <div id="vpData"></div>
+        <div class="vp-h"><b id="vpSel">Hacé clic sobre el camino</b><button id="vpMin" title="Achicar el panel">▾</button></div>
+        <details id="vpDataBox"><summary id="vpSum">Datos del punto</summary><div id="vpData"></div></details>
         <div id="vpTools"></div>
         <div id="vpParams"></div>
         <div id="vpNear"></div>
-        <div class="vp-help">Clic: elegir punto · Shift+clic: tramo · Arrastrar (izq. o rueda apretada): mover · Derecho o Ctrl+arrastrar: girar · Rueda: zoom al cursor · Doble clic: centrar · WASD/flechas: recorrer · Q/E girar · Supr: borrar cambio · Ctrl+Z / Ctrl+Y: deshacer / rehacer · Esc: soltar selección</div>
+        <div class="vp-help">Clic izq.: elegir · Clic der.: girar · Rueda: zoom · WASD: moverse · <a href="#" onclick="camHelp(true);return false">más controles (H)</a></div>
       </div>
       <canvas id="vprof" style="display:none"></canvas>
       <div id="vnavbox">
         <canvas id="vmini" title="Mapa del tramo: clic o arrastrar para ir ahí"></canvas>
-        <div id="vnav">
-          <button class="b" data-key="q" title="Girar a la izquierda (Q)">⟲</button><button class="b" data-key="w" title="Adelante (W)">▲</button><button class="b" data-key="e" title="Girar a la derecha (E)">⟳</button>
-          <button class="b" data-key="a" title="Izquierda (A)">◀</button><button class="b" data-key="s" title="Atrás (S)">▼</button><button class="b" data-key="d" title="Derecha (D)">▶</button>
-          <button class="b" data-key="r" title="Acercar (R o rueda)">＋</button><button class="b" id="navTop" title="Vista desde arriba">🛰</button><button class="b" data-key="f" title="Alejar (F o rueda)">－</button>
-        </div>
-        <button class="b" id="navLow" title="Cámara a ras del piso">👁 A ras del piso</button>
         <label class="navkm">Ir al <span id="navKmTxt">0.00 km</span><input type="range" id="navKm" min="0" max="1000" value="0"></label>
       </div>
     </div>
@@ -6129,7 +6144,8 @@ if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') ||
 (function coordHud() {
   const host = document.getElementById('viewer3d'); if (!host) return;
   const hud = document.createElement('div'); hud.id = 'coordHud';
-  hud.style.cssText = 'position:absolute;right:10px;bottom:10px;z-index:5;background:#0b1220d9;color:#e8eef7;font:12px system-ui;padding:6px 8px;border-radius:8px;display:none;gap:6px;align-items:center;flex-wrap:wrap;max-width:min(560px,calc(100% - 20px))';
+  hud.style.cssText = 'position:absolute;left:10px;bottom:136px;z-index:3;background:#0b1220c0;color:#e8eef7;font:11.5px system-ui;padding:3px 6px;border-radius:7px;display:none;gap:5px;align-items:center;flex-wrap:wrap;max-width:min(520px,calc(100% - 330px))';
+  const st2 = document.createElement('style'); st2.textContent = '#coordHud .b{padding:2px 7px;font-size:11px}#coordHud a.b{color:#d6e6ff;text-decoration:none}#viewer.noprof #coordHud{bottom:10px!important}'; document.head.appendChild(st2);
   hud.innerHTML = '<span id="chTxt" style="font-variant-numeric:tabular-nums"></span><button class="b" id="chCopy" title="Copiar las coordenadas">Copiar</button><a class="b" id="chEarth" target="_blank" rel="noopener" title="Abrir este punto en Google Earth, mirando hacia donde mira la cámara">Google Earth</a><a class="b" id="chSV" target="_blank" rel="noopener" title="Abrir el Street View más cercano a este punto">Street View</a><a class="b" id="chMly" target="_blank" rel="noopener" title="Fotos libres de Mapillary cerca de este punto">Mapillary</a>';
   if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
   host.appendChild(hud); let txt = '';
@@ -6150,7 +6166,7 @@ if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') ||
 
 
 // ---------- Versión: qué compilación es esta y si es la última publicada en GitHub ----------
-const BUILD = {"id": "7b4f3be61638", "date": "2026-11-13T16:04:16Z", "version": "2026.11.13+7b4f3be", "base": "c3e9d7a4bb715d9829dc481bcfece1b37cb80819"};
+const BUILD = {"id": "70892c27f658", "date": "2026-11-13T16:47:52Z", "version": "2026.11.13+70892c2", "base": "9a972719ff2bda406c5b05ea2fc0c7281c50c53a"};
 const VER = {
   repo: 'lucasbarria/generador-de-pistas',
   set(state, txt, cls) { const el = $('#verInfo'); if (!el) return; const b = BUILD || {}; const dt = b.date ? new Date(b.date).toLocaleString() : '?';
@@ -6668,16 +6684,59 @@ function edPlaceGizmos() {
 function edFrame() {
   if (PV.onFrameOB) PV.onFrameOB();
   if (ED.gz.length && PV.camera) for (const g of ED.gz) { const k = PV.camera.position.distanceTo(g.mesh.position) * 0.011 * (ED.hover === g || (ED.drag && ED.drag.g === g) ? 1.45 : 1); g.mesh.scale.setScalar(Math.max(0.05, k)); }
-  // teclado: WASD / flechas = desplazarse, Q/E = girar, R/F = acercar/alejar
-  if (ED.keys.size && PV.camera && $('#viewer').style.display !== 'none') {
-    const c = PV.controls, cam = PV.camera, off = cam.position.clone().sub(c.target), dist = off.length(), sp = Math.max(0.6, dist * 0.02);
-    const fw = new THREE.Vector3(-off.x, 0, -off.z).normalize(), rt = new THREE.Vector3(-fw.z, 0, fw.x), mv = new THREE.Vector3();
-    if (ED.keys.has('w') || ED.keys.has('arrowup')) mv.add(fw); if (ED.keys.has('s') || ED.keys.has('arrowdown')) mv.sub(fw);
-    if (ED.keys.has('d') || ED.keys.has('arrowright')) mv.add(rt); if (ED.keys.has('a') || ED.keys.has('arrowleft')) mv.sub(rt);
-    if (mv.lengthSq()) { mv.normalize().multiplyScalar(sp); cam.position.add(mv); c.target.add(mv); }
-    if (ED.keys.has('q') || ED.keys.has('e')) { const a = (ED.keys.has('q') ? 1 : -1) * 0.025; off.applyAxisAngle(new THREE.Vector3(0, 1, 0), a); cam.position.copy(c.target).add(off); }
-    if (ED.keys.has('r') || ED.keys.has('f')) { const k = ED.keys.has('r') ? 0.97 : 1.03; if (dist * k > 1.5) cam.position.copy(c.target).add(off.multiplyScalar(k)); }
-  }
+  camStep();
+}
+// ---------- cámara del editor: suave, lenta y que nunca se "escapa" ----------
+// suelo bajo un punto (cacheado por resultado): para seguir el terreno y no meterse debajo
+function camGround() { const R = S.result; if (!R) return null; if (ED.gnd && ED.gnd.R === R && ED.gnd.ter === R.ter) return ED.gnd.f;
+  try { const f = obGround(); ED.gnd = { R, ter: R.ter, f }; return f; } catch (e) { return null; } }
+function camH(x, z) { const f = camGround(); if (!f) return null; const h = f(x, -z); return isFinite(h) ? h : null; }
+// punto del suelo (terreno o camino) bajo un rayo, hasta una distancia máxima
+function camGroundHit(rc, maxD) {
+  if (!PV.byMesh) return null; rc.far = maxD;
+  const list = []; for (const [m, mesh] of PV.byMesh) if (m.route || m.terrain || m.road) list.push(mesh);
+  const h = rc.intersectObjects(list, false)[0]; rc.far = Infinity; return h ? h.point.clone() : null;
+}
+// el centro de giro pasa a ser lo que está en el medio de la pantalla (la vista no cambia, solo el pivote)
+function camRepivot() {
+  const c = PV.controls, cam = PV.camera; if (!c || !cam) return;
+  const rc = new THREE.Raycaster(); rc.setFromCamera({ x: 0, y: 0 }, cam);
+  const d0 = cam.position.distanceTo(c.target), hit = camGroundHit(rc, Math.max(400, d0 * 3));
+  if (hit && hit.distanceTo(cam.position) > 1) c.target.copy(hit);
+}
+function camStep() {
+  const c = PV.controls, cam = PV.camera; if (!c || !cam || !c.target || !c.target.clone || $('#viewer').style.display === 'none' || PV.drive) { ED.camT = 0; return; }
+  const now = performance.now(), dt = Math.min(0.05, ED.camT ? (now - ED.camT) / 1000 : 0.016); ED.camT = now;
+  const K = ED.keys, fast = K.has('shift') ? 3 : 1;
+  // --- teclado: velocidad con aceleración y frenado suaves; la rapidez depende de la altura (cerca del piso, lento)
+  const fw = c.target.clone().sub(cam.position); fw.y = 0; if (fw.lengthSq() < 1e-6) fw.set(0, 0, -1); fw.normalize();
+  const rt = new THREE.Vector3(-fw.z, 0, fw.x), want = new THREE.Vector3();
+  if (K.has('w') || K.has('arrowup')) want.add(fw); if (K.has('s') || K.has('arrowdown')) want.sub(fw);
+  if (K.has('d') || K.has('arrowright')) want.add(rt); if (K.has('a') || K.has('arrowleft')) want.sub(rt);
+  const g = camH(cam.position.x, cam.position.z), agl = g == null ? 30 : Math.max(1, cam.position.y - g);
+  const speed = Math.max(5, Math.min(45, agl * 0.5)) * fast; // m/s (a 10 m del piso ≈ 4,5 m/s)
+  if (want.lengthSq()) want.normalize().multiplyScalar(speed);
+  if (K.has('e')) want.y += speed * 0.6; if (K.has('q')) want.y -= speed * 0.6;
+  ED.vel = ED.vel || new THREE.Vector3(); ED.vel.lerp(want, 1 - Math.exp(-dt * (want.lengthSq() ? 5 : 7)));
+  if (ED.vel.lengthSq() > 1e-4) {
+    const mv = ED.vel.clone().multiplyScalar(dt), gt0 = camH(c.target.x, c.target.z);
+    cam.position.add(mv); c.target.add(mv);
+    // el pivote sigue el suelo (lomas y bajadas) y la cámara lo acompaña: se mantiene la altura sobre el terreno
+    const gt1 = camH(c.target.x, c.target.z); if (gt0 != null && gt1 != null && !K.has('q') && !K.has('e')) { const dy = gt1 - gt0; cam.position.y += dy; c.target.y += dy; }
+  } else ED.vel.set(0, 0, 0);
+  // --- rueda: se reparte en varios cuadros (zoom suave); cerca del objetivo sigue avanzando en vez de trabarse
+  const Z = ED.zoom;
+  if (Z && Math.abs(Z.left) > 0.01) {
+    const part = Z.left * Math.min(1, dt * 9); Z.left -= part;
+    const f = Math.pow(0.85, part), A = Z.anchor, dA = cam.position.distanceTo(A);
+    if (part > 0 && dA * f < 2.5) { // muy cerca: avanzar mirando hacia adelante
+      const dir = c.target.clone().sub(cam.position).normalize(); const st = dir.multiplyScalar(1.2 * part * fast); cam.position.add(st); c.target.add(st);
+    } else { cam.position.sub(A).multiplyScalar(f).add(A); c.target.sub(A).multiplyScalar(f).add(A); }
+    if (c.target.distanceTo(cam.position) < 1) { const dir = c.target.clone().sub(cam.position).normalize(); c.target.copy(cam.position).addScaledVector(dir, 1.5); }
+  } else ED.zoom = null;
+  // --- nunca debajo del terreno, y nunca demasiado lejos
+  const gc = camH(cam.position.x, cam.position.z); if (gc != null && cam.position.y < gc + 1.2) { const up = gc + 1.2 - cam.position.y; cam.position.y += up; }
+  if (cam.position.distanceTo(c.target) > 12000) { const off = cam.position.clone().sub(c.target).setLength(12000); cam.position.copy(c.target).add(off); }
 }
 // franja celeste sobre la selección
 function edBuildSelMesh() {
@@ -6813,7 +6872,7 @@ function edPanel(light) {
   const R = S.result, r = edR(); if (!r || !ED.panelOn) return;
   document.querySelectorAll('#vpTools button').forEach(b => b.classList.toggle('on', b.dataset.tool === ED.tool));
   const s = S.sel, h0 = R.h0;
-  if (!s) { $('#vpSel').textContent = 'Hacé clic sobre el camino'; $('#vpData').innerHTML = '<div class="mut">Clic = elegir un punto · Shift+clic = elegir hasta ahí (tramo).</div>'; $('#vpParams').innerHTML = ''; $('#vpNear').innerHTML = ''; return; }
+  if (!s) { $('#vpSum').textContent = 'Cómo empezar'; $('#vpSel').textContent = 'Hacé clic sobre el camino'; $('#vpData').innerHTML = '<div class="mut">Clic = elegir un punto · Shift+clic = elegir hasta ahí (tramo).</div>'; $('#vpParams').innerHTML = ''; $('#vpNear').innerHTML = ''; return; }
   const d = (s.d0 + s.d1) / 2, p = edAt(d), i = p.i, g = R.info.grip;
   const hAt = x => edAt(x).hs, grade = (hAt(d + 4) - hAt(d - 4)) / 8 * 100;
   const k = r.K[i], tilt = Math.atan(p.SL) / D2R, rad = Math.abs(k) > 1 / 2000 ? 1 / Math.abs(k) : 0;
@@ -6834,6 +6893,7 @@ function edPanel(light) {
       ['Pendiente máxima', `${gmax.toFixed(1)} %`], ['Mín / máx', `${(mn + h0).toFixed(1)} / ${(mx + h0).toFixed(1)} m`], ['Peralte al medio', bankTxt]);
   }
   rows.push(['Desde el inicio', `${(d / 1000).toFixed(3)} km de ${(r.total / 1000).toFixed(2)}`]);
+  { const sf = rows.find(q => q[0] === 'Superficie'), pe = rows.find(q => /^Pendiente/.test(q[0])); $('#vpSum').innerHTML = `<b>${rows[0][1]}</b>${pe ? ' · ' + String(pe[1]).split(' (')[0] : ''}${sf ? ' · ' + sf[1] : ''}`; }
   $('#vpData').innerHTML = rows.map(([k, v]) => `<div class="vr"><span>${k}</span><span>${v}</span></div>`).join('') +
     `<label class="vp-p" style="margin-top:6px">Precisión de altura <select id="vpPrec">${[0.01, 0.02, 0.05, 0.1, 0.25, 0.5].map(v => `<option value="${v}"${v === ED.prec ? ' selected' : ''}>${String(v).replace('.', ',')} m</option>`).join('')}</select></label>`;
   $('#vpPrec').onchange = ev => { ED.prec = +ev.target.value; edPanel(); };
@@ -7092,14 +7152,17 @@ $('#dragR').onchange = () => edRefresh();
 function edHookViewer() {
   const el = PV.renderer && PV.renderer.domElement; if (!el || el.__ed) return; el.__ed = true;
   const c = PV.controls;
-  // navegación: izquierdo o central = desplazar, derecho (o Ctrl+izquierdo) = girar, rueda = acercar hacia el cursor
-  c.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
-  c.screenSpacePanning = false; c.enableZoom = false; c.maxPolarAngle = Math.PI * 0.495; c.panSpeed = 1; c.rotateSpeed = 0.7;
+  // navegación: izquierdo = elegir (no mueve la cámara), derecho = girar la cámara, rueda apretada = desplazar,
+  // rueda = acercar/alejar hacia el cursor, WASD = moverse, Q/E = bajar/subir, Shift = más rápido. Todo con inercia suave.
+  c.mouseButtons = { LEFT: -1, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
+  c.screenSpacePanning = false; c.enableZoom = false; c.maxPolarAngle = Math.PI * 0.495; c.panSpeed = 0.6; c.rotateSpeed = 0.32;
+  c.enableDamping = true; c.dampingFactor = 0.12; c.enableKeys = false;
   c.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
   PV.onFrame = edFrame;
   let down = null;
   el.addEventListener('pointerdown', ev => {
     down = { x: ev.clientX, y: ev.clientY, b: ev.button };
+    if (ev.button === 2 || ev.button === 1) { camRepivot(); ED.zoom = null; }
     if (ev.button !== 0 || !edOn()) return;
     if (ED.tool === 'place') {   // objetos: pintar árboles o arrastrar el objeto elegido
       if (OB.onDown(ev)) { PV.controls.enabled = false; el.setPointerCapture(ev.pointerId); ev.stopImmediatePropagation(); ev.preventDefault(); }
@@ -7131,11 +7194,13 @@ function edHookViewer() {
   el.addEventListener('contextmenu', ev => ev.preventDefault());
   el.addEventListener('wheel', ev => {
     ev.preventDefault(); if (PV.drive) return;
-    const cam = PV.camera, t = c.target, f = Math.pow(1.0012, ev.deltaY * (ev.deltaMode === 1 ? 30 : 1));
-    const hit = edPlaneHit(edRay(ev), new THREE.Plane(new THREE.Vector3(0, 1, 0), -t.y)) || t.clone();
-    if (f < 1 && cam.position.distanceTo(t) < 2) return;
-    if (hit.distanceTo(cam.position) > 20000) hit.copy(t);
-    cam.position.sub(hit).multiplyScalar(f).add(hit); t.sub(hit).multiplyScalar(f).add(hit);
+    const notch = -Math.max(-3, Math.min(3, (ev.deltaMode === 1 ? ev.deltaY * 33 : ev.deltaY) / 100)); // rueda hacia adelante = acercar
+    const cam = PV.camera, dist = cam.position.distanceTo(c.target), rc = edRay(ev);
+    let hit = notch > 0 ? camGroundHit(rc, Math.max(300, dist * 4)) : null; // acercar: hacia el cursor · alejar: desde el centro de la vista
+    if (hit && hit.distanceTo(cam.position) < 1.5) hit = null;
+    if (!hit && notch > 0) hit = rc.ray.at(Math.max(5, dist), new THREE.Vector3()); // cielo: hacia donde apunta el cursor, a la distancia actual
+    if (!hit) { camRepivot(); hit = c.target.clone(); }
+    ED.zoom = { anchor: hit, left: (ED.zoom && Math.sign(ED.zoom.left) === Math.sign(notch) ? ED.zoom.left : 0) + notch };
   }, { passive: false });
   el.addEventListener('dblclick', ev => {
     const rc = edRay(ev), list = [...PV.byMesh.entries()].filter(([m]) => m.route || m.terrain).map(([, mesh]) => mesh), h = rc.intersectObjects(list, false)[0];
@@ -7156,9 +7221,10 @@ function edHookViewer() {
     if ((k === 'delete' || k === 'backspace') && ED.active) { ev.preventDefault(); edDelete(ED.active); return; }
     if (k === 'escape' && ED.tool === 'place' && OB.sel) { OB.sel = null; obRings(); obPanel(); return; }
     if (k === 'escape') { S.sel = null; ED.active = null; selInfo(); drawSel(); drawProfile(); edRefresh(); edBuildSelMesh(); return; }
-    if (['w', 'a', 's', 'd', 'q', 'e', 'r', 'f', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k) && !ev.ctrlKey && !ev.metaKey) { ED.keys.add(k); if (k.startsWith('arrow')) ev.preventDefault(); }
+    if ((k === 'h' || k === '?') && !ev.ctrlKey) { camHelp(); return; }
+    if (['w', 'a', 's', 'd', 'q', 'e', 'shift', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k) && !ev.ctrlKey && !ev.metaKey) { ED.keys.add(k); if (k.startsWith('arrow')) ev.preventDefault(); }
   });
-  window.addEventListener('keyup', ev => ED.keys.delete(ev.key.toLowerCase()));
+  window.addEventListener('keyup', ev => { const k = ev.key.toLowerCase(); ED.keys.delete(k); if (k === 'shift') ED.keys.delete('shift'); });
   window.addEventListener('blur', () => ED.keys.clear());
 }
 
@@ -7172,6 +7238,30 @@ function edHookViewer() {
   window.addEventListener('beforeunload', ev => { if (edPending()) { ev.preventDefault(); ev.returnValue = ''; } });
   edBar();
 })();
+
+// ---------- ayuda de controles y paneles plegables de la vista 3D ----------
+function camHelp(show) { const h = $('#vhelp'); if (!h) return; const on = show != null ? show : h.style.display === 'none'; h.style.display = on ? '' : 'none'; const b = $('#helpBtn'); if (b) b.classList.toggle('on', on); }
+(function viewUI() {
+  const st = (() => { try { return JSON.parse(localStorage.getItem('gp_view') || '{}'); } catch (e) { return {}; } })();
+  const save = () => { try { localStorage.setItem('gp_view', JSON.stringify(st)); } catch (e) { } };
+  const tog = (btn, key, apply, def) => { const b = $(btn); if (!b) return; const set = v => { st[key] = v; b.classList.toggle('on', v); apply(v); save(); };
+    b.onclick = () => set(!(st[key] ?? def)); set(st[key] ?? def); };
+  tog('#mapBtn', 'map', v => $('#vnavbox').classList.toggle('hid', !v), true);
+  tog('#profBtn', 'prof', v => { $('#viewer').classList.toggle('noprof', !v); if (v) setTimeout(drawProfile, 0); }, true);
+  const pm = $('#vpMin'); if (pm) { const set = v => { st.pmin = v; $('#vpanel').classList.toggle('min', v); pm.textContent = v ? '▸' : '▾'; pm.title = v ? 'Mostrar el panel' : 'Achicar el panel'; save(); }; pm.onclick = () => set(!st.pmin); set(!!st.pmin); }
+  const dd = $('#vpDataBox'); if (dd) { dd.open = !!st.data; dd.addEventListener('toggle', () => { st.data = dd.open; save(); }); }
+  if ($('#helpBtn')) $('#helpBtn').onclick = () => camHelp();
+  if ($('#vhelpX')) $('#vhelpX').onclick = () => camHelp(false);
+  if (!st.helpSeen) { st.helpSeen = 1; save(); const o = new MutationObserver(() => { if ($('#viewer').style.display !== 'none') { camHelp(true); setTimeout(() => camHelp(false), 9000); o.disconnect(); } }); o.observe($('#viewer'), { attributes: true, attributeFilter: ['style'] }); }
+  // vistas rápidas
+  const view = (dist, h) => { const c = PV.controls, cam = PV.camera; if (!c) return; camRepivot(); const off = cam.position.clone().sub(c.target); off.y = 0; if (off.lengthSq() < 1e-6) off.set(0, 0, 1); off.normalize().multiplyScalar(dist); off.y = h;
+    const c0 = cam.position.clone(), c1 = c.target.clone().add(off), T0 = performance.now(); const step = () => { const k = Math.min(1, (performance.now() - T0) / 600), s2 = k * k * (3 - 2 * k); cam.position.lerpVectors(c0, c1, s2); if (k < 1) requestAnimationFrame(step); }; step(); };
+  if ($('#navTop')) $('#navTop').onclick = () => view(10, 180);
+  if ($('#navLow')) $('#navLow').onclick = () => view(16, 3.5);
+})();
+
+// el mapa chico va siempre debajo de la barra de arriba (aunque la barra ocupe dos renglones)
+(function vtopWatch() { const t = $('#vtop'), nb = $('#vnavbox'); if (!t || !nb || !window.ResizeObserver) return; new ResizeObserver(() => { nb.style.top = (t.offsetTop + t.offsetHeight + 8) + 'px'; }).observe(t); })();
 
 // ===== Objetos puestos a mano en la vista 3D =====
 // Árboles (de a uno o con pincel), casas, galpones, personas, público, piedras, puentes y lagos, en cualquier lugar.
@@ -7539,8 +7629,7 @@ function obGoto(x, y) {
     b.addEventListener('pointerup', stop); b.addEventListener('pointercancel', stop); b.addEventListener('pointerleave', stop);
   });
   const view = (dist, h) => { const c = PV.controls, cam = PV.camera, off = cam.position.clone().sub(c.target); off.y = 0; if (off.lengthSq() < 1e-6) off.set(0, 0, 1); off.normalize().multiplyScalar(dist); off.y = h; cam.position.copy(c.target).add(off); };
-  const tb = $('#navTop'); if (tb) tb.onclick = () => view(8, 160);
-  const gb = $('#navLow'); if (gb) gb.onclick = () => view(14, 3.5);
+  // (vista desde arriba / a ras del piso: en editor3d.js, con transición suave)
   const km = $('#navKm');
   if (km) km.oninput = () => { const r = edR(); if (!r) return; const d = +km.value / 1000 * r.total; edFly(d); $('#navKmTxt').textContent = (d / 1000).toFixed(2) + ' km'; };
   let n = 0; const prev = PV.onFrame; PV.onFrameOB = () => { if (++n % 6 === 0) obDrawMini(); };

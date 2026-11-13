@@ -364,8 +364,7 @@ function obGoto(x, y) {
     b.addEventListener('pointerup', stop); b.addEventListener('pointercancel', stop); b.addEventListener('pointerleave', stop);
   });
   const view = (dist, h) => { const c = PV.controls, cam = PV.camera, off = cam.position.clone().sub(c.target); off.y = 0; if (off.lengthSq() < 1e-6) off.set(0, 0, 1); off.normalize().multiplyScalar(dist); off.y = h; cam.position.copy(c.target).add(off); };
-  const tb = $('#navTop'); if (tb) tb.onclick = () => view(8, 160);
-  const gb = $('#navLow'); if (gb) gb.onclick = () => view(14, 3.5);
+  // (vista desde arriba / a ras del piso: en editor3d.js, con transición suave)
   const km = $('#navKm');
   if (km) km.oninput = () => { const r = edR(); if (!r) return; const d = +km.value / 1000 * r.total; edFly(d); $('#navKmTxt').textContent = (d / 1000).toFixed(2) + ' km'; };
   let n = 0; const prev = PV.onFrame; PV.onFrameOB = () => { if (++n % 6 === 0) obDrawMini(); };
