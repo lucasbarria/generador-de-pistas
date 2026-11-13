@@ -267,16 +267,26 @@ const Core = (() => {
       const tg = e => hs[i] + sl * (hw + e) - 0.05;
       let pts, xe, clear;
       if (Dd > 0.12) {
-        // zanja angosta cavada al borde del camino (como en Aguas Blancas): pared casi vertical del lado del camino,
-        // fondo de ~0,3 m, pared de tierra arcillosa del otro lado con terrones apilados encima (desparejo a lo largo)
+        // cuneta orgánica, distinta a cada lado: se adapta al monte de ese costado.
+        // · ladera que sube (sl > 0): casi no se cava; el fondo queda apenas bajo el borde y la pared de atrás sube con el terreno
+        // · terreno que baja: cuneta baja, con la tierra sacada formando un bordo irregular
+        // · la profundidad, el ancho y la posición del fondo cambian a lo largo (ruido en tres escalas, semilla propia de cada lado),
+        //   así el fondo se corre en diagonal como si lo hubiera ido labrando el agua
         const d = dist[i], open = (1 - FOR[i]) * Math.min(1, WETP[i] * 1.6), wf = (0.85 + 0.35 * vn1(d / 45, sd * 7)) * (1 + 0.6 * open);
-        // tierra que sacaron al cavar, amontonada sin forma: lomas irregulares (ruido en dos escalas), a veces casi nada, a veces una loma
-        const nL = vn1(d / 7, sd * 11 + 3) * 0.6 + vn1(d / 2.2, sd * 13 + 5) * 0.4, lump = (0.03 + 0.34 * Math.pow(Math.max(0, nL - 0.25), 1.3)) * (1 - 0.75 * open);
-        const mw = 0.8 + 0.8 * vn1(d / 12, sd * 17 + 2);                         // ancho de la loma, variable
-        const bot = edge - Dd, mtop = edge + Math.max(0.02, lump), a0 = 0.1 * wf, a1 = 0.32 * wf, a2 = 0.62 * wf, a3 = a2 + 0.28 * wf * mw, a4 = a3 + 0.4 * wf * mw;
+        const up = Math.max(0, Math.min(1, (sl - 0.03) / 0.2)), down = Math.max(0, Math.min(1, -sl / 0.15));
+        const nz = 0.5 + 0.3 * vn1(d / 17, sd * 29 + 7) + 0.25 * vn1(d / 5.5, sd * 31 + 9) + 0.15 * vn1(d / 2.3, sd * 47 + 2);
+        const D = Math.max(0.05, Dd * nz * (1 - 0.8 * up) * (1 - 0.4 * down));
+        const ox = (vn1(d / 9, sd * 37 + 1) - 0.5) * 0.4 + (vn1(d / 27, sd * 41 + 3) - 0.5) * 0.7; // corrimiento del fondo (m)
+        const ww = wf * (0.75 + 0.55 * vn1(d / 13, sd * 43 + 5));                                // ancho que respira
+        // tierra que sacaron al cavar, amontonada sin forma (en ladera que sube no hay bordo: está el talud)
+        const nL = vn1(d / 7, sd * 11 + 3) * 0.6 + vn1(d / 2.2, sd * 13 + 5) * 0.4, lump = (0.03 + 0.34 * Math.pow(Math.max(0, nL - 0.25), 1.3)) * (1 - 0.75 * open) * (1 - up);
+        const mw = 0.8 + 0.8 * vn1(d / 12, sd * 17 + 2);
+        const a0 = 0.08 + 0.06 * vn1(d / 6, sd * 53 + 1), a2 = Math.max(a0 + 0.22, a0 + 0.42 * ww + ox), a1 = a0 + (a2 - a0) * 0.55, a3 = a2 + Math.max(0.2, 0.36 * ww * mw), a4 = a3 + 0.42 * ww * mw;
+        const bot = edge - D, crest = Math.max(edge + 0.02, tg(a4)), mtop = (edge + Math.max(0.02, lump)) * (1 - up) + crest * up;
         xe = a4 + 0.8; for (let k = 0; k < 3; k++) { const dh = tg(xe) - mtop; xe = Math.min(9, a4 + Math.max(0.8, Math.abs(dh) * (dh < 0 ? 1.5 : 1.1))); }
-        const top = tg(xe);
-        pts = [[0, edge], [a0, edge - 0.04], [a1, bot], [a2, bot + 0.03], [a3, mtop], [a4, mtop - 0.03 - lump * 0.15], [(a4 + xe) / 2, mtop + (top - mtop) * 0.5 + lump * 0.3], [xe, top]]; // hombro redondeado: la loma sigue en el talud
+        const top = tg(xe), mid = mtop + (top - mtop) * 0.5 + lump * 0.3;
+        // paredes redondeadas (labio, fondo cóncavo, hombro) para que se funda con la banquina y el terreno sin escalón
+        pts = [[0, edge], [a0, edge - D * 0.16], [a1, bot + D * 0.2], [a2, bot], [a3, bot + (mtop - bot) * 0.58], [a4, mtop - 0.02 - lump * 0.15], [(a4 + xe) / 2, mid], [xe, top]];
         clear = a4 + 0.3;
       } else {
         const b0 = edge - 0.06; xe = bw + 1;

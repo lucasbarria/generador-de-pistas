@@ -537,16 +537,26 @@ const Core = (() => {
       const tg = e => hs[i] + sl * (hw + e) - 0.05;
       let pts, xe, clear;
       if (Dd > 0.12) {
-        // zanja angosta cavada al borde del camino (como en Aguas Blancas): pared casi vertical del lado del camino,
-        // fondo de ~0,3 m, pared de tierra arcillosa del otro lado con terrones apilados encima (desparejo a lo largo)
+        // cuneta orgánica, distinta a cada lado: se adapta al monte de ese costado.
+        // · ladera que sube (sl > 0): casi no se cava; el fondo queda apenas bajo el borde y la pared de atrás sube con el terreno
+        // · terreno que baja: cuneta baja, con la tierra sacada formando un bordo irregular
+        // · la profundidad, el ancho y la posición del fondo cambian a lo largo (ruido en tres escalas, semilla propia de cada lado),
+        //   así el fondo se corre en diagonal como si lo hubiera ido labrando el agua
         const d = dist[i], open = (1 - FOR[i]) * Math.min(1, WETP[i] * 1.6), wf = (0.85 + 0.35 * vn1(d / 45, sd * 7)) * (1 + 0.6 * open);
-        // tierra que sacaron al cavar, amontonada sin forma: lomas irregulares (ruido en dos escalas), a veces casi nada, a veces una loma
-        const nL = vn1(d / 7, sd * 11 + 3) * 0.6 + vn1(d / 2.2, sd * 13 + 5) * 0.4, lump = (0.03 + 0.34 * Math.pow(Math.max(0, nL - 0.25), 1.3)) * (1 - 0.75 * open);
-        const mw = 0.8 + 0.8 * vn1(d / 12, sd * 17 + 2);                         // ancho de la loma, variable
-        const bot = edge - Dd, mtop = edge + Math.max(0.02, lump), a0 = 0.1 * wf, a1 = 0.32 * wf, a2 = 0.62 * wf, a3 = a2 + 0.28 * wf * mw, a4 = a3 + 0.4 * wf * mw;
+        const up = Math.max(0, Math.min(1, (sl - 0.03) / 0.2)), down = Math.max(0, Math.min(1, -sl / 0.15));
+        const nz = 0.5 + 0.3 * vn1(d / 17, sd * 29 + 7) + 0.25 * vn1(d / 5.5, sd * 31 + 9) + 0.15 * vn1(d / 2.3, sd * 47 + 2);
+        const D = Math.max(0.05, Dd * nz * (1 - 0.8 * up) * (1 - 0.4 * down));
+        const ox = (vn1(d / 9, sd * 37 + 1) - 0.5) * 0.4 + (vn1(d / 27, sd * 41 + 3) - 0.5) * 0.7; // corrimiento del fondo (m)
+        const ww = wf * (0.75 + 0.55 * vn1(d / 13, sd * 43 + 5));                                // ancho que respira
+        // tierra que sacaron al cavar, amontonada sin forma (en ladera que sube no hay bordo: está el talud)
+        const nL = vn1(d / 7, sd * 11 + 3) * 0.6 + vn1(d / 2.2, sd * 13 + 5) * 0.4, lump = (0.03 + 0.34 * Math.pow(Math.max(0, nL - 0.25), 1.3)) * (1 - 0.75 * open) * (1 - up);
+        const mw = 0.8 + 0.8 * vn1(d / 12, sd * 17 + 2);
+        const a0 = 0.08 + 0.06 * vn1(d / 6, sd * 53 + 1), a2 = Math.max(a0 + 0.22, a0 + 0.42 * ww + ox), a1 = a0 + (a2 - a0) * 0.55, a3 = a2 + Math.max(0.2, 0.36 * ww * mw), a4 = a3 + 0.42 * ww * mw;
+        const bot = edge - D, crest = Math.max(edge + 0.02, tg(a4)), mtop = (edge + Math.max(0.02, lump)) * (1 - up) + crest * up;
         xe = a4 + 0.8; for (let k = 0; k < 3; k++) { const dh = tg(xe) - mtop; xe = Math.min(9, a4 + Math.max(0.8, Math.abs(dh) * (dh < 0 ? 1.5 : 1.1))); }
-        const top = tg(xe);
-        pts = [[0, edge], [a0, edge - 0.04], [a1, bot], [a2, bot + 0.03], [a3, mtop], [a4, mtop - 0.03 - lump * 0.15], [(a4 + xe) / 2, mtop + (top - mtop) * 0.5 + lump * 0.3], [xe, top]]; // hombro redondeado: la loma sigue en el talud
+        const top = tg(xe), mid = mtop + (top - mtop) * 0.5 + lump * 0.3;
+        // paredes redondeadas (labio, fondo cóncavo, hombro) para que se funda con la banquina y el terreno sin escalón
+        pts = [[0, edge], [a0, edge - D * 0.16], [a1, bot + D * 0.2], [a2, bot], [a3, bot + (mtop - bot) * 0.58], [a4, mtop - 0.02 - lump * 0.15], [(a4 + xe) / 2, mid], [xe, top]];
         clear = a4 + 0.3;
       } else {
         const b0 = edge - 0.06; xe = bw + 1;
@@ -2885,6 +2895,31 @@ async function fetchBase(o, key) {
   S.base = { key, mode: S.mode, P, h0, height, heightS, bbox, lat0, lon0, pts, closed, landAt };
 }
 
+// Subir/bajar un tramo: el tramo queda recto entre dos alturas ABSOLUTAS (no se suman al terreno, así su pendiente no se cuela).
+// h = altura al inicio y h1 = altura al final, las dos medidas desde el terreno original en el INICIO del tramo:
+// h1 = h (por defecto) → tramo horizontal, 0 %. Un desnivel distinto lo pone el usuario a mano.
+function raiseSection(e, dist, h, hAt) {
+  const n = h.length, total = dist[n - 1], L = e.d1 - e.d0;
+  if (e.lv !== 2) { const h1o = e.h1 != null ? e.h1 : e.h; e.h1 = +(hAt(e.d1) + h1o - hAt(e.d0)).toFixed(3); e.lv = 2; } // ediciones viejas: misma altura final, nueva forma
+  const base0 = hAt(e.d0), A = base0 + e.h, B = base0 + (e.h1 != null ? e.h1 : e.h), s = (B - A) / L;
+  // transición = mezcla de la recta del tramo (prolongada) con el camino, con peso de 5.º grado: continua en altura,
+  // pendiente y curvatura en los dos empalmes, y nunca sale del rango entre la recta y el camino (sin picos ni pozos inventados).
+  // El largo pedido se alarga solo si el salto es grande: pendiente agregada ≤ 12 % y curvatura suave.
+  const sm5 = t => t * t * t * (t * (t * 6 - 15) + 10);
+  // D = salto de altura entre el extremo del tramo y el camino en ese punto
+  // y M = diferencia de pendiente (el cambio de pendiente se reparte para que la curvatura no pase de 0,02 por metro)
+  const slopeAt = d => (hAt(Math.min(total, d + 5)) - hAt(Math.max(0, d - 5))) / Math.max(1, Math.min(total, d + 5) - Math.max(0, d - 5));
+  const len = (dN, yN, fUser) => { const D = Math.abs(hAt(dN) - yN), M = Math.abs(slopeAt(dN) - s);
+    return Math.max(0.5, Math.min(300, Math.max(fUser, 1.875 * D / 0.12, Math.sqrt(5.8 * D / 0.012), 1.875 * M / 0.02))); };
+  const fa = len(e.d0, A, Math.max(0.5, e.f0 != null ? e.f0 : 25)), fz = len(e.d1, B, Math.max(0.5, e.f1 != null ? e.f1 : 25));
+  e._fa = fa; e._fz = fz; e._pct = s * 100;
+  const out = h.slice();
+  for (let i = 0; i < n; i++) { const d = dist[i];
+    if (d >= e.d0 && d <= e.d1) out[i] = A + s * (d - e.d0);
+    else if (d < e.d0 && d > e.d0 - fa) { const w = sm5(1 - (e.d0 - d) / fa); out[i] = h[i] + (A + s * (d - e.d0) - h[i]) * w; }
+    else if (d > e.d1 && d < e.d1 + fz) { const w = sm5(1 - (d - e.d1) / fz); out[i] = h[i] + (B + s * (d - e.d1) - h[i]) * w; } }
+  return out;
+}
 function editFns(o, total, closed) {
   const wrap = (d, c) => { let x = d - c; if (closed && total) x = ((x + total / 2) % total + total) % total - total / 2; return x; };
   const bell = (x, half) => Math.abs(x) >= half ? 0 : 0.5 * (1 + Math.cos(Math.PI * x / half));
@@ -2896,14 +2931,8 @@ function editFns(o, total, closed) {
       for (const e of S.edits) {
         if (e.kind === 'raise') {
           // punto: campana de radio r. Tramo: de h (inicio) a h1 (final) = pendiente, con transiciones f0 / f1 a cada lado
+          // punto: campana de radio r. Los tramos se resuelven en levelApply (alturas absolutas, no sumadas al terreno)
           if (e.d1 - e.d0 < 1) s += e.h * bell(wrap(d, e.d0), e.r || 30);
-          else {
-            const h1 = e.h1 != null ? e.h1 : e.h, f0 = Math.max(0.5, e.f0 != null ? e.f0 : 25), f1 = Math.max(0.5, e.f1 != null ? e.f1 : 25), g = (h1 - e.h) / (e.d1 - e.d0);
-            // transiciones de Hermite: llegan a los extremos con la misma pendiente del tramo (sin quiebre ni pico)
-            if (d < e.d0) { const v = 1 - (e.d0 - d) / f0; if (v > 0) s += e.h * (3 * v * v - 2 * v * v * v) + g * f0 * (v * v * v - v * v); }
-            else if (d > e.d1) { const u = (d - e.d1) / f1; if (u < 1) s += h1 * (2 * u * u * u - 3 * u * u + 1) + g * f1 * (u * u * u - 2 * u * u + u); }
-            else s += e.h + g * (d - e.d0);
-          }
         } else if (e.kind === 'bump') s += e.h * bell(wrap(d, e.d), e.len / 2);
         else if (e.kind === 'pothole') s -= e.h * bell(wrap(d, e.d), e.len / 2);
         else if (e.kind === 'jump') {
@@ -2933,11 +2962,13 @@ function editFns(o, total, closed) {
     smoothSecs: S.edits.filter(e => e.kind === 'smooth'),
     // aplanar y pendiente constante: reemplazan la altura del sector por una recta (horizontal o con pendiente),
     // con transiciones de 5.º grado a cada lado (continuas en altura, pendiente y curvatura) y una intensidad 0–1
-    levelApply: S.edits.some(e => e.kind === 'flat' || e.kind === 'grade') ? (dist, hs) => {
+    levelApply: S.edits.some(e => e.kind === 'flat' || e.kind === 'grade' || (e.kind === 'raise' && e.d1 - e.d0 >= 1)) ? (dist, hs) => {
       let h = hs.slice(); const n = h.length;
       const hAt = d => { let i = 0, j = n - 1; while (j - i > 1) { const m = (i + j) >> 1; if (dist[m] <= d) i = m; else j = m; } const t = Math.max(0, Math.min(1, (d - dist[i]) / ((dist[j] - dist[i]) || 1))); return h[i] * (1 - t) + h[j] * t; };
       const sm5 = t => t * t * t * (t * (t * 6 - 15) + 10);
-      for (const e of S.edits) { if (e.kind !== 'flat' && e.kind !== 'grade') continue;
+      for (const e of S.edits) {
+        if (e.kind === 'raise' && e.d1 - e.d0 >= 1) { h = raiseSection(e, dist, h, hAt); continue; }
+        if (e.kind !== 'flat' && e.kind !== 'grade') continue;
         let T0, g;
         if (e.kind === 'flat') { g = 0; T0 = e.ref === 'end' ? hAt(e.d1) : e.ref === 'avg' ? (() => { let a = 0, c = 0; for (let i = 0; i < n; i++) if (dist[i] >= e.d0 && dist[i] <= e.d1) { a += h[i]; c++; } return c ? a / c : hAt(e.d0); })() : e.ref === 'abs' ? e.h - (S.base ? S.base.h0 : 0) : hAt(e.d0); }
         else { T0 = hAt(e.d0); g = e.pct != null ? e.pct / 100 : (e.dh || 0) / Math.max(1, e.d1 - e.d0); }
@@ -4735,7 +4766,7 @@ function secSel() { const s = S.sel; return s.d1 - s.d0 < 10 ? { d0: Math.max(0,
 function ptSel() { return (S.sel.d0 + S.sel.d1) / 2; }
 const num = (id, def) => { const v = parseFloat($(id).value); return isFinite(v) ? v : def; };
 function addEdit(e) { edPushUndo(); S.edits.push(e); ED.active = e; editsChanged(); }
-$('#tRaise').onclick = () => { if (!needSel()) return; const s = S.sel; addEdit({ kind: 'raise', d0: s.d0, d1: s.d1, h: num('#dh', 1) }); };
+$('#tRaise').onclick = () => { if (!needSel()) return; const s = S.sel; addEdit(s.d1 - s.d0 >= 1 ? { kind: 'raise', d0: s.d0, d1: s.d1, h: num('#dh', 1), h1: num('#dh', 1), f0: 25, f1: 25, lv: 2 } : { kind: 'raise', d0: s.d0, d1: s.d0, h: num('#dh', 1), r: 30 }); };
 $('#tSmooth').onclick = () => { if (!needSel()) return; addEdit({ kind: 'smooth', ...secSel() }); };
 if ($('#tFlat')) $('#tFlat').onclick = () => { if (!needSel()) return; const ref = $('#flatRef').value; addEdit({ kind: 'flat', ...secSel(), ref, h: ref === 'abs' ? num('#flatH', 0) : undefined, k: Math.max(0, Math.min(1, num('#flatK', 100) / 100)), f: Math.max(2, num('#flatF', 20)) }); };
 const gradeEdit = sign => { if (!needSel()) return; const sec = secSel(), len = sec.d1 - sec.d0, mode = $('#gradeMode').value, v = Math.abs(num('#gradeV', 6)) * sign;
@@ -5868,7 +5899,7 @@ const ED_TOOLS = [
 // parámetros editables con número (clave, nombre, unidad, paso, mín, máx)
 const ED_PARAMS = {
   raise: e => e.d1 - e.d0 < 1 ? [['h', 'Altura', 'm', 0.1, -60, 60], ['r', 'Transición', 'm', 1, 3, 400]]
-    : [['h', 'Altura al inicio', 'm', 0.1, -60, 60], ['h1', 'Altura al final', 'm', 0.1, -60, 60], ['f0', 'Transición antes', 'm', 1, 0, 400], ['f1', 'Transición después', 'm', 1, 0, 400], ['d0', 'Desde', 'm', 1], ['d1', 'Hasta', 'm', 1]],
+    : [['h', 'Altura al inicio', 'm', 0.1, -60, 60], ['h1', 'Altura al final (igual al inicio = horizontal)', 'm', 0.1, -60, 60], ['f0', 'Transición antes', 'm', 1, 0, 400], ['f1', 'Transición después', 'm', 1, 0, 400], ['d0', 'Desde', 'm', 1], ['d1', 'Hasta', 'm', 1]],
   jump: () => [['h', 'Altura', 'm', 0.1, 0.1, 8], ['len', 'Rampa de entrada', 'm', 1, 3, 200], ['land', 'Recepción', 'm', 0.5, 1, 120], ['d', 'Cresta en', 'm', 1]],
   bump: () => [['h', 'Altura', 'm', 0.05, 0.02, 4], ['len', 'Largo', 'm', 0.5, 2, 120], ['d', 'Centro en', 'm', 1]],
   pothole: () => [['h', 'Profundidad', 'm', 0.05, 0.02, 4], ['len', 'Largo', 'm', 0.5, 1, 120], ['d', 'Centro en', 'm', 1]],
@@ -5930,7 +5961,7 @@ function edTarget() {
 }
 function edMake(kind) {
   const s = S.sel, c = (s.d0 + s.d1) / 2, r = edR();
-  if (kind === 'raise') return s.d1 - s.d0 < 1 ? { kind, d0: s.d0, d1: s.d0, h: 0, r: 30 } : { kind, d0: s.d0, d1: s.d1, h: 0, h1: 0, f0: 25, f1: 25 };
+  if (kind === 'raise') return s.d1 - s.d0 < 1 ? { kind, d0: s.d0, d1: s.d0, h: 0, r: 30 } : { kind, d0: s.d0, d1: s.d1, h: 0, h1: 0, f0: 25, f1: 25, lv: 2 };
   if (kind === 'bank') { const q = edSecSel(), p = edAt((q.d0 + q.d1) / 2); return { kind, ...q, abs: true, deg: +(Math.atan(p.SL) / D2R).toFixed(2) }; }
   if (kind === 'width') { const q = edSecSel(); return { kind, ...q, w: +(edAt((q.d0 + q.d1) / 2).hw * 2).toFixed(2) }; }
   if (kind === 'smooth') return { kind, ...edSecSel() };
@@ -6198,8 +6229,8 @@ function edGizmoDefs() {
       G('along', s.d0 + rr, 0, 0.4, (e0, x, e) => { e.r = clampMin((e0.r || 30) + x, 3); }, 'Largo de la transición');
     } else {
       const f0 = e && e.f0 != null ? e.f0 : 25, f1 = e && e.f1 != null ? e.f1 : 25;
-      G('up', s.d0, 0, 1.6, (e0, x, e) => { e.h = e0.h + x; }, 'Altura al inicio del tramo (pendiente)');
-      G('up', s.d1, 0, 1.6, (e0, x, e) => { e.h1 = (e0.h1 != null ? e0.h1 : e0.h) + x; }, 'Altura al final del tramo (pendiente)');
+      G('up', s.d0, 0, 1.6, (e0, x, e) => { e.h = e0.h + x; if (!e0.man1) e.h1 = (e0.h1 != null ? e0.h1 : e0.h) + x; }, 'Altura al inicio del tramo (el final la sigue: tramo horizontal, salvo que muevas el final)');
+      G('up', s.d1, 0, 1.6, (e0, x, e) => { e.h1 = (e0.h1 != null ? e0.h1 : e0.h) + x; e.man1 = Math.abs(e.h1 - e.h) > 0.0005; }, 'Altura al final del tramo: movela para darle desnivel (pendiente)');
       G('up', (s.d0 + s.d1) / 2, 0, 2.2, (e0, x, e) => { e.h = e0.h + x; e.h1 = (e0.h1 != null ? e0.h1 : e0.h) + x; }, 'Subir o bajar todo el tramo', 'both');
       G('along', s.d0 - f0, 0, 0.4, (e0, x, e) => { e.f0 = clampMin((e0.f0 != null ? e0.f0 : 25) - x, 0); }, 'Transición de entrada: más larga = más suave');
       G('along', s.d1 + f1, 0, 0.4, (e0, x, e) => { e.f1 = clampMin((e0.f1 != null ? e0.f1 : 25) + x, 0); }, 'Transición de salida: más larga = más suave');
@@ -6465,7 +6496,11 @@ function edPanel(light) {
     $('#vpSurf').value = $('#surfKey').value;
     $('#vpParams').querySelectorAll('input[data-k]').forEach(inp => {
       inp.onfocus = () => { inp._undo = false; };
-      inp.oninput = () => { const v = parseFloat(inp.value); if (!isFinite(v)) return; if (!inp._undo) { edPushUndo(); inp._undo = true; } e[inp.dataset.k] = v; if (e.d1 !== undefined && e.d1 < e.d0) [e.d0, e.d1] = [e.d1, e.d0]; edSchedule(); clearTimeout(ED.commitT); ED.commitT = setTimeout(() => { liveCommit(); }, 350); };
+      inp.oninput = () => { const v = parseFloat(inp.value); if (!isFinite(v)) return; if (!inp._undo) { edPushUndo(); inp._undo = true; } e[inp.dataset.k] = v;
+        if (e.kind === 'raise' && e.d1 - e.d0 >= 1) { // la altura final sigue a la inicial (tramo horizontal) salvo que el usuario ponga un desnivel
+          if (inp.dataset.k === 'h' && !e.man1) { e.h1 = v; const o = $('#vpParams').querySelector('input[data-k="h1"]'); if (o) o.value = v; }
+          if (inp.dataset.k === 'h1') e.man1 = Math.abs(v - e.h) > 0.0005; }
+        if (e.d1 !== undefined && e.d1 < e.d0) [e.d0, e.d1] = [e.d1, e.d0]; edSchedule(); clearTimeout(ED.commitT); ED.commitT = setTimeout(() => { liveCommit(); }, 350); };
     });
     const del = $('#vpDel'); if (del) del.onclick = () => edDelete(e);
     const ras = $('#vpRas'); if (ras) ras.onchange = () => { ED.rasType = ras.value; if (e) { edPushUndo(); const d = e.d; for (const k of ['h', 'lenIn', 'top', 'lenOut', 'pIn', 'pOut', 'round', 'n', 'wl']) delete e[k]; Object.assign(e, RAS_DEF[ras.value], { type: ras.value, d }); editsChanged(); } else edPanel(); };
@@ -6536,7 +6571,9 @@ function edProfilePanel(e) {
 function edFocusCp(e) { const pt = e.pts[ED.cpSel]; S.sel = { d0: pt.d, d1: pt.d }; ED.anchor = pt.d; selInfo(); drawSel(); edRefresh(); drawProfile(); }
 document.addEventListener('click', ev => { const b = ev.target.closest && ev.target.closest('#vpParams [data-op]'); if (b) edProfOp(b.dataset.op, parseFloat($('#cpAmp').value) || 1); });
 function edTransInfo(e) {
-  if (e.kind === 'raise') return e.d1 - e.d0 < 1 ? `transición ±${(e.r || 30).toFixed(0)} m` : `transiciones ${(e.f0 != null ? e.f0 : 25).toFixed(0)} / ${(e.f1 != null ? e.f1 : 25).toFixed(0)} m`;
+  if (e.kind === 'raise') if (e.d1 - e.d0 < 1) return `transición ±${(e.r || 30).toFixed(0)} m`;
+    { const f0 = e._fa != null ? e._fa : e.f0 != null ? e.f0 : 25, f1 = e._fz != null ? e._fz : e.f1 != null ? e.f1 : 25, p = e._pct != null ? e._pct : ((e.h1 != null ? e.h1 : e.h) - e.h) / (e.d1 - e.d0) * 100;
+      return `${Math.abs(p) < 0.05 ? 'tramo horizontal (0 %)' : `pendiente ${p > 0 ? '+' : ''}${p.toFixed(1)} %`} · transiciones ${f0.toFixed(0)} / ${f1.toFixed(0)} m${(e._fa > (e.f0 ?? 25) + 0.5 || e._fz > (e.f1 ?? 25) + 0.5) ? ' (alargadas para que no queden picos)' : ''}`; }
   if (e.kind === 'jump') { const land = e.land != null ? e.land : e.len * 0.3; return `entrada ${(e.h / e.len * 100).toFixed(0)}% en ${e.len.toFixed(0)} m · recepción ${(e.h / land * 100).toFixed(0)}% en ${land.toFixed(1)} m`; }
   if (e.kind === 'bump' || e.kind === 'pothole') return `largo ${(+e.len).toFixed(1)} m`;
   if (e.kind === 'rasante') return e.type === 'ondulacion' ? `${e.n} ondas de ${(+e.wl).toFixed(1)} m` : `aprox. ${(+e.lenIn).toFixed(0)} m (${fmtG(e.h / e.lenIn * 1.5)}) · arriba ${(+(e.top || 0)).toFixed(0)} m · salida ${(+e.lenOut).toFixed(0)} m`;

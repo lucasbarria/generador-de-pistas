@@ -23,7 +23,7 @@ const ED_TOOLS = [
 // parámetros editables con número (clave, nombre, unidad, paso, mín, máx)
 const ED_PARAMS = {
   raise: e => e.d1 - e.d0 < 1 ? [['h', 'Altura', 'm', 0.1, -60, 60], ['r', 'Transición', 'm', 1, 3, 400]]
-    : [['h', 'Altura al inicio', 'm', 0.1, -60, 60], ['h1', 'Altura al final', 'm', 0.1, -60, 60], ['f0', 'Transición antes', 'm', 1, 0, 400], ['f1', 'Transición después', 'm', 1, 0, 400], ['d0', 'Desde', 'm', 1], ['d1', 'Hasta', 'm', 1]],
+    : [['h', 'Altura al inicio', 'm', 0.1, -60, 60], ['h1', 'Altura al final (igual al inicio = horizontal)', 'm', 0.1, -60, 60], ['f0', 'Transición antes', 'm', 1, 0, 400], ['f1', 'Transición después', 'm', 1, 0, 400], ['d0', 'Desde', 'm', 1], ['d1', 'Hasta', 'm', 1]],
   jump: () => [['h', 'Altura', 'm', 0.1, 0.1, 8], ['len', 'Rampa de entrada', 'm', 1, 3, 200], ['land', 'Recepción', 'm', 0.5, 1, 120], ['d', 'Cresta en', 'm', 1]],
   bump: () => [['h', 'Altura', 'm', 0.05, 0.02, 4], ['len', 'Largo', 'm', 0.5, 2, 120], ['d', 'Centro en', 'm', 1]],
   pothole: () => [['h', 'Profundidad', 'm', 0.05, 0.02, 4], ['len', 'Largo', 'm', 0.5, 1, 120], ['d', 'Centro en', 'm', 1]],
@@ -85,7 +85,7 @@ function edTarget() {
 }
 function edMake(kind) {
   const s = S.sel, c = (s.d0 + s.d1) / 2, r = edR();
-  if (kind === 'raise') return s.d1 - s.d0 < 1 ? { kind, d0: s.d0, d1: s.d0, h: 0, r: 30 } : { kind, d0: s.d0, d1: s.d1, h: 0, h1: 0, f0: 25, f1: 25 };
+  if (kind === 'raise') return s.d1 - s.d0 < 1 ? { kind, d0: s.d0, d1: s.d0, h: 0, r: 30 } : { kind, d0: s.d0, d1: s.d1, h: 0, h1: 0, f0: 25, f1: 25, lv: 2 };
   if (kind === 'bank') { const q = edSecSel(), p = edAt((q.d0 + q.d1) / 2); return { kind, ...q, abs: true, deg: +(Math.atan(p.SL) / D2R).toFixed(2) }; }
   if (kind === 'width') { const q = edSecSel(); return { kind, ...q, w: +(edAt((q.d0 + q.d1) / 2).hw * 2).toFixed(2) }; }
   if (kind === 'smooth') return { kind, ...edSecSel() };
@@ -353,8 +353,8 @@ function edGizmoDefs() {
       G('along', s.d0 + rr, 0, 0.4, (e0, x, e) => { e.r = clampMin((e0.r || 30) + x, 3); }, 'Largo de la transición');
     } else {
       const f0 = e && e.f0 != null ? e.f0 : 25, f1 = e && e.f1 != null ? e.f1 : 25;
-      G('up', s.d0, 0, 1.6, (e0, x, e) => { e.h = e0.h + x; }, 'Altura al inicio del tramo (pendiente)');
-      G('up', s.d1, 0, 1.6, (e0, x, e) => { e.h1 = (e0.h1 != null ? e0.h1 : e0.h) + x; }, 'Altura al final del tramo (pendiente)');
+      G('up', s.d0, 0, 1.6, (e0, x, e) => { e.h = e0.h + x; if (!e0.man1) e.h1 = (e0.h1 != null ? e0.h1 : e0.h) + x; }, 'Altura al inicio del tramo (el final la sigue: tramo horizontal, salvo que muevas el final)');
+      G('up', s.d1, 0, 1.6, (e0, x, e) => { e.h1 = (e0.h1 != null ? e0.h1 : e0.h) + x; e.man1 = Math.abs(e.h1 - e.h) > 0.0005; }, 'Altura al final del tramo: movela para darle desnivel (pendiente)');
       G('up', (s.d0 + s.d1) / 2, 0, 2.2, (e0, x, e) => { e.h = e0.h + x; e.h1 = (e0.h1 != null ? e0.h1 : e0.h) + x; }, 'Subir o bajar todo el tramo', 'both');
       G('along', s.d0 - f0, 0, 0.4, (e0, x, e) => { e.f0 = clampMin((e0.f0 != null ? e0.f0 : 25) - x, 0); }, 'Transición de entrada: más larga = más suave');
       G('along', s.d1 + f1, 0, 0.4, (e0, x, e) => { e.f1 = clampMin((e0.f1 != null ? e0.f1 : 25) + x, 0); }, 'Transición de salida: más larga = más suave');
@@ -620,7 +620,11 @@ function edPanel(light) {
     $('#vpSurf').value = $('#surfKey').value;
     $('#vpParams').querySelectorAll('input[data-k]').forEach(inp => {
       inp.onfocus = () => { inp._undo = false; };
-      inp.oninput = () => { const v = parseFloat(inp.value); if (!isFinite(v)) return; if (!inp._undo) { edPushUndo(); inp._undo = true; } e[inp.dataset.k] = v; if (e.d1 !== undefined && e.d1 < e.d0) [e.d0, e.d1] = [e.d1, e.d0]; edSchedule(); clearTimeout(ED.commitT); ED.commitT = setTimeout(() => { liveCommit(); }, 350); };
+      inp.oninput = () => { const v = parseFloat(inp.value); if (!isFinite(v)) return; if (!inp._undo) { edPushUndo(); inp._undo = true; } e[inp.dataset.k] = v;
+        if (e.kind === 'raise' && e.d1 - e.d0 >= 1) { // la altura final sigue a la inicial (tramo horizontal) salvo que el usuario ponga un desnivel
+          if (inp.dataset.k === 'h' && !e.man1) { e.h1 = v; const o = $('#vpParams').querySelector('input[data-k="h1"]'); if (o) o.value = v; }
+          if (inp.dataset.k === 'h1') e.man1 = Math.abs(v - e.h) > 0.0005; }
+        if (e.d1 !== undefined && e.d1 < e.d0) [e.d0, e.d1] = [e.d1, e.d0]; edSchedule(); clearTimeout(ED.commitT); ED.commitT = setTimeout(() => { liveCommit(); }, 350); };
     });
     const del = $('#vpDel'); if (del) del.onclick = () => edDelete(e);
     const ras = $('#vpRas'); if (ras) ras.onchange = () => { ED.rasType = ras.value; if (e) { edPushUndo(); const d = e.d; for (const k of ['h', 'lenIn', 'top', 'lenOut', 'pIn', 'pOut', 'round', 'n', 'wl']) delete e[k]; Object.assign(e, RAS_DEF[ras.value], { type: ras.value, d }); editsChanged(); } else edPanel(); };
@@ -691,7 +695,9 @@ function edProfilePanel(e) {
 function edFocusCp(e) { const pt = e.pts[ED.cpSel]; S.sel = { d0: pt.d, d1: pt.d }; ED.anchor = pt.d; selInfo(); drawSel(); edRefresh(); drawProfile(); }
 document.addEventListener('click', ev => { const b = ev.target.closest && ev.target.closest('#vpParams [data-op]'); if (b) edProfOp(b.dataset.op, parseFloat($('#cpAmp').value) || 1); });
 function edTransInfo(e) {
-  if (e.kind === 'raise') return e.d1 - e.d0 < 1 ? `transición ±${(e.r || 30).toFixed(0)} m` : `transiciones ${(e.f0 != null ? e.f0 : 25).toFixed(0)} / ${(e.f1 != null ? e.f1 : 25).toFixed(0)} m`;
+  if (e.kind === 'raise') if (e.d1 - e.d0 < 1) return `transición ±${(e.r || 30).toFixed(0)} m`;
+    { const f0 = e._fa != null ? e._fa : e.f0 != null ? e.f0 : 25, f1 = e._fz != null ? e._fz : e.f1 != null ? e.f1 : 25, p = e._pct != null ? e._pct : ((e.h1 != null ? e.h1 : e.h) - e.h) / (e.d1 - e.d0) * 100;
+      return `${Math.abs(p) < 0.05 ? 'tramo horizontal (0 %)' : `pendiente ${p > 0 ? '+' : ''}${p.toFixed(1)} %`} · transiciones ${f0.toFixed(0)} / ${f1.toFixed(0)} m${(e._fa > (e.f0 ?? 25) + 0.5 || e._fz > (e.f1 ?? 25) + 0.5) ? ' (alargadas para que no queden picos)' : ''}`; }
   if (e.kind === 'jump') { const land = e.land != null ? e.land : e.len * 0.3; return `entrada ${(e.h / e.len * 100).toFixed(0)}% en ${e.len.toFixed(0)} m · recepción ${(e.h / land * 100).toFixed(0)}% en ${land.toFixed(1)} m`; }
   if (e.kind === 'bump' || e.kind === 'pothole') return `largo ${(+e.len).toFixed(1)} m`;
   if (e.kind === 'rasante') return e.type === 'ondulacion' ? `${e.n} ondas de ${(+e.wl).toFixed(1)} m` : `aprox. ${(+e.lenIn).toFixed(0)} m (${fmtG(e.h / e.lenIn * 1.5)}) · arriba ${(+(e.top || 0)).toFixed(0)} m · salida ${(+e.lenOut).toFixed(0)} m`;
