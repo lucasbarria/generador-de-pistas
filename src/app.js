@@ -650,7 +650,7 @@ const DEM = {
   z: 14, tiles: new Map(), custom: [],
   px(lat, lon) { const n = 2 ** this.z * 256; return [(lon + 180) / 360 * n, (1 - Math.log(Math.tan(lat * D2R) + 1 / Math.cos(lat * D2R)) / Math.PI) / 2 * n]; },
   async load(s, w, n, e, z) {
-    this.z = z; this.tiles = new Map(); this.spikes = 0; this.used = { cop: 0, ter: 0 }; this.src = $('#demSrc') ? $('#demSrc').value : 'auto';
+    this.z = z; this.tiles = new Map(); this.spikes = 0; this.used = { cop: 0, ter: 0 }; this.terTiles = new Set(); this.src = $('#demSrc') ? $('#demSrc').value : 'auto';
     const [x0, y0] = this.px(n, w).map(v => Math.floor(v / 256)), [x1, y1] = this.px(s, e).map(v => Math.floor(v / 256));
     const jobs = []; for (let y = y0 - 1; y <= y1 + 1; y++) for (let x = x0 - 1; x <= x1 + 1; x++) jobs.push([x, y]);
     let done = 0; const cv = document.createElement('canvas'); cv.width = cv.height = 256; const ctx = cv.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
@@ -666,7 +666,7 @@ const DEM = {
               // sin conversión de color: un byte rojo corrido 1 valor = 256 m de error (picos gigantes)
               const t = await decodeRGBTile(await LOCAL.fetchBlob(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`), ctx, (r, g, b) => r * 256 + g + b / 256 - 32768);
               if (!a) a = t; else for (let i = 0; i < 65536; i++) if (isNaN(a[i])) a[i] = t[i];
-              this.used.ter++;
+              this.used.ter++; this.terTiles.add(x + ',' + y); // tile completado con Terrarium (SRTM, menos preciso)
             } else this.used.cop++;
             for (let i = 0; i < 65536; i++) if (isNaN(a[i])) a[i] = 0;
             // quitar picos: un punto que se aparta más de 25 m de la mediana de sus vecinos se reemplaza por la mediana
@@ -696,6 +696,9 @@ const DEM = {
     return isNaN(v) ? (this.pix(X, Y) || 0) : v;
   },
   covered(lat, lon) { for (const R of this.custom) if (isFinite(R.sample(lat, lon))) return R.name; return null; },
+  // de qué modelo sale la altura en este punto (para el reporte de validación)
+  sourceAt(lat, lon) { const c = this.covered(lat, lon); if (c) return c; const [fx, fy] = this.px(lat, lon), k = (Math.floor(fx) >> 8) + ',' + (Math.floor(fy) >> 8);
+    return this.src === 'terrarium' || (this.terTiles && this.terTiles.has(k)) ? 'Terrarium (SRTM)' : 'Copernicus GLO-30'; },
   tileCount(s, w, n, e, z) { const o = this.z; this.z = z; const [x0, y0] = this.px(n, w).map(v => Math.floor(v / 256)), [x1, y1] = this.px(s, e).map(v => Math.floor(v / 256)); this.z = o; return (x1 - x0 + 3) * (y1 - y0 + 3); },
 };
 
@@ -2838,6 +2841,20 @@ function makeTuftTex() {
 // núcleo con la altura) y tramos de huellones. Con ella varía el relieve: pocos baches en lo firme, muchos y hondos en lo
 // húmedo, surcos que deja el agua, y morros suaves. Todo es continuo (sin escalones): el auto pasa por encima y la suspensión lo absorbe.
 const vn2 = (x, y, sd) => { const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy), a = hashU(i, j, sd), b = hashU(i + 1, j, sd), c = hashU(i, j + 1, sd), e = hashU(i + 1, j + 1, sd); return a + (b - a) * sx + (c - a) * sy + (a - b - c + e) * sx * sy; };
+// piedras del ripio: roca gris clara moteada, con vetas de óxido (ocre/rojizo), cristales claros y puntos oscuros.
+// Cada piedra toma un pedazo distinto de esta textura (uv al azar), así no hay dos iguales.
+TEX.stone = (() => {
+  const N = 512, c = document.createElement('canvas'); c.width = c.height = N; const x = c.getContext('2d'), img = x.createImageData(N, N), d = img.data;
+  const R = (a, b, k) => hashU(a, b, k + 900), V = (u, v, k) => vn2(u, v, k + 900);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const u = i / N, v = j / N, lit = V(u * 6, v * 6, 1), mid = V(u * 22, v * 22, 2), fine = R(i, j, 3);
+    let r = 128, g = 125, b = 118; const tone = (lit - 0.5) * 50 + (mid - 0.5) * 22 + (fine - 0.5) * 26; r += tone; g += tone; b += tone * 0.95;
+    const rust = Math.max(0, V(u * 5, v * 5, 4) - 0.6) * 2.5 * (0.6 + 0.4 * mid); r += rust * 46; g += rust * 6; b -= rust * 38; // óxido
+    const beige = Math.max(0, V(u * 4, v * 4, 5) - 0.55) * 2; r += beige * 18; g += beige * 12; b += beige * 2;
+    if (fine > 0.985) { r += 50; g += 50; b += 48; } else if (fine < 0.02) { r -= 55; g -= 55; b -= 52; } // cristales y puntos oscuros
+    const k = (j * N + i) * 4; d[k] = r; d[k + 1] = g; d[k + 2] = b; d[k + 3] = 255;
+  }
+  x.putImageData(img, 0, 0); return c; })();
 const RELIEF = {
   amp: () => { const v = $('#relief') ? +$('#relief').value : 1; return isFinite(v) ? v : 1; },
   env(total) { // humedad y bosque cada 20 m (sirve en cualquier lugar con foto satelital)
@@ -3426,7 +3443,7 @@ async function rebuild(keepCam) {
             if (!ACCS.some(z => Math.abs(z.d - cum[bi]) < 12 && z.sd === sd)) ACCS.push({ d: cum[bi], sd, w, osm: true }); } }
       } }
     const routeArgs = { bareAt: S.autoW ? S.autoW.bare : null, clearAt: S.autoW ? S.autoW.clear : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, terrRes: o.res, shoulder: Math.min(3.5, o.res * 1.5 + 1),
-      humAt: RELIEF.humAt, forestAt: RELIEF.forestAt, bankMat: TEX.bank && PACK.on ? 'bank' : null, bankLen: 5, sideMatAt: SIDECAT.on ? (d, sd) => SIDECAT.typeAt(d, sd) : null, sideLumpAt: SIDECAT.on ? (d, sd, e) => SIDECAT.lumpAt(d, sd, e) : null, reliefAt: RELIEF.A ? (d, s, hw, c) => RELIEF.at(d, s, hw, c) : null, accesses: ACCS, procAccess: !$('#access') || $('#access').checked };
+      humAt: RELIEF.humAt, forestAt: RELIEF.forestAt, bankMat: TEX.bank && PACK.on ? 'bank' : null, bankLen: 5, sideMatAt: SIDECAT.on ? (d, sd) => SIDECAT.typeAt(d, sd) : null, sideLumpAt: SIDECAT.on ? (d, sd, e) => SIDECAT.lumpAt(d, sd, e) : null, reliefAt: RELIEF.A ? (d, s, hw, c) => RELIEF.at(d, s, hw, c) : null, stones: RELIEF.A && $('#stones') ? +$('#stones').value : (RELIEF.A ? 1 : 0), accesses: ACCS, procAccess: !$('#access') || $('#access').checked };
     S.live = { routeArgs, cache: { keyFn: () => JSON.stringify(S.edits.filter(e => e.kind === 'shape')) }, sideArgs: null, sideSegs: [] };
     res = Core.buildRoute({ ...routeArgs, ...editFns(o, S.lastTotal, B.closed), cache: S.live.cache });
     S.lastTotal = res.total;
@@ -3622,6 +3639,101 @@ async function rebuild(keepCam) {
   log(`Listo en ${((performance.now() - t0) / 1000).toFixed(1)} s · ${(length / 1000).toFixed(2)} km · ${vcount.toLocaleString()} vértices, ${fcount.toLocaleString()} triángulos.`, 'ok');
 }
 
+// ---------- Validación del tramo contra los datos de elevación (antes de exportar) ----------
+// Compara el camino generado con la altura medida (modelo de elevación o GPS), detecta anomalías y las clasifica:
+// medición confirmada · posible error de medición · interpolación/suavizado · corregido a mano · desconocido.
+// No modifica nada: las alturas medidas (res.raw) y las ediciones (S.edits) quedan separadas.
+const VALID = {
+  TH: { quiebre: 0.22, pend: 0.18, desvio: 2.0, pico: 3.0, peralte: 0.08, ancho: 0.5, piso: 0.06 },
+  CLS: { conf: 'medición confirmada', err: 'posible error de medición', interp: 'interpolación / suavizado', manual: 'corregido a mano', unk: 'desconocido' },
+  editRanges() {
+    return (S.edits || []).map(e => {
+      if (e.kind === 'profile' && e.pts && e.pts.length) { const ds = e.pts.map(p => p.d); return [Math.min(...ds) - 30, Math.max(...ds) + 30, e.kind]; }
+      if (e.d0 != null) return [e.d0 - (e.f0 || e.r || 30), (e.d1 != null ? e.d1 : e.d0) + (e.f1 || e.r || 30), e.kind];
+      if (e.d != null) { const L = e.len || e.r || 20; return [e.d - L - 5, e.d + L + (e.land || 0) + 5, e.kind]; }
+      return null; }).filter(Boolean);
+  },
+  run(R) {
+    const r = R.res, B = S.base, n = r.n, D = r.dist, raw = r.raw, h = r.hs, T = this.TH, C = this.CLS; if (!r || !raw || !h) return null;
+    const edits = this.editRanges(), editAt = d => { const e = edits.find(q => d >= q[0] && d <= q[1]); return e ? e[2] : null; };
+    const ll = i => B.P.inv(r.C[i][0], r.C[i][1]), FOR = r.FOR || [], gnd = typeof obGround === 'function' ? obGround(R.ter) : null;
+    const step = n > 1 ? D[1] - D[0] : 2, W5 = Math.max(1, Math.round(5 / step)), W10 = Math.max(1, Math.round(10 / step));
+    const pts = [], add = (i, type, cls, val, why) => pts.push({ i, d: D[i], type, cls, val, why });
+    // procedencia y confianza de cada punto
+    const src = {}, conf = { alta: 0, media: 0, baja: 0 };
+    let nan = 0; for (let i = 0; i < n; i++) { if (!isFinite(raw[i])) nan++; const [la, lo] = ll(i), k = DEM.sourceAt ? DEM.sourceAt(la, lo) : 'Copernicus GLO-30'; src[k] = (src[k] || 0) + 1;
+      const cu = DEM.custom.find(q => q.name === k); conf[cu ? (cu.resM <= 1.5 ? 'alta' : cu.resM <= 6 ? 'media' : 'baja') : 'baja']++; }
+    const med = (A, i, w) => { const v = []; for (let j = Math.max(0, i - w); j <= Math.min(n - 1, i + w); j++) if (j !== i && isFinite(A[j])) v.push(A[j]); v.sort((a, b) => a - b); return v.length ? v[v.length >> 1] : A[i]; };
+    const grade = (A, i) => { const a = Math.max(0, i - W5), b = Math.min(n - 1, i + W5); return (A[b] - A[a]) / ((D[b] - D[a]) || 1); };
+    let sumDev = 0, maxDev = 0, maxDevD = 0, sumGd = 0, nG = 0, maxGd = 0;
+    for (let i = 0; i < n; i++) {
+      const dv = h[i] - raw[i], ad = Math.abs(dv), ed = editAt(D[i]);
+      if (isFinite(dv)) { sumDev += ad; if (ad > maxDev) { maxDev = ad; maxDevD = D[i]; } }
+      const gh = grade(h, i), gr = grade(raw, i); if (isFinite(gr)) { const g = Math.abs(gh - gr); sumGd += g; nG++; if (g > maxGd) maxGd = g; }
+      // 1) dato con pico aislado (radar sobre árboles, error del modelo)
+      const pk = raw[i] - med(raw, i, 4); if (Math.abs(pk) > T.pico) add(i, 'pico en el dato de elevación', C.err, pk, FOR[i] > 0.4 && pk > 0 ? 'en zona de bosque: el modelo de superficie puede estar midiendo la copa de los árboles' : 'se aparta de sus vecinos más de ' + T.pico + ' m');
+      // 2) desvío del camino respecto del dato
+      if (ad > T.desvio) add(i, 'desvío respecto del dato', ed ? C.manual : FOR[i] > 0.4 && dv < 0 ? C.err : C.interp, dv,
+        ed ? `edición «${ed}» en este sector` : FOR[i] > 0.4 && dv < 0 ? 'el camino quedó más bajo que el dato en el bosque: probable altura de árboles en el modelo (DSM)' : 'el perfil suavizado/terraplén se aparta del dato');
+      // 3) quiebre brusco del perfil (cambio de pendiente fuerte en 2 puntos)
+      if (i > 0 && i < n - 1) { const q = h[i + 1] - 2 * h[i] + h[i - 1], qr = raw[i + 1] - 2 * raw[i] + raw[i - 1];
+        if (Math.abs(q) > T.quiebre) add(i, q < 0 ? 'quiebre de cresta' : 'quiebre de hondonada', ed ? C.manual : Math.abs(qr) > Math.abs(q) * 0.6 ? C.conf : C.unk, q / step, ed ? `edición «${ed}»` : `cambio de pendiente de ${(Math.abs(q) / step * 100).toFixed(0)} % en ${step.toFixed(0)} m`); }
+      // 4) pendiente fuerte (no se corrige sola: si el dato también la tiene, es real)
+      if (Math.abs(gh) > T.pend) add(i, 'pendiente fuerte', ed ? C.manual : Math.abs(gr) > Math.max(0.35, Math.abs(gh) * 1.6) ? C.err : Math.abs(gr) >= Math.abs(gh) * 0.8 ? C.conf : C.interp, gh, `${(gh * 100).toFixed(0)} % (el dato dice ${(gr * 100).toFixed(0)} %)` + (Math.abs(gr) > Math.max(0.35, Math.abs(gh) * 1.6) ? ': el dato tiene un escalón que el camino no sigue' : ''));
+      // 5) peralte / pendiente transversal fuerte
+      if (r.SL && Math.abs(r.SL[i]) > T.peralte) add(i, 'peralte fuerte', ed === 'bank' ? C.manual : C.unk, r.SL[i], `${(r.SL[i] * 100).toFixed(1)} % de pendiente transversal (estimada: no hay medición del borde)`);
+      // 6) ancho que salta
+      if (i < n - 1 && r.W && Math.abs(r.W[i + 1] - r.W[i]) > T.ancho) add(i, 'cambio brusco de ancho', ed === 'width' ? C.manual : C.unk, r.W[i + 1] - r.W[i], `${r.W[i].toFixed(1)} → ${r.W[i + 1].toFixed(1)} m`);
+      // 7) terreno y camino que no coinciden (camino flotando o terreno tapándolo)
+      // (debajo de la calzada el terreno se baja a propósito: lo que importa es que no asome por encima)
+      if (gnd && i % 2 === 0) for (const f of [0, -0.45, 0.45]) { const hw = (r.W ? r.W[i] : 6) / 2 * f, x = r.C[i][0] - r.T[i][1] * hw, y = r.C[i][1] + r.T[i][0] * hw, g = gnd(x, y), hr = h[i] + (r.SL ? r.SL[i] * hw : 0);
+        if (g != null && g > hr + T.piso) { add(i, 'terreno atraviesa el camino', C.unk, g - hr, `el terreno asoma ${((g - hr) * 100).toFixed(0)} cm sobre la calzada`); break; } }
+    }
+    // agrupar en zonas (mismo tipo, a menos de 12 m)
+    const zones = []; pts.sort((a, b) => a.type < b.type ? -1 : a.type > b.type ? 1 : a.d - b.d);
+    for (const p of pts) { const z = zones[zones.length - 1];
+      if (z && z.type === p.type && p.d - z.d1 <= 12) { z.d1 = p.d; z.n++; if (Math.abs(p.val) > Math.abs(z.val)) { z.val = p.val; z.why = p.why; z.cls = p.cls; z.i = p.i; } }
+      else zones.push({ type: p.type, cls: p.cls, d0: p.d, d1: p.d, n: 1, val: p.val, why: p.why, i: p.i }); }
+    zones.sort((a, b) => a.d0 - b.d0); zones.forEach(z => { z.ll = ll(z.i); });
+    const len = edits.reduce((a, e) => a + Math.max(0, e[1] - e[0]), 0), W = r.W ? Array.from(r.W) : [], SL = r.SL ? Array.from(r.SL).map(Math.abs) : [];
+    const rep = { n, step, total: r.total, src, conf, nan, spikesFixed: DEM.spikes || 0, devMean: sumDev / n, devMax: maxDev, devMaxD: maxDevD, gradeDevMean: nG ? sumGd / nG : 0, gradeDevMax: maxGd,
+      crossMean: SL.length ? SL.reduce((a, b) => a + b, 0) / SL.length : 0, crossMax: SL.length ? Math.max(...SL) : 0, wMin: W.length ? Math.min(...W) : 0, wMax: W.length ? Math.max(...W) : 0, wMean: W.length ? W.reduce((a, b) => a + b, 0) / W.length : 0,
+      edits: (S.edits || []).length, editLen: len, zones, byCls: {} };
+    for (const z of zones) rep.byCls[z.cls] = (rep.byCls[z.cls] || 0) + 1;
+    return rep;
+  },
+  text(rep) {
+    if (!rep) return 'Sin datos para validar.';
+    const pc = (a) => (a / rep.n * 100).toFixed(0) + ' %', f = (v, k = 2) => v.toFixed(k);
+    return ['VALIDACIÓN DEL TRAMO CONTRA LOS DATOS DE ELEVACIÓN', '',
+      `Largo: ${(rep.total / 1000).toFixed(2)} km · ${rep.n} puntos del eje cada ${f(rep.step, 1)} m`,
+      `Procedencia de la altura: ${Object.entries(rep.src).map(([k, v]) => `${k} ${pc(v)}`).join(' · ')}`,
+      `Confianza: alta ${pc(rep.conf.alta)} · media ${pc(rep.conf.media)} · baja ${pc(rep.conf.baja)} (baja = modelo de 30 m: no mide cunetas, bordes ni baches)`,
+      `Sin dato: ${rep.nan} puntos · picos del modelo corregidos al descargar: ${rep.spikesFixed}`,
+      '', 'Camino generado vs. dato medido (el dato original no se modifica; las ediciones se guardan aparte):',
+      `  desvío de altura: promedio ${f(rep.devMean)} m · máximo ${f(rep.devMax)} m (km ${(rep.devMaxD / 1000).toFixed(2)})`,
+      `  desvío de pendiente longitudinal (en 10 m): promedio ${f(rep.gradeDevMean * 100, 1)} % · máximo ${f(rep.gradeDevMax * 100, 1)} %`,
+      `  pendiente transversal (bombeo/peralte): promedio ${f(rep.crossMean * 100, 1)} % · máximo ${f(rep.crossMax * 100, 1)} % — estimada, no medida`,
+      `  ancho: ${f(rep.wMin, 1)}–${f(rep.wMax, 1)} m (promedio ${f(rep.wMean, 1)} m) — estimado salvo donde se midió en el satélite o se editó`,
+      `  correcciones manuales: ${rep.edits} (${(rep.editLen / 1000).toFixed(2)} km afectados)`,
+      '', `ZONAS PARA REVISAR: ${rep.zones.length} — ${Object.entries(rep.byCls).map(([k, v]) => `${v} ${k}`).join(' · ') || 'ninguna'}`,
+      ...rep.zones.map(z => `  km ${(z.d0 / 1000).toFixed(3)}–${(z.d1 / 1000).toFixed(3)} · ${z.type} · [${z.cls}] · ${z.why} · ${z.ll[0].toFixed(5)}, ${z.ll[1].toFixed(5)}`),
+      '', 'Umbrales: ' + Object.entries(this.TH).map(([k, v]) => `${k} ${v}`).join(' · '),
+      'Nada de esto se corrige solo: las pendientes fuertes y quiebres que el dato también muestra son reales y se dejan.'].join('\n');
+  },
+  layer: null, last: null,
+  show(rep) {
+    this.last = rep; const el = $('#valOut'); if (this.layer) { this.layer.remove(); this.layer = null; }
+    if (!rep) { if (el) el.textContent = ''; return; }
+    const col = { [this.CLS.conf]: '#3b82f6', [this.CLS.err]: '#e11d48', [this.CLS.interp]: '#f59e0b', [this.CLS.manual]: '#8b5cf6', [this.CLS.unk]: '#6b7280' };
+    if (typeof L !== 'undefined' && L.layerGroup && L.circleMarker) { this.layer = L.layerGroup(rep.zones.map(z => { const m = L.circleMarker(z.ll, { radius: 6, color: '#111', weight: 1, fillColor: col[z.cls] || '#999', fillOpacity: 0.9 }); if (m.bindTooltip) m.bindTooltip(`km ${(z.d0 / 1000).toFixed(2)} · ${z.type} · ${z.cls}`); return m; })); this.layer.addTo(map); }
+    if (!el) return;
+    const head = `<b>${rep.zones.length} zonas para revisar</b> · desvío medio ${rep.devMean.toFixed(2)} m, máx. ${rep.devMax.toFixed(2)} m · ${Object.entries(rep.byCls).map(([k, v]) => `<span style="color:${col[k]}">●</span> ${v} ${k}`).join(' · ')}`;
+    el.innerHTML = head + `<div style="max-height:180px;overflow:auto;margin-top:4px">${rep.zones.map((z, k) => `<div class="valz" data-k="${k}" style="cursor:pointer;padding:2px 0;border-bottom:1px solid #8882"><span style="color:${col[z.cls]}">●</span> km ${(z.d0 / 1000).toFixed(2)} · ${z.type} · <i>${z.cls}</i><br><small>${z.why}</small></div>`).join('')}</div>`;
+    el.querySelectorAll('.valz').forEach(d => d.onclick = () => { const z = rep.zones[+d.dataset.k]; if (map.setView) map.setView(z.ll, 17); });
+  },
+};
+$('#valBtn') && ($('#valBtn').onclick = () => { if (!S.result) return; const rep = VALID.run(S.result); VALID.show(rep); if ($('#valOk')) $('#valOk').checked = false; log(`Validación: ${rep ? rep.zones.length + ' zonas para revisar' : 'sin datos'}. Están marcadas en el mapa.`); });
 $('#zipBtn').onclick = async () => {
   if (!S.result) return;
   if (typeof edPending === 'function' && edPending()) { log('Hay cambios del editor sin confirmar: tocá OK para aplicarlos o Cancelar para descartarlos, y después exportá.', 'err'); const b = $('#edBar'); if (b) { b.classList.add('flash'); setTimeout(() => b.classList.remove('flash'), 1500); } return; }
@@ -3952,7 +4064,7 @@ async function buildZip(R) {
   const o = R.o, slug = slugify(o.name), zip = new JSZip();
   const tr = zip.folder('content').folder('tracks').folder(slug), src = $('#withSrc').checked ? zip.folder('fuente_' + slug) : null, ref = zip.folder('referencia_rbr_btb');
   const usedMats = [...new Set(R.meshes.map(m => m.mat))];
-  const keys = [...new Set(R.meshes.filter(m => !/^(LINES|TREES|ROCKS|BANNERS|OBJECTS)_/.test(m.name)).map(m => m.name.replace(/^\d+/, '')))];
+  const keys = [...new Set(R.meshes.filter(m => !/^(LINES|TREES|ROCKS|STONES|BANNERS|OBJECTS)_/.test(m.name)).map(m => m.name.replace(/^\d+/, '')))];
   const kd = m => (m === 'line' || m === 'tree' || m === 'tuft' || m === 'lenga' || m === 'leaves' || m === 'bark' || m.startsWith('side_') || m === 'people' || m.startsWith('tc_') || m.startsWith('rs_')) ? '1 1 1' : (TEXDEF[m] || SURF[MAT2KEY[m]] || { col: [128, 128, 128] }).col.map(v => (v / 255).toFixed(2)).join(' ');
   $('#prog').textContent = 'Escribiendo modelo 3D…'; await tick();
   if ($('#withSrc').checked) {
@@ -3981,6 +4093,7 @@ async function buildZip(R) {
   const tags = R.mode === 'route' ? (R.closed ? ['circuit', 'real world'] : ['point to point', 'rally', 'real world']) : ['open world', 'real world'];
   if (o.snow) tags.push('snow');
   tr.file('MATERIALES.txt', materialsReport());
+  { const rep = VALID.run(R); if (rep) { VALID.show(rep); tr.file('VALIDACION.txt', VALID.text(rep) + `\n\nAprobado por el usuario antes de exportar: ${$('#valOk') && $('#valOk').checked ? 'sí' : 'no (exportado sin aprobar)'}\n`); log(`Validación: ${rep.zones.length} zonas para revisar (detalle en VALIDACION.txt y en el mapa).`); } }
   tr.file('LICENCIAS_DATOS.txt', ['Datos usados para generar esta pista:', '- Calles, agua y edificios: © colaboradores de OpenStreetMap (ODbL), vía OpenFreeMap.', '- Elevación: ' + [DEM.used && DEM.used.cop ? COP_ATTR : '', DEM.used && DEM.used.ter ? 'Terrain Tiles (AWS Open Data / Mapzen)' : '', ...DEM.custom.map(r => r.name)].filter(Boolean).join('; ') + '.', '- Texturas: todas generadas por la app (materiales internos)' + (PACK.on && PACK.items.length ? '; detalle fino de tu pack DDS local (verificá su licencia antes de publicar la pista)' : '') + '.', '- La imagen satelital se usó solo para analizar (ancho del camino, piso, bosque); no está incluida en la pista.'].filter(Boolean).join('\n'));
   ui.file('ui_track.json', JSON.stringify({ name: o.name, description: `Generada desde datos reales (OpenStreetMap + elevación). ${(R.length / 1000).toFixed(2)} km.${S.imgStats && S.imgStats.src ? ' Texturas del terreno: ' + S.imgStats.src.attr : ''}`, tags, geotags: [R.lat0.toFixed(5), R.lon0.toFixed(5)], country: '', city: '', length: Math.round(R.length) + 'm', width: o.width + 'm', pitboxes: String(o.pits), run: R.closed ? 'clockwise' : '' }, null, 2));
   if (R.mode === 'route') {
@@ -4548,7 +4661,7 @@ async function buildKN5(R, slug, invert) {
   for (const m of meshes) {
     const N = Core.computeNormals(m);
     w.i32(2); w.str(m.name); w.i32(0); w.u8(1);
-    const visual = !/^(LINES|TREES|ROCKS|BANNERS|OBJECTS)_/.test(m.name);
+    const visual = !/^(LINES|TREES|ROCKS|STONES|BANNERS|OBJECTS)_/.test(m.name);
     w.u8(m.mat === 'line' ? 0 : 1); w.u8(1); w.u8(0); // sombras, visible, transparente
     w.i32(m.v.length);
     let mnx = Infinity, mny = Infinity, mnz = Infinity, mxx = -Infinity, mxy = -Infinity, mxz = -Infinity;

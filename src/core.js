@@ -359,6 +359,67 @@ const Core = (() => {
       if (last && last.key === key) last.i1 = i; else runs.push({ key, i0: i, i1: i });
     }
     const cnt = counters(), meshes = [];
+    // ---------- Ripio físico: piedras 3D incrustadas en la calzada ----------
+    // Las que sobresalen lo suficiente para mover la suspensión son mallas con nombre de superficie (1GRAVEL…):
+    // en Assetto Corsa la malla visible ES la colisión, así que la piedra que se ve y la que toca la goma coinciden.
+    // Forma de domo bajo (ancho ≥ 2,2 veces el alto), sin aristas verticales: el rayo de cada rueda sube y baja de a poco,
+    // sin picos de colisión. La gravilla fina es sólo visual (sin colisión, se deja de dibujar a ~45 m).
+    const STONY = { GRAVEL: 1, CLAY: 0.75, LOOSE: 1.3 }, stoneAmt = o.stones == null ? 1 : +o.stones, stoneGroups = new Map();
+    const stats = { phys: 0, vis: 0, big: 0, physByZone: { huella: 0, centro: 0, entreHuellaYBorde: 0, banquina: 0 } };
+    const stoneMesh = (key, d, phys) => { const c = Math.floor(d / 100), gk = (phys ? key : 'V') + '|' + c; let m = stoneGroups.get(gk);
+      if (!m) { m = newMesh(phys ? `${cnt(key)}${key}` : `STONES_${c}`, 'stone'); m.ri = []; m.rs = []; m.stones = true; if (phys) m.physStones = true; else m.lod = [0, 30]; stoneGroups.set(gk, m); } return m; };
+    // una piedra: centro + anillo medio + anillo exterior hundido (nc lados irregulares); p = cuánto sobresale, r = radio
+    const putStone = (m, x, y, h, r, p, el, rot, sd, ri, rs, nc) => {
+      const b = m.v.length, cr = Math.cos(rot), sr = Math.sin(rot), uo = hash2(sd, 3, 501), vo = hash2(sd, 4, 502), tilt = (hash2(sd, 5, 503) - 0.5) * 0.35 * p;
+      const P = (lx, ly, z) => { lx *= el; const X = x + lx * cr - ly * sr, Y = y + lx * sr + ly * cr; m.v.push([X, Y, h + z + tilt * lx / r]); m.uv.push([uo + lx * 1.6, vo + ly * 1.6]); m.ri.push(ri); m.rs.push(rs); };
+      const top = 0.85 + 0.3 * hash2(sd, 6, 504); P((hash2(sd, 7, 505) - 0.5) * r * 0.3, (hash2(sd, 8, 506) - 0.5) * r * 0.3, p * top);
+      for (let k = 0; k < nc; k++) { const a = (k + 0.35 * (hash2(sd, k, 507) - 0.5)) / nc * 6.2832, q = 0.38 + 0.14 * hash2(sd, k, 508); P(Math.cos(a) * r * q, Math.sin(a) * r * q, p * (0.72 + 0.2 * hash2(sd, k, 509))); }
+      for (let k = 0; k < nc; k++) { const a = (k + 0.5 + 0.4 * (hash2(sd, k, 510) - 0.5)) / nc * 6.2832, q = 0.9 + 0.25 * hash2(sd, k, 511); P(Math.cos(a) * r * q, Math.sin(a) * r * q, -0.006 - 0.006 * hash2(sd, k, 512)); }
+      for (let k = 0; k < nc; k++) { const k1 = (k + 1) % nc; m.f.push([b, b + 1 + k, b + 1 + k1]); m.f.push([b + 1 + k, b + 1 + nc + k, b + 1 + k1]); m.f.push([b + 1 + k1, b + 1 + nc + k, b + 1 + nc + k1]); }
+    };
+    // gravilla visual: domo bajo de 5 lados (6 vértices), contorno irregular
+    const putPebble = (m, x, y, h, r, p, rot, sd, ri, rs) => {
+      const b = m.v.length, uo = hash2(sd, 1, 520), vo = hash2(sd, 2, 521), el = 0.7 + 0.5 * hash2(sd, 3, 526), cr = Math.cos(rot), sr = Math.sin(rot);
+      m.v.push([x, y, h + p]); m.uv.push([uo, vo]); m.ri.push(ri); m.rs.push(rs);
+      for (let k = 0; k < 5; k++) { const a = (k + 0.4 * (hash2(sd, k, 522) - 0.5)) * 1.2566, q = r * (0.75 + 0.4 * hash2(sd, k, 523)), lx = Math.cos(a) * q * el, ly = Math.sin(a) * q;
+        m.v.push([x + lx * cr - ly * sr, y + lx * sr + ly * cr, h - 0.004 + p * 0.25 * hash2(sd, k, 527)]); m.uv.push([uo + lx * 2, vo + ly * 2]); m.ri.push(ri); m.rs.push(rs); }
+      for (let k = 0; k < 5; k++) m.f.push([b, b + 1 + k, b + 1 + (k + 1) % 5]);
+    };
+    const placeStones = (secs, key) => {
+      const amt = STONY[key] * stoneAmt; if (!(amt > 0)) return;
+      for (let k = 0; k + 1 < secs.length; k++) {
+        const A = secs[k], B = secs[k + 1], dl = B.d - A.d; if (!(dl > 0.05) || A.cols.length !== B.cols.length) continue;
+        const nC = A.cols.length, s0 = A.cols[0].s, s1 = A.cols[nC - 1].s, hw = (s1 - s0) / 2; if (!(hw > 1)) continue;
+        const tw = Math.min(hw * 0.62, 0.78), di = Math.round(A.d * 2);
+        // altura de la calzada (con relieve) en (t a lo largo, s a lo ancho), interpolada en la grilla de la cinta
+        const at = (t, s) => { let j = 0; while (j < nC - 2 && A.cols[j + 1].s < s) j++; const a0 = A.cols[j], a1 = A.cols[j + 1], b0 = B.cols[j], b1 = B.cols[j + 1], u = Math.max(0, Math.min(1, (s - a0.s) / ((a1.s - a0.s) || 1)));
+          const L = (p, q) => p + (q - p) * u, ia = L(a0.i, a1.i), ib = L(b0.i, b1.i);
+          // el cuadrado se parte en dos triángulos (no sabemos cuál diagonal): la altura más alta de las dos maneras, así nada queda enterrado
+          const h1 = u > t ? a0.h + (a1.h - a0.h) * u + (b1.h - a1.h) * t : a0.h + (b0.h - a0.h) * t + (b1.h - b0.h) * u, h2 = u + t < 1 ? a0.h + (a1.h - a0.h) * u + (b0.h - a0.h) * t : b1.h + (b0.h - b1.h) * (1 - u) + (a1.h - b1.h) * (1 - t);
+          return { x: L(a0.x, a1.x) * (1 - t) + L(b0.x, b1.x) * t, y: L(a0.y, a1.y) * (1 - t) + L(b0.y, b1.y) * t, h: Math.max(h1, h2), i: ia * (1 - t) + ib * t }; };
+        for (let c = 0, nc = Math.ceil((s1 - s0) / 0.5); c < nc; c++) {
+          const sc0 = s0 + c * 0.5;
+          for (let q = 0; q < 6; q++) {
+            const sd = hash2(di, c * 16 + q, 530) * 1e9 | 0, s = sc0 + 0.5 * hash2(di, c * 16 + q, 531), a = Math.abs(s), f = a / hw; if (a > hw - 0.12) continue;
+            const zone = Math.abs(a - tw) < 0.3 ? 'huella' : f > 0.8 ? 'banquina' : a < tw ? 'centro' : 'entreHuellaYBorde';
+            // densidad por m² — física / visual — según la zona (camino de camiones: huellas compactas, piedras sueltas a los costados)
+            const D = { huella: [0.008, 0.4], centro: [0.06, 1.3], entreHuellaYBorde: [0.07, 1.6], banquina: [0.22, 3.5] }[zone], cell = 0.5 * dl / 6; // 6 intentos por celda
+            const r0 = hash2(sd, 9, 532), t = hash2(sd, 10, 533), P = at(t, s);
+            if (r0 < D[0] * amt * cell) { // piedra que la goma toca
+              const big = hash2(sd, 11, 534) < (zone === 'banquina' ? 0.07 : zone === 'huella' ? 0 : 0.025);
+              let r = big ? 0.2 + 0.12 * hash2(sd, 12, 535) : 0.07 + (zone === 'banquina' ? 0.11 : 0.06) * hash2(sd, 12, 535) ** 1.4;
+              let p = r * (big ? 0.24 + 0.06 * hash2(sd, 13, 536) : 0.16 + 0.12 * hash2(sd, 13, 536));
+              if (zone === 'huella') p = Math.min(p, 0.02); // las ruedas de los camiones las aplastaron
+              p = Math.min(p, r * 0.3); // ancho ≥ 3,3 × alto: laderas de ~35° como máximo (sin picos de colisión)
+              putStone(stoneMesh(key, A.d, true), P.x, P.y, P.h, r, p, 0.75 + 0.5 * hash2(sd, 14, 537), hash2(sd, 15, 538) * 6.283, sd, P.i, s, big ? 8 : 6);
+              stats.phys++; stats.physByZone[zone]++; if (big) stats.big++;
+            } else if (r0 < (D[0] + D[1]) * amt * cell) { // gravilla visual
+              const r = (zone === 'huella' ? 0.025 : 0.03) + (zone === 'banquina' ? 0.08 : 0.055) * hash2(sd, 16, 539) ** 1.3; putPebble(stoneMesh(key, A.d, false), P.x, P.y, P.h, r, r * (0.35 + 0.3 * hash2(sd, 17, 540)), hash2(sd, 18, 541) * 6.283, sd, P.i, s); stats.vis++;
+            }
+          }
+        }
+      }
+    };
     for (const run of runs) {
       const secs = [];
       let rutMode = false; if (o.rutAt && run.key === 'MUD') for (let i = run.i0; i <= run.i1 + 1 && !rutMode; i++) if (o.rutAt(dist[i % n])) rutMode = true;
@@ -371,7 +432,9 @@ const Core = (() => {
         ? [[0, 2, 'LOOSE'], [2, 6, run.key], [6, 8, 'LOOSE'], [8, 12, run.key], [12, 14, 'LOOSE']] : [[0, secs.length ? secs[0].cols.length - 1 : 0, run.key]];
       for (const [a, b, key] of bands) { const part = bands.length > 1 ? secs.map(q => ({ ...q, cols: q.cols.slice(a, b + 1) })) : secs;
         for (const m of ribbonMeshes(part, false, key, MAT[run.key], 7, { next: () => cnt(key) })) { m.road = true; meshes.push(m); } }
+      if (STONY[run.key] && !rutMode) placeStones(secs, run.key);
     }
+    for (const m of stoneGroups.values()) if (m.f.length) meshes.push(m);
     // costados: berma, cuneta y contratalud (o banquina y terraplén donde no hay cuneta)
     // dos cintas por costado: la zanja (o la berma) con su textura a lo ancho, y el talud de pasto con textura
     // a escala real (u = metros / 5), así el pasto no queda estirado en rayas
@@ -434,7 +497,7 @@ const Core = (() => {
     }
     const segs = routeSegs();
     for (const m of meshes) m.route = true;
-    return { meshes, segs, C, T, hs, raw, dist, total, n, K, W, SL, SURF, closed, CS, DL: DLs, DR: DRs, EX, SP, HUM, HO, FOR, accessPts, ctxAt };
+    return { meshes, segs, C, T, hs, raw, dist, total, n, K, W, SL, SURF, closed, CS, DL: DLs, DR: DRs, EX, SP, HUM, HO, FOR, accessPts, ctxAt, stones: stats };
   }
 
   // ---------- Modo ZONA (mundo abierto) ----------
