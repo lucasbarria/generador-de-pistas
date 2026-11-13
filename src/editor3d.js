@@ -308,21 +308,33 @@ function liveCommit() {
       for (const m of R.meshes) {
         if (m.terrain || m.route || m.side || m.cattle || !edHit(edMeshBB(m), q)) continue;
         let t = false;
-        for (const v of m.v) { if (v[0] < q.minx || v[0] > q.maxx || v[1] < q.miny || v[1] > q.maxy) continue; const dz = dAt(v[0], v[1]); if (dz) { v[2] += dz; t = true; } }
+        if (m.block || m.blocks) { // cada árbol / mata / piedra se mueve entero, según el suelo bajo su base (por vértice se deformaba: copas colgando)
+          for (const [b0, L] of Core.blocksOf(m)) {
+            let z0 = Infinity, bx = 0, by = 0, nb = 0;
+            for (let k = 0; k < L; k++) z0 = Math.min(z0, m.v[b0 + k][2]);
+            for (let k = 0; k < L; k++) { const v = m.v[b0 + k]; if (v[2] - z0 < 0.6) { bx += v[0]; by += v[1]; nb++; } }
+            bx /= nb; by /= nb; if (bx < q.minx || bx > q.maxx || by < q.miny || by > q.maxy) continue;
+            const dz = dAt(bx, by); if (!dz) continue;
+            for (let k = 0; k < L; k++) m.v[b0 + k][2] += dz; t = true;
+          }
+        } else for (const v of m.v) { if (v[0] < q.minx || v[0] > q.maxx || v[1] < q.miny || v[1] > q.maxy) continue; const dz = dAt(v[0], v[1]); if (dz) { v[2] += dz; t = true; } }
         if (t) touched.add(m);
       }
     }
     // si el camino se movió o se ensanchó: sacar los árboles y piedras que quedaron encima
     if (xy) {
-      const rd = Core.roadDistFn(r.segs, true);
+      const gnd = typeof obGround === 'function' ? obGround(typeof ter !== 'undefined' ? ter : undefined) : null, rd = Core.roadDistFn(r.segs, true), M = 20, qq = { minx: q.minx - M, miny: q.miny - M, maxx: q.maxx + M, maxy: q.maxy + M }; // la zona sucia es la del eje: un camino ensanchado llega varios metros más allá
       for (const m of R.meshes) {
-        if (!(m.block || m.blocks) || !edHit(edMeshBB(m), q)) continue;
+        if (!(m.block || m.blocks) || !edHit(edMeshBB(m), qq)) continue;
         const lim = m.mat === 'tree' || m.mat === 'lenga' || m.mat === 'leaves' ? 1.0 : 0.4; let t = false;
         for (const [b, L] of Core.blocksOf(m)) {
           let cx = 0, cy = 0; for (let k = 0; k < L; k++) { cx += m.v[b + k][0]; cy += m.v[b + k][1]; } cx /= L; cy /= L;
-          if (cx < q.minx || cx > q.maxx || cy < q.miny || cy > q.maxy) continue;
+          if (cx < qq.minx || cx > qq.maxx || cy < qq.miny || cy > qq.maxy) continue;
           if (m.v[b][0] === m.v[b + 1][0] && m.v[b][1] === m.v[b + 1][1] && m.v[b][2] === m.v[b + 1][2]) continue; // ya quitado
-          if (rd(cx, cy, 12) < lim) { const p0 = m.v[b].slice(); for (let k = 0; k < L; k++) m.v[b + k] = p0.slice(); t = true; }
+          let hit = rd(cx, cy, 12) < lim;
+          if (!hit && (m.mat === 'leaves' || m.mat === 'bark' || m.mat === 'tree')) { let z0 = Infinity; for (let k = 0; k < L; k++) z0 = Math.min(z0, m.v[b + k][2]); // árbol o arbusto con una parte baja (menos de 3,2 m sobre el suelo) encima del camino nuevo
+            for (let k = 0; k < L && !hit; k++) { const v = m.v[b + k]; if (rd(v[0], v[1], 4) >= 0.4) continue; const g = gnd ? gnd(v[0], v[1]) : null; if (v[2] - (g == null ? z0 : g) < 3.4) hit = true; } }
+          if (hit) { const p0 = m.v[b].slice(); for (let k = 0; k < L; k++) m.v[b + k] = p0.slice(); t = true; }
         }
         if (t) touched.add(m);
       }

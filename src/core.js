@@ -781,14 +781,17 @@ const Core = (() => {
         for (let k = 0; k <= sides; k++) { const an = k / sides * Math.PI * 2, c = Math.cos(an) * rads[i], sn = Math.sin(an) * rads[i]; M.v.push([p[0] + ux * c + wx * sn, p[1] + uy * c + wy * sn, p[2] + uz * c + wz * sn]); M.uv.push([k / sides, acc / vS]); } }
       for (let i = 0; i < pts.length - 1; i++) for (let k = 0; k < sides; k++) { const a0 = b0 + i * (sides + 1) + k, a1 = a0 + sides + 1; M.f.push([a0, a1 + 1, a1], [a0, a0 + 1, a1 + 1]); } };
     // racimo de hojas: lámina chica de dos caras, orientada al azar (no mira a la cámara), normales hacia afuera de la copa
-    const leaf = (M, c, sz, yaw, pitch, slot, C, RC) => { const e1 = [Math.cos(yaw), Math.sin(yaw), 0], e2 = [-Math.sin(yaw) * Math.sin(pitch), Math.cos(yaw) * Math.sin(pitch), Math.cos(pitch)], h = sz / 2;
+    let G0 = 0; // piso del árbol que se está armando
+    const clearOf = (x, y, need) => rd(x, y, need + 2) >= need; // rd: distancia a la línea libre (fin de la cuneta); negativo = camino o cuneta
+    const leaf = (M, c, sz, yaw, pitch, slot, C, RC) => { { const gl = hAt(c[0], c[1]), g = Math.max(G0, gl ? gl.h : G0); if (c[2] - sz * 0.72 - g < 3.0 && !clearOf(c[0], c[1], sz * 0.72 + 0.35)) return; } /* altura sobre el piso que está debajo del racimo (puede ser el camino, más alto que el árbol) */ leaf0(M, c, sz, yaw, pitch, slot, C, RC); };
+    const leaf0 = (M, c, sz, yaw, pitch, slot, C, RC) => { const e1 = [Math.cos(yaw), Math.sin(yaw), 0], e2 = [-Math.sin(yaw) * Math.sin(pitch), Math.cos(yaw) * Math.sin(pitch), Math.cos(pitch)], h = sz / 2;
       const P4 = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, j]) => [c[0] + (e1[0] * i + e2[0] * j) * h, c[1] + (e1[1] * i + e2[1] * j) * h, c[2] + (e1[2] * i + e2[2] * j) * h]);
       const u0 = (slot & 1) * 0.5 + 0.005, v0 = (slot >> 1) * 0.5 + 0.005, UV = [[u0, v0], [u0 + 0.49, v0], [u0 + 0.49, v0 + 0.49], [u0, v0 + 0.49]];
       for (const back of [0, 1]) { const b = M.v.length; P4.forEach((p, k) => { M.v.push(p); M.uv.push(UV[k]); let ex = p[0] - C[0], ey = p[1] - C[1], ez = (p[2] - C[2]) + RC * 0.35; const L = Math.hypot(ex, ey, ez) || 1; M.n.push([ex / L, ey / L, ez / L]); });
         if (back) M.f.push([b, b + 2, b + 1], [b, b + 3, b + 2]); else M.f.push([b, b + 1, b + 2], [b, b + 2, b + 3]); } };
     const leafSlot = (kind, r) => kind === 0 ? 3 : kind === 2 ? 2 : r < 0.5 ? 0 : 1;
     // lenga / ñire (latifoliada): tronco con base ensanchada, inclinación y curva; ramas principales en pisos; ramitas; racimos en las puntas
-    const broadleaf = (t, full, BM, LM) => { const [x, y, h, , ra, rb] = t, age = R(x, y, 21), Ht = age < 0.3 ? 4 + ra * 4 : age < 0.9 ? 11 + ra * 9 : 19 + ra * 6, z0 = h - 0.25;
+    const broadleaf = (t, full, BM, LM) => { G0 = t[2]; const [x, y, h, , ra, rb] = t, age = R(x, y, 21), Ht = age < 0.3 ? 4 + ra * 4 : age < 0.9 ? 11 + ra * 9 : 19 + ra * 6, z0 = h - 0.25;
       const r0 = 0.08 + Ht * (age > 0.9 ? 0.02 : 0.015), lx = (R(x, y, 22) - 0.5) * Ht * 0.07, ly = (R(x, y, 23) - 0.5) * Ht * 0.07, TT = Ht * 0.62, cb = Ht * (0.28 + 0.14 * rb), Wc = Ht * (0.6 + 0.3 * ra);
       const NS = full ? 6 : 3, spine = [], rad = []; for (let i = 0; i <= NS; i++) { const f = i / NS, bend = Math.sin(f * Math.PI) * 0.06 * Ht * (R(x, y, 24) - 0.5); spine.push([x + lx * f * f + bend, y + ly * f * f - bend * 0.5, z0 + TT * f]); rad.push(r0 * (i === 0 ? 1.35 : 1 - 0.55 * f)); }
       tube(BM, spine, rad, full ? 8 : 5, 2.5);
@@ -811,15 +814,16 @@ const Core = (() => {
       for (let j = 0; j < (full ? 5 : 2); j++) { const q = R(x, y, 150 + j), a = j * 2.4 + rb * 6, rr = RC * (0.15 + 0.35 * q); leaf(LM, [C[0] + Math.cos(a) * rr, C[1] + Math.sin(a) * rr, C[2] + (R(y, x, 160 + j) - 0.3) * (Ht - cb) * 0.4], sz0 * (1.1 + 0.4 * q), a + 1.2, 0.35 + 0.5 * R(x, j, 170), slot, C, RC); }
       return Ht; };
     // conífera (raras en Patagonia sur): tronco recto y verticilos de ramas que caen
-    const conifer = (t, full, BM, LM) => { const [x, y, h, , ra, rb] = t, Ht = 7 + ra * 11, z0 = h - 0.25, r0 = 0.1 + Ht * 0.013;
+    const conifer = (t, full, BM, LM) => { G0 = t[2]; const [x, y, h, , ra, rb] = t, Ht = 7 + ra * 11, z0 = h - 0.25, r0 = 0.1 + Ht * 0.013;
       tube(BM, [[x, y, z0], [x, y, z0 + Ht * 0.5], [x, y, z0 + Ht]], [r0 * 1.3, r0 * 0.7, 0.02], full ? 7 : 4, 2.5);
       const C = [x, y, z0 + Ht * 0.55], NW = full ? Math.round(Ht / 1.1) : 4;
       for (let k = 0; k < NW; k++) { const f = 0.25 + 0.72 * k / NW, z = z0 + Ht * f, Rr = Ht * 0.24 * (1 - f) + 0.4, nwh = full ? 5 : 3;
         for (let j = 0; j < nwh; j++) { const az = j / nwh * Math.PI * 2 + k * 0.7 + rb * 3, c = [x + Math.cos(az) * Rr * 0.55, y + Math.sin(az) * Rr * 0.55, z - Rr * 0.15]; leaf(LM, c, Rr * (full ? 1.15 : 1.6), az + Math.PI / 2, 1.05 + 0.25 * R(k, j, 91), 3, C, Ht * 0.3); } }
       return Ht; };
     // arbusto (ñire bajo, calafate, chaura): varios tallos desde el piso y racimos chicos
-    const shrub = (t, BM, LM) => { const [x, y, h, , ra, rb, , edgeB] = t, Ht = edgeB ? 1.6 + ra * 2 : 0.8 + ra * 1.4, z0 = h - 0.1, ns = 3 + Math.floor(ra * 3), C = [x, y, z0 + Ht * 0.55];
-      for (let k = 0; k < ns; k++) { const az = k * 2.4 + rb * 6, lean = 0.25 + 0.35 * R(x, y, 100 + k), L = Ht * (0.75 + 0.3 * R(x, y, 110 + k)), e = [x + Math.cos(az) * L * lean, y + Math.sin(az) * L * lean, z0 + L];
+    const shrub = (t, BM, LM) => { const [x, y, h, , ra, rb, , edgeB] = t, Ht = edgeB ? 1.6 + ra * 2 : 0.8 + ra * 1.4, z0 = h - 0.1, ns = 3 + Math.floor(ra * 3), C = [x, y, z0 + Ht * 0.55]; G0 = h;
+      const gx = rd(x + 0.5, y, 60) - rd(x - 0.5, y, 60), gy = rd(x, y + 0.5, 60) - rd(x, y - 0.5, 60), away = Math.atan2(gy, gx); // dirección que se aleja del camino
+      for (let k = 0; k < ns; k++) { const az = away + (k / Math.max(1, ns - 1) - 0.5) * 2.6 + (R(x, y, 130 + k) - 0.5) * 0.5, lean = 0.25 + 0.35 * R(x, y, 100 + k), L = Ht * (0.75 + 0.3 * R(x, y, 110 + k)), e = [x + Math.cos(az) * L * lean, y + Math.sin(az) * L * lean, z0 + L];
         tube(BM, [[x + Math.cos(az) * 0.05, y + Math.sin(az) * 0.05, z0], e], [0.03, 0.008], 3, 1);
         for (let j = 0; j < 3; j++) { const u = 0.45 + 0.28 * j, c = [x + (e[0] - x) * u + (R(k, j, 120) - 0.5) * 0.4, y + (e[1] - y) * u + (R(j, k, 121) - 0.5) * 0.4, z0 + (e[2] - z0) * u]; leaf(LM, c, Ht * (0.45 + 0.25 * R(k, j, 122)), az + j, 0.5 + 0.9 * R(j, k, 123), 2, C, Ht * 0.5); } }
       return Ht; };
