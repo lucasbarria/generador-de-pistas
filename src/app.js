@@ -3895,6 +3895,61 @@ function surfacesIni(keys) {
     }).join('\n');
 }
 
+
+// ---------- Línea de IA (ai/fast_lane.ai): la usan Assetto Corsa y los copilotos (Rally Copilot de CSP lee la posición
+// del auto sobre esta línea: sin ella no hay distancia recorrida y el copiloto no canta nada). Formato v7 de Kunos
+// (el mismo que leen Content Manager y ksEditor): puntos (x, y, z, distancia acumulada, id) + 18 datos por punto.
+function aiLaneFile(R) {
+  const r = R.res, n = r.n, buf = new ArrayBuffer(16 + n * 20 + 4 + n * 72 + 4), dv = new DataView(buf); let o = 0;
+  const i32 = v => { dv.setInt32(o, v, true); o += 4; }, f32 = v => { dv.setFloat32(o, v, true); o += 4; };
+  const P = i => [r.C[i][0], r.hs[i] + 0.02 * r.W[i] / 2 + 0.05, -r.C[i][1]]; // misma conversión de ejes que el .kn5: X = este, Y = arriba, Z = −norte
+  i32(7); i32(n); i32(0); i32(0);
+  for (let i = 0; i < n; i++) { const p = P(i); f32(p[0]); f32(p[1]); f32(p[2]); f32(r.dist[i]); i32(i); }
+  i32(n);
+  for (let i = 0; i < n; i++) {
+    const k = Math.abs(r.K[i] || 0), rad = k > 1e-5 ? Math.min(1e4, 1 / k) : 1e4, j = Math.min(n - 1, i + 1), seg = Math.max(0.01, r.dist[j] - r.dist[i]) || 2;
+    const T = r.T[i], fx = T[0], fz = -T[1], gr = (r.hs[j] - r.hs[i]) / seg, hw = r.W[i] / 2 + 1;
+    f32(Math.min(40, Math.sqrt(6 * rad))); f32(0.8); f32(0); f32(0); f32(rad); f32(hw); f32(hw); f32(0); f32(0);
+    f32(0); f32(1); f32(0); f32(seg); f32(fx); f32(0); f32(fz); f32(0); f32(gr);
+  }
+  i32(0); // sin grilla (AC y Content Manager la aceptan así)
+  return new Uint8Array(buf);
+}
+// notas para Rally Copilot (CSP): mismo formato que guarda la app (versión 3). pos = fracción de la línea de IA,
+// que tiene exactamente los mismos puntos y distancias que las notas → no hay corrimiento acumulado.
+function rcNotesText(R) {
+  const r = R.res, T = r.total, items = [];
+  const deg = g => g === 'horquilla' ? 1 : g === 'leve' ? 6 : Math.min(6, Math.max(1, (+g || 3) + 1));
+  for (const nt of R.info.notes || []) {
+    const pos = Math.max(0, Math.min(1, nt.d / T)), hints = [];
+    if (nt.kind === 'curva') { const m = /^(izq|dcha) (\S+)(.*)$/.exec(nt.txt); if (!m) continue; const mods = m[3];
+      if (/cierra/.test(mods)) hints.push(5); if (/abre/.test(mods)) hints.push(6); if (/larga/.test(mods)) hints.push(3);
+      items.push(`RouteItem(${m[1] === 'izq' ? 1 : 2},${deg(m[2])},${pos.toFixed(6)},{${hints.join(',')}})`); }
+    else if (nt.kind === 'cresta') items.push(`RouteItem(6,${/fuerte/.test(nt.txt) ? 2 : 3},${pos.toFixed(6)},{})`);
+  }
+  return `{version=3,items={${items.join(',')}},metadata={name="Generador de pistas (${R.o.name.replace(/"/g, '')})",author="Generador de pistas"}}`;
+}
+// diagnóstico de alineación: compara el trazado original, el generado, la línea de IA, el minimapa y la malla del camino
+function alignmentDiag(R, mp, margin) {
+  const r = R.res, B = S.base, out = [];
+  // 1) minimapa: píxel según map.ini (como lo calcula AC) contra píxel donde se dibujó el camino en map.png
+  const sf = mp.sc, xo = -mp.mnx + margin * sf, zo = mp.mxy + margin * sf; let eMap = 0;
+  for (let i = 0; i < r.n; i += 5) { const X = r.C[i][0], Z = -r.C[i][1], px = (X + xo) / sf, pz = (Z + zo) / sf, dx = margin + (r.C[i][0] - mp.mnx) / sf, dz = margin + (mp.mxy - r.C[i][1]) / sf; eMap = Math.max(eMap, Math.hypot(px - dx, pz - dz)); }
+  out.push(`Minimapa (map.png + map.ini): error máximo ${eMap.toFixed(2)} px (${(eMap * sf).toFixed(2)} m). Escala ${sf.toFixed(3)} m/px, origen X ${xo.toFixed(1)}, Z ${zo.toFixed(1)}.`);
+  // 2) línea de IA contra la malla del camino del .kn5 (vértices del centro)
+  let eAI = 0, cnt = 0; const grid = new Map(); for (let i = 0; i < r.n; i++) { const k = Math.floor(r.C[i][0] / 10) + ',' + Math.floor(r.C[i][1] / 10); (grid.get(k) || grid.set(k, []).get(k)).push(i); }
+  for (const m of R.meshes) { if (!m.road || !m.ds) continue; for (let v = 0; v < m.v.length; v += 7) { if (Math.abs(m.ds[v][1]) > 0.05) continue; const x = m.v[v][0], y = m.v[v][1]; let best = Infinity;
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const i of grid.get((Math.floor(x / 10) + a) + ',' + (Math.floor(y / 10) + b)) || []) best = Math.min(best, Math.hypot(r.C[i][0] - x, r.C[i][1] - y));
+      if (isFinite(best)) { eAI = Math.max(eAI, best); cnt++; } } }
+  out.push(`Línea de IA (ai/fast_lane.ai) contra el centro del camino en el .kn5: separación máxima ${eAI.toFixed(2)} m en ${cnt} puntos. Largo ${r.total.toFixed(1)} m, ${r.n} puntos.`);
+  // 3) trazado elegido en el mapa contra el eje generado (suavizado): corrimiento lateral
+  if (B && B.pts && B.pts.length > 1) { let mx = 0, sum = 0, c = 0; const g2 = new Map(); for (let i = 0; i < r.n; i++) { const k = Math.floor(r.C[i][0] / 20) + ',' + Math.floor(r.C[i][1] / 20); (g2.get(k) || g2.set(k, []).get(k)).push(i); }
+    for (const p of B.pts) { let best = Infinity; for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const i of g2.get((Math.floor(p[0] / 20) + a) + ',' + (Math.floor(p[1] / 20) + b)) || []) best = Math.min(best, Math.hypot(r.C[i][0] - p[0], r.C[i][1] - p[1])); if (isFinite(best)) { mx = Math.max(mx, best); sum += best; c++; } }
+    out.push(`Trazado original (mapa/GPS) contra el eje generado: corrimiento medio ${(sum / Math.max(1, c)).toFixed(2)} m, máximo ${mx.toFixed(2)} m (el máximo suele estar en curvas suavizadas).`); }
+  out.push('Ejes: X = este, Y = altura, Z = −norte, 1 unidad = 1 m, sin rotación ni escala. Mismo origen en el .kn5, la línea de IA, map.ini y el eje_camino.csv.');
+  return out.join('\n');
+}
+
 function drawOutline(R, maxSize, margin, line) {
   let mnx = Infinity, mny = Infinity, mxx = -Infinity, mxy = -Infinity;
   R.outline.forEach(C => C.forEach(p => { mnx = Math.min(mnx, p[0]); mxx = Math.max(mxx, p[0]); mny = Math.min(mny, p[1]); mxy = Math.max(mxy, p[1]); }));
@@ -3927,7 +3982,13 @@ async function buildZip(R) {
   data.file('surfaces.ini', surfacesIni(keys));
   const mp = drawOutline(R, 1600, 20, 6);
   tr.file('map.png', await canvasBlob(mp.c));
-  data.file('map.ini', `[PARAMETERS]\nWIDTH=${mp.W}\nHEIGHT=${mp.H}\nMARGIN=20\nSCALE_FACTOR=${mp.sc.toFixed(4)}\nX_OFFSET=${(-mp.mnx).toFixed(2)}\nZ_OFFSET=${(mp.mxy).toFixed(2)}\nDRAWING_SIZE=10\n`);
+  // el camino se dibuja corrido MARGIN píxeles: el origen del map.ini tiene que incluir ese margen (antes faltaba → minimapa corrido ~20 px)
+  data.file('map.ini', `[PARAMETERS]\nWIDTH=${mp.W + 40}\nHEIGHT=${mp.H + 40}\nMARGIN=20\nSCALE_FACTOR=${mp.sc.toFixed(4)}\nX_OFFSET=${(-mp.mnx + 20 * mp.sc).toFixed(2)}\nZ_OFFSET=${(mp.mxy + 20 * mp.sc).toFixed(2)}\nDRAWING_SIZE=10\nMAX_SIZE=1600\n`);
+  if (R.mode === 'route' && R.res) {
+    tr.folder('ai').file('fast_lane.ai', aiLaneFile(R)); // sin esto, Rally Copilot (CSP) y otros copilotos no saben dónde está el auto
+    data.file('generador_pacenotes.rc-notes', rcNotesText(R));
+    const diag = alignmentDiag(R, mp, 20); ref.file('diagnostico_alineacion.txt', diag + '\n'); log('Alineación: ' + diag.split('\n').slice(0, 3).join(' · '));
+  }
   const ui = tr.folder('ui');
   ui.file('outline.png', await canvasBlob(drawOutline(R, 512, 16, 8).c));
   if (PV.renderer) { PV.render(); const b = await new Promise(r => PV.renderer.domElement.toBlob(r, 'image/png')); if (b) ui.file('preview.png', b); }
@@ -4001,7 +4062,7 @@ Si una superficie te parece muy o poco resbaladiza, cambiá ese número: no hace
 Con Custom Shaders Patch (CSP) el clima y la lluvia del juego se suman a estos valores.
 
 Notas: no trae línea de IA (sin rivales de la computadora). Los túneles no se generan y los puentes
-siguen el terreno. Más allá del margen de terreno no hay suelo. El minimapa (map.png / map.ini) es aproximado.
+siguen el terreno. Más allá del margen de terreno no hay suelo. El minimapa (map.png / map.ini) usa el mismo origen que el modelo (ver referencia_rbr_btb/diagnostico_alineacion.txt).\n\nCOPILOTO (Rally Copilot de CSP, también la versión de eRally): la pista trae ai/fast_lane.ai (línea de IA). El copiloto calcula dónde está el auto sobre esa línea y genera las notas solo: sin ese archivo aparece pero no canta nada. Activá la app, empezá desde la salida (modo Hotlap o Rally Stage) y elegí "Generated pacenotes". También va data/generador_pacenotes.rc-notes con las notas del generador (mismo largo y mismos puntos que la línea de IA): si no aparece en la lista de la app, copialo a la carpeta de notas de Rally Copilot (Documents\\Assetto Corsa\\cfg\\…, la que abre el botón de notas de la app). Codriver (Patrick Brunner) usa otro formato (XML grabado en el juego): no se genera.
 La "velocidad segura" y los puntos críticos son una estimación física simple (agarre, radio de curva,
 peralte y pendiente de entrada), no datos medidos del lugar.
 
