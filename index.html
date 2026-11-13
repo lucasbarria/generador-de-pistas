@@ -546,7 +546,7 @@ const Core = (() => {
         const up = Math.max(0, Math.min(1, (sl - 0.03) / 0.2)), down = Math.max(0, Math.min(1, -sl / 0.15));
         const nz = 0.5 + 0.3 * vn1(d / 17, sd * 29 + 7) + 0.25 * vn1(d / 5.5, sd * 31 + 9) + 0.15 * vn1(d / 2.3, sd * 47 + 2);
         const D = Math.max(0.05, Dd * nz * (1 - 0.8 * up) * (1 - 0.4 * down));
-        const ox = (vn1(d / 9, sd * 37 + 1) - 0.5) * 0.4 + (vn1(d / 27, sd * 41 + 3) - 0.5) * 0.7; // corrimiento del fondo (m)
+        const ox = (vn1(d / 9, sd * 37 + 1) - 0.5) * 0.55 + (vn1(d / 27, sd * 41 + 3) - 0.5) * 1.0; // corrimiento del fondo (m)
         const ww = wf * (0.75 + 0.55 * vn1(d / 13, sd * 43 + 5));                                // ancho que respira
         // tierra que sacaron al cavar, amontonada sin forma (en ladera que sube no hay bordo: está el talud)
         const nL = vn1(d / 7, sd * 11 + 3) * 0.6 + vn1(d / 2.2, sd * 13 + 5) * 0.4, lump = (0.03 + 0.34 * Math.pow(Math.max(0, nL - 0.25), 1.3)) * (1 - 0.75 * open) * (1 - up);
