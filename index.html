@@ -47,6 +47,13 @@ input[type=checkbox]{width:auto}
 #vbar button.on{background:#ffd200;color:#111;border-color:#ffd200}
 .vsel{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:4px 8px;font-size:13px;display:flex;align-items:center;gap:6px}.vsel select{width:auto;padding:3px 4px}
 #vhint{position:absolute;bottom:176px;left:50%;transform:translateX(-50%);z-index:2;background:#000c;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px}
+#edBar{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:4;display:flex;gap:6px;align-items:center;background:#000b;border:1px solid #fff3;border-radius:9px;padding:5px 8px;color:#e6e9ec;font-size:12.5px}
+#edBar button{background:#ffffff14;color:#fff;border:1px solid #fff3;border-radius:6px;padding:5px 10px;cursor:pointer;font-weight:600}#edBar button:disabled{opacity:.35;cursor:default}
+#edBar.pend{border-color:#ffd200}#edBar.pend #edState{color:#ffd200}#edBar #edOk:not(:disabled){background:#1f8f4e;border-color:#1f8f4e}#edBar #edCancel:not(:disabled){background:#8f2a1f;border-color:#8f2a1f}
+#edBar.flash{animation:edfl .5s 3}@keyframes edfl{50%{background:#ffd20066}}
+#edHist{position:absolute;top:100%;left:0;right:0;margin-top:4px;background:#121519f2;border:1px solid #fff3;border-radius:8px;padding:6px 8px;max-height:240px;overflow:auto}
+@media(max-width:900px){#edBar{top:56px;flex-wrap:wrap;max-width:94%}}
+#verInfo .vst{font-weight:700}#verInfo .vst.ok{color:#2fbf71}#verInfo .vst.warn{color:#e0a800}#verInfo .vst.err{color:#e05252}
 #vbar button{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:8px 12px;cursor:pointer;font-weight:600}
 #vpanel{position:absolute;top:58px;right:12px;bottom:12px;width:300px;z-index:3;background:#121519ee;color:#e6e9ec;border:1px solid #fff2;border-radius:10px;padding:10px 12px;overflow:auto;font-size:12.5px}
 #vpanel .vp-h{font-size:14px;color:#00c8ff;margin-bottom:6px}
@@ -97,6 +104,10 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
       <div id="vbar"><button id="closeViewer">← Volver al mapa</button><button id="drive">▶ Recorrer</button><button id="editCurves" title="Mostrar u ocultar el editor directo">✏️ Editor</button>
         <label class="vsel" id="dragRw">Alcance <select id="dragR"><option value="15">15 m</option><option value="30">30 m</option><option value="50" selected>50 m</option><option value="100">100 m</option><option value="200">200 m</option></select></label>
         <button id="satBtn">🛰 Satélite</button></div>
+      <div id="edBar"><button id="edUndoB" title="Deshacer (Ctrl+Z)">↶</button><button id="edRedoB" title="Rehacer (Ctrl+Y o Ctrl+Shift+Z)">↷</button>
+        <span id="edState">Todo confirmado</span><button id="edHistB" title="Historial de la sesión">Historial</button>
+        <button id="edCancel" title="Descartar todo lo hecho desde el último OK">✕ Cancelar</button><button id="edOk" title="Confirmar y guardar los cambios (Ctrl+Enter)">✓ OK</button>
+        <div id="edHist" style="display:none"></div></div>
       <div id="vhint" style="display:none"></div>
       <div id="vpanel" style="display:none">
         <div class="vp-h"><b id="vpSel">Hacé clic sobre el camino</b></div>
@@ -235,6 +246,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
     </section>
     <section id="editor" style="display:none">
       <h2>4 · Editar el camino</h2>
+      <div class="row" id="edBar2" style="align-items:center;gap:6px"><button class="b" id="edUndo2" title="Deshacer (Ctrl+Z)">↶</button><button class="b" id="edRedo2" title="Rehacer (Ctrl+Y)">↷</button><span id="edState2" class="mut" style="flex:1">Todo confirmado</span><button class="b" id="edCancel2">Cancelar</button><button class="b" id="edOk2">OK</button></div>
       <canvas id="profile"></canvas>
       <div class="mut" id="pfStats" style="font-size:12px;margin:4px 0"></div>
       <div class="mut" id="hoverInfo">Pasá el mouse por el perfil para ver cada punto.</div>
@@ -259,6 +271,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
       <div id="edits"></div>
       <div class="row"><button class="b" id="tApply">Aplicar ajustes de arriba</button><button class="b" id="tClearEd">Borrar todos los cambios</button></div>
     </section>
+    <div id="verInfo" class="mut" style="font-size:11.5px;margin:8px 0 4px;line-height:1.5"></div>
     <footer>Calles © colaboradores de OpenStreetMap (ODbL), vía OpenFreeMap. Elevación: Terrarium / AWS Open Data. Ruteo: OSRM. Assetto Corsa es marca de Kunos Simulazioni; Richard Burns Rally es marca de sus titulares. Herramienta no afiliada.</footer>
     <div id="helpbar"><b>ℹ️</b> Pasá el mouse (o tocá) cualquier opción para ver para qué sirve.</div>
   </aside>
@@ -4652,6 +4665,7 @@ async function rebuild(keepCam) {
 
 $('#zipBtn').onclick = async () => {
   if (!S.result) return;
+  if (typeof edPending === 'function' && edPending()) { log('Hay cambios del editor sin confirmar: tocá OK para aplicarlos o Cancelar para descartarlos, y después exportá.', 'err'); const b = $('#edBar'); if (b) { b.classList.add('flash'); setTimeout(() => b.classList.remove('flash'), 1500); } return; }
   $('#zipBtn').disabled = true; $('#zipBtn').textContent = 'Preparando…';
   try {
     const blob = await buildZip(S.result), a = $('#dl');
@@ -5621,10 +5635,10 @@ function projectState() {
   return {
     v: 1, app: 'generador-de-pistas', saved: new Date().toISOString(), mode: S.mode, inputs,
     pick: { path: G.path, steps: G.steps, virtual: G.virtual },
-    wps: S.wps.map(p => [p.lat, p.lng]), edits: S.edits, gps: S.gpsTrack ? S.gpsTrack.map(p => [+p[0].toFixed(7), +p[1].toFixed(7), +(+p[2] || 0).toFixed(1)]) : null,
+    wps: S.wps.map(p => [p.lat, p.lng]), edits: ED.session ? JSON.parse(ED.session.base).e : S.edits, // lo pendiente (sin OK) no se guarda gps: S.gpsTrack ? S.gpsTrack.map(p => [+p[0].toFixed(7), +p[1].toFixed(7), +(+p[2] || 0).toFixed(1)]) : null,
     rect: b ? [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()] : null,
     spawn: S.spawn ? [S.spawn.lat, S.spawn.lng] : null,
-    side: S.side, placed: S.placed,
+    side: S.side, placed: ED.session ? JSON.parse(ED.session.base).p || [] : S.placed,
     view: map.getCenter ? [map.getCenter().lat, map.getCenter().lng, map.getZoom()] : null,
   };
 }
@@ -5635,7 +5649,7 @@ async function loadProject(st) {
   try { $('#season').onchange(); $('#grassType').onchange(); await $('#gravelStyle').onchange(); } catch (e) { }
   setMode(st.mode || 'route');
   S.edits = st.edits || []; S.base = null; S.sel = null; S.gpsTrack = st.gps || null;
-  ED.active = null; ED.cpSel = null; ED.undo = []; ED.redo = [];
+  ED.active = null; ED.cpSel = null; ED.undo = []; ED.redo = []; ED.session = null;
   S.wps.forEach((p, i) => map.removeLayer(S.markers[i])); S.wps = []; S.markers = [];
   G.path = st.pick?.path || []; G.steps = st.pick?.steps || []; G.virtual = st.pick?.virtual || [];
   S.side = st.side || []; drawSide(); S.placed = st.placed || []; OB.sel = null;
@@ -5672,15 +5686,16 @@ $('#openProj').onchange = async ev => {
   try { await loadProject(JSON.parse(await f.text())); } catch (e) { log('No se pudo abrir: ' + e.message, 'err'); }
   ev.target.value = '';
 };
-// guardado automático en este navegador
+// guardado automático en este navegador (solo lo confirmado: los cambios pendientes del editor no se guardan hasta OK)
 let lastAuto = '';
-setInterval(() => {
+function saveAutoNow() {
   try {
     const st = projectState(); if (!st.pick.path.length && !st.wps.length && !st.rect && !st.side.length && !st.placed.length) return;
     const s = JSON.stringify({ ...st, saved: undefined, view: undefined });
     if (s !== lastAuto) { lastAuto = s; localStorage.setItem('generador-pistas-auto', JSON.stringify(st)); }
   } catch (e) { }
-}, 4000);
+}
+setInterval(saveAutoNow, 4000);
 try {
   const prev = JSON.parse(localStorage.getItem('generador-pistas-auto') || 'null');
   if (prev && prev.app === 'generador-de-pistas') {
@@ -5880,6 +5895,36 @@ if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') ||
   }, 400);
 })();
 
+
+// ---------- Versión: qué compilación es esta y si es la última publicada en GitHub ----------
+const BUILD = {"id": "75466e4568dd", "date": "2026-11-13T04:21:30Z", "version": "2026.11.13+75466e4", "base": "2ee290f950bc7928c108a8f0f92c9ac3423c8fbc"};
+const VER = {
+  repo: 'lucasbarria/generador-de-pistas',
+  set(state, txt, cls) { const el = $('#verInfo'); if (!el) return; const b = BUILD || {}; const dt = b.date ? new Date(b.date).toLocaleString() : '?';
+    el.innerHTML = `<b>Versión ${b.version || 'sin datos'}</b> · compilada ${dt}${b.commit ? ` · commit <a href="https://github.com/${this.repo}/commit/${b.commit}" target="_blank">${b.commit.slice(0, 7)}</a>` : ''}<br><span class="vst ${cls || ''}">${state}</span>${txt ? ' · ' + txt : ''} <a href="#" id="verRe">comprobar</a>`;
+    $('#verRe').onclick = ev => { ev.preventDefault(); this.check(true); }; },
+  async check(force) {
+    if (!BUILD) { this.set('Versión local diferente de GitHub', 'esta copia no tiene datos de compilación', 'warn'); return; }
+    this.set('Comprobando con GitHub…');
+    try {
+      const key = 'verCheck', cached = !force && JSON.parse(sessionStorage.getItem(key) || 'null');
+      let gh = cached && Date.now() - cached.t < 10 * 60e3 ? cached.gh : null;
+      if (!gh) {
+        const c = await fetch(`https://api.github.com/repos/${this.repo}/commits?path=version.json&per_page=1`, { cache: 'no-store' }); if (!c.ok) throw new Error('GitHub ' + c.status);
+        const j = (await c.json())[0], v = await (await fetch(`https://raw.githubusercontent.com/${this.repo}/${j.sha}/version.json`, { cache: 'no-store' })).json();
+        gh = { sha: j.sha, date: j.commit.committer.date, id: v.id }; sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), gh }));
+      }
+      // lo que sirve ahora GitHub Pages (por si esta pestaña quedó abierta con una versión anterior)
+      let served = null; if (/github\.io$/.test(location.hostname)) { try { served = await (await fetch('version.json?t=' + Date.now(), { cache: 'no-store' })).json(); } catch (e) { } }
+      const when = new Date(gh.date).toLocaleString();
+      if (gh.id === BUILD.id) { BUILD.commit = gh.sha; this.set('Actualizado', `es el último commit de GitHub (${when})${served && served.id !== BUILD.id ? ' · Pages todavía publica otra copia' : ''}`, 'ok'); }
+      else if (new Date(gh.date) > new Date(BUILD.date)) this.set('Hay una nueva versión disponible', `commit ${gh.sha.slice(0, 7)} del ${when}${served && served.id === gh.id ? ' — recargá la página (Ctrl+F5)' : ' — GitHub Pages puede tardar 1–2 min en publicarla'}`, 'warn');
+      else this.set('Versión local diferente de GitHub', `el último commit (${gh.sha.slice(0, 7)}, ${when}) no coincide con esta copia`, 'warn');
+    } catch (e) { this.set('No se pudo comprobar la conexión con GitHub', 'no se sabe si está actualizada', 'err'); }
+  },
+};
+VER.check();
+
 // ===== Editor directo en 3D =====
 // Clic sobre el camino = elegir punto (Shift+clic = tramo). Aparecen manipuladores según la herramienta
 // (altura, pendiente, peralte, salto, lomada, bache, guardaganado, ancho, curva, suavizado).
@@ -6017,16 +6062,69 @@ function edEnsure() { let e = edTarget(); if (!e) { e = edMake(ED_KIND[ED.tool])
 
 // ---------- deshacer ----------
 const edSnap = () => JSON.stringify({ e: S.edits, p: S.placed });
-function edPushUndo() { ED.undo.push(edSnap()); if (ED.undo.length > 100) ED.undo.shift(); ED.redo = []; }
-function edUndo(redo) {
-  const from = redo ? ED.redo : ED.undo, to = redo ? ED.undo : ED.redo; if (!from.length) return;
-  to.push(edSnap()); const st = JSON.parse(from.pop()), lakesBefore = S.placed.filter(o => o.k === 'lake');
+// Edición transaccional: el primer cambio abre una sesión con una copia del estado confirmado. Todo lo que se haga
+// (alturas, pendientes, aplanar, suavizar, superficies, baches, objetos, árboles, trazado…) se ve en vivo pero queda
+// pendiente: OK lo confirma (valida y guarda), Cancelar vuelve exactamente al estado de antes. El historial
+// (deshacer/rehacer) es el de la sesión; cada arrastre completo cuenta como una sola operación.
+function edPushUndo() {
+  if (!ED.session) { ED.session = { base: edSnap(), t: Date.now() }; ED.undo = []; ED.redo = []; }
+  ED.undo.push(edSnap()); if (ED.undo.length > 200) ED.undo.shift(); ED.redo = []; edBarSoon();
+}
+const edPending = () => !!ED.session && ED.session.base !== edSnap();
+function edRestore(snap) {
+  const st = JSON.parse(snap), lakesBefore = S.placed.filter(o => o.k === 'lake');
   const sameEdits = JSON.stringify(st.e) === JSON.stringify(S.edits);
   S.edits = st.e; S.placed = st.p || []; ED.active = null; if (OB.sel && !S.placed.includes(OB.sel)) OB.sel = null;
   if (!sameEdits) editsChanged();
   const lakes = [...lakesBefore, ...S.placed.filter(o => o.k === 'lake')];
   if (lakes.length && S.base) obLakeCommit(lakes.map(o => obXY(o).concat([o.r]))); else obRefresh();
   obPanel();
+}
+function edUndo(redo) {
+  const from = redo ? ED.redo : ED.undo, to = redo ? ED.undo : ED.redo; if (!from.length) return;
+  to.push(edSnap()); edRestore(from.pop()); edBar();
+}
+// OK: valida y confirma todo lo pendiente
+function edConfirm() {
+  if (!ED.session) return;
+  const r = edR(), T = r ? r.total : Infinity; let bad = 0;
+  const fin = v => v == null || (typeof v === 'number' && isFinite(v));
+  S.edits = S.edits.filter(e => { const ok = e && e.kind && Object.values(e).every(v => typeof v !== 'number' || isFinite(v)) && fin(e.d0) && fin(e.d1) && fin(e.d);
+    if (!ok) { bad++; return false; }
+    if (e.d0 != null && e.d1 != null) { if (e.d1 < e.d0) [e.d0, e.d1] = [e.d1, e.d0]; e.d0 = Math.max(0, Math.min(T, e.d0)); e.d1 = Math.max(0, Math.min(T, e.d1)); }
+    return true; });
+  const n = ED.undo.length; ED.session = null; ED.undo = []; ED.redo = [];
+  if (bad) { log(`Se descartaron ${bad} cambios con datos inválidos.`, 'err'); editsChanged(); } else if (ED.pending || (S.live && S.live.dirty)) liveCommit();
+  if (typeof saveAutoNow === 'function') saveAutoNow();
+  log(`Cambios confirmados (${n} operación${n === 1 ? '' : 'es'}).`); edBar();
+}
+// Cancelar: vuelve exactamente al estado confirmado
+function edCancel() {
+  if (!ED.session) return;
+  const base = ED.session.base, dirty = base !== edSnap(); ED.session = null; ED.undo = []; ED.redo = [];
+  if (dirty) edRestore(base); log('Cambios descartados: el tramo quedó como estaba.'); edBar();
+}
+// descripción de cada operación del historial (comparando el estado antes y después)
+function edOpLabel(a, b) {
+  const A = JSON.parse(a), B = JSON.parse(b), ea = A.e || [], eb = B.e || [], txt = e => (EDIT_TXT[e.kind] ? EDIT_TXT[e.kind](e) : e.kind);
+  if (eb.length > ea.length) return 'Nuevo: ' + txt(eb[eb.length - 1]);
+  if (eb.length < ea.length) { const gone = ea.find(x => !eb.some(y => JSON.stringify(y) === JSON.stringify(x))); return 'Borrado: ' + (gone ? txt(gone) : 'cambio'); }
+  for (let k = 0; k < eb.length; k++) if (JSON.stringify(ea[k]) !== JSON.stringify(eb[k])) return 'Ajuste: ' + txt(eb[k]);
+  const pa = (A.p || []).length, pb = (B.p || []).length;
+  return pb > pa ? `Objetos: +${pb - pa}` : pb < pa ? `Objetos: −${pa - pb}` : 'Objetos o árboles movidos';
+}
+let edBarT = 0; function edBarSoon() { clearTimeout(edBarT); edBarT = setTimeout(edBar, 120); }
+function edBar() {
+  const bar = $('#edBar'); if (!bar) return;
+  const dirty = edPending(), n = ED.undo.length;
+  $('#edUndoB').disabled = !ED.undo.length; $('#edRedoB').disabled = !ED.redo.length;
+  $('#edOk').disabled = !ED.session; $('#edCancel').disabled = !ED.session;
+  $('#edState').textContent = ED.session ? (dirty ? `${n} cambio${n === 1 ? '' : 's'} sin confirmar` : 'Sin cambios pendientes') : 'Todo confirmado';
+  bar.classList.toggle('pend', dirty);
+  if ($('#edBar2')) { $('#edUndo2').disabled = $('#edUndoB').disabled; $('#edRedo2').disabled = $('#edRedoB').disabled; $('#edOk2').disabled = $('#edOk').disabled; $('#edCancel2').disabled = $('#edCancel').disabled;
+    $('#edState2').textContent = $('#edState').textContent; $('#edState2').style.color = dirty ? '#ffd200' : ''; }
+  const h = $('#edHist'); if (h) { const L = []; for (let k = 0; k < ED.undo.length; k++) L.push(edOpLabel(ED.undo[k], ED.undo[k + 1] || edSnap()));
+    h.innerHTML = L.length ? L.map((t, k) => `<div>${k + 1}. ${t}</div>`).join('') + ED.redo.slice().reverse().map(() => '').join('') : '<div class="mut">Sin operaciones en esta sesión.</div>'; }
 }
 
 // ---------- actualización en vivo ----------
@@ -6794,6 +6892,7 @@ function edHookViewer() {
     const k = ev.key.toLowerCase();
     if ((ev.ctrlKey || ev.metaKey) && k === 'z') { ev.preventDefault(); edUndo(ev.shiftKey); return; }
     if ((ev.ctrlKey || ev.metaKey) && k === 'y') { ev.preventDefault(); edUndo(true); return; }
+    if ((ev.ctrlKey || ev.metaKey) && k === 'enter' && ED.session) { ev.preventDefault(); edConfirm(); return; }
     if ((k === 'delete' || k === 'backspace') && ED.tool === 'place' && OB.sel) { ev.preventDefault(); OB.del(); return; }
     if ((k === 'delete' || k === 'backspace') && ED.active) { ev.preventDefault(); edDelete(ED.active); return; }
     if (k === 'escape' && ED.tool === 'place' && OB.sel) { OB.sel = null; obRings(); obPanel(); return; }
@@ -6803,6 +6902,17 @@ function edHookViewer() {
   window.addEventListener('keyup', ev => ED.keys.delete(ev.key.toLowerCase()));
   window.addEventListener('blur', () => ED.keys.clear());
 }
+
+// ---------- barra de cambios pendientes (OK / Cancelar / deshacer / rehacer / historial) ----------
+(function edBarInit() {
+  if (!$('#edBar')) return;
+  $('#edUndoB').onclick = () => edUndo(false); $('#edRedoB').onclick = () => edUndo(true);
+  $('#edOk').onclick = edConfirm; $('#edCancel').onclick = () => { if (!edPending() || confirm('¿Descartar todos los cambios sin confirmar?')) edCancel(); };
+  if ($('#edBar2')) { $('#edUndo2').onclick = $('#edUndoB').onclick; $('#edRedo2').onclick = $('#edRedoB').onclick; $('#edOk2').onclick = $('#edOk').onclick; $('#edCancel2').onclick = $('#edCancel').onclick; }
+  $('#edHistB').onclick = () => { const h = $('#edHist'); h.style.display = h.style.display === 'none' ? '' : 'none'; edBar(); };
+  window.addEventListener('beforeunload', ev => { if (edPending()) { ev.preventDefault(); ev.returnValue = ''; } });
+  edBar();
+})();
 
 // ===== Objetos puestos a mano en la vista 3D =====
 // Árboles (de a uno o con pincel), casas, galpones, personas, público, piedras, puentes y lagos, en cualquier lugar.

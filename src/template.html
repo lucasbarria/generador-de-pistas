@@ -47,6 +47,13 @@ input[type=checkbox]{width:auto}
 #vbar button.on{background:#ffd200;color:#111;border-color:#ffd200}
 .vsel{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:4px 8px;font-size:13px;display:flex;align-items:center;gap:6px}.vsel select{width:auto;padding:3px 4px}
 #vhint{position:absolute;bottom:176px;left:50%;transform:translateX(-50%);z-index:2;background:#000c;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px}
+#edBar{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:4;display:flex;gap:6px;align-items:center;background:#000b;border:1px solid #fff3;border-radius:9px;padding:5px 8px;color:#e6e9ec;font-size:12.5px}
+#edBar button{background:#ffffff14;color:#fff;border:1px solid #fff3;border-radius:6px;padding:5px 10px;cursor:pointer;font-weight:600}#edBar button:disabled{opacity:.35;cursor:default}
+#edBar.pend{border-color:#ffd200}#edBar.pend #edState{color:#ffd200}#edBar #edOk:not(:disabled){background:#1f8f4e;border-color:#1f8f4e}#edBar #edCancel:not(:disabled){background:#8f2a1f;border-color:#8f2a1f}
+#edBar.flash{animation:edfl .5s 3}@keyframes edfl{50%{background:#ffd20066}}
+#edHist{position:absolute;top:100%;left:0;right:0;margin-top:4px;background:#121519f2;border:1px solid #fff3;border-radius:8px;padding:6px 8px;max-height:240px;overflow:auto}
+@media(max-width:900px){#edBar{top:56px;flex-wrap:wrap;max-width:94%}}
+#verInfo .vst{font-weight:700}#verInfo .vst.ok{color:#2fbf71}#verInfo .vst.warn{color:#e0a800}#verInfo .vst.err{color:#e05252}
 #vbar button{background:#000a;color:#fff;border:1px solid #fff3;border-radius:7px;padding:8px 12px;cursor:pointer;font-weight:600}
 #vpanel{position:absolute;top:58px;right:12px;bottom:12px;width:300px;z-index:3;background:#121519ee;color:#e6e9ec;border:1px solid #fff2;border-radius:10px;padding:10px 12px;overflow:auto;font-size:12.5px}
 #vpanel .vp-h{font-size:14px;color:#00c8ff;margin-bottom:6px}
@@ -97,6 +104,10 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
       <div id="vbar"><button id="closeViewer">← Volver al mapa</button><button id="drive">▶ Recorrer</button><button id="editCurves" title="Mostrar u ocultar el editor directo">✏️ Editor</button>
         <label class="vsel" id="dragRw">Alcance <select id="dragR"><option value="15">15 m</option><option value="30">30 m</option><option value="50" selected>50 m</option><option value="100">100 m</option><option value="200">200 m</option></select></label>
         <button id="satBtn">🛰 Satélite</button></div>
+      <div id="edBar"><button id="edUndoB" title="Deshacer (Ctrl+Z)">↶</button><button id="edRedoB" title="Rehacer (Ctrl+Y o Ctrl+Shift+Z)">↷</button>
+        <span id="edState">Todo confirmado</span><button id="edHistB" title="Historial de la sesión">Historial</button>
+        <button id="edCancel" title="Descartar todo lo hecho desde el último OK">✕ Cancelar</button><button id="edOk" title="Confirmar y guardar los cambios (Ctrl+Enter)">✓ OK</button>
+        <div id="edHist" style="display:none"></div></div>
       <div id="vhint" style="display:none"></div>
       <div id="vpanel" style="display:none">
         <div class="vp-h"><b id="vpSel">Hacé clic sobre el camino</b></div>
@@ -235,6 +246,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
     </section>
     <section id="editor" style="display:none">
       <h2>4 · Editar el camino</h2>
+      <div class="row" id="edBar2" style="align-items:center;gap:6px"><button class="b" id="edUndo2" title="Deshacer (Ctrl+Z)">↶</button><button class="b" id="edRedo2" title="Rehacer (Ctrl+Y)">↷</button><span id="edState2" class="mut" style="flex:1">Todo confirmado</span><button class="b" id="edCancel2">Cancelar</button><button class="b" id="edOk2">OK</button></div>
       <canvas id="profile"></canvas>
       <div class="mut" id="pfStats" style="font-size:12px;margin:4px 0"></div>
       <div class="mut" id="hoverInfo">Pasá el mouse por el perfil para ver cada punto.</div>
@@ -259,6 +271,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
       <div id="edits"></div>
       <div class="row"><button class="b" id="tApply">Aplicar ajustes de arriba</button><button class="b" id="tClearEd">Borrar todos los cambios</button></div>
     </section>
+    <div id="verInfo" class="mut" style="font-size:11.5px;margin:8px 0 4px;line-height:1.5"></div>
     <footer>Calles © colaboradores de OpenStreetMap (ODbL), vía OpenFreeMap. Elevación: Terrarium / AWS Open Data. Ruteo: OSRM. Assetto Corsa es marca de Kunos Simulazioni; Richard Burns Rally es marca de sus titulares. Herramienta no afiliada.</footer>
     <div id="helpbar"><b>ℹ️</b> Pasá el mouse (o tocá) cualquier opción para ver para qué sirve.</div>
   </aside>

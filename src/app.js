@@ -3550,6 +3550,7 @@ async function rebuild(keepCam) {
 
 $('#zipBtn').onclick = async () => {
   if (!S.result) return;
+  if (typeof edPending === 'function' && edPending()) { log('Hay cambios del editor sin confirmar: tocá OK para aplicarlos o Cancelar para descartarlos, y después exportá.', 'err'); const b = $('#edBar'); if (b) { b.classList.add('flash'); setTimeout(() => b.classList.remove('flash'), 1500); } return; }
   $('#zipBtn').disabled = true; $('#zipBtn').textContent = 'Preparando…';
   try {
     const blob = await buildZip(S.result), a = $('#dl');
@@ -4519,10 +4520,10 @@ function projectState() {
   return {
     v: 1, app: 'generador-de-pistas', saved: new Date().toISOString(), mode: S.mode, inputs,
     pick: { path: G.path, steps: G.steps, virtual: G.virtual },
-    wps: S.wps.map(p => [p.lat, p.lng]), edits: S.edits, gps: S.gpsTrack ? S.gpsTrack.map(p => [+p[0].toFixed(7), +p[1].toFixed(7), +(+p[2] || 0).toFixed(1)]) : null,
+    wps: S.wps.map(p => [p.lat, p.lng]), edits: ED.session ? JSON.parse(ED.session.base).e : S.edits, // lo pendiente (sin OK) no se guarda gps: S.gpsTrack ? S.gpsTrack.map(p => [+p[0].toFixed(7), +p[1].toFixed(7), +(+p[2] || 0).toFixed(1)]) : null,
     rect: b ? [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()] : null,
     spawn: S.spawn ? [S.spawn.lat, S.spawn.lng] : null,
-    side: S.side, placed: S.placed,
+    side: S.side, placed: ED.session ? JSON.parse(ED.session.base).p || [] : S.placed,
     view: map.getCenter ? [map.getCenter().lat, map.getCenter().lng, map.getZoom()] : null,
   };
 }
@@ -4533,7 +4534,7 @@ async function loadProject(st) {
   try { $('#season').onchange(); $('#grassType').onchange(); await $('#gravelStyle').onchange(); } catch (e) { }
   setMode(st.mode || 'route');
   S.edits = st.edits || []; S.base = null; S.sel = null; S.gpsTrack = st.gps || null;
-  ED.active = null; ED.cpSel = null; ED.undo = []; ED.redo = [];
+  ED.active = null; ED.cpSel = null; ED.undo = []; ED.redo = []; ED.session = null;
   S.wps.forEach((p, i) => map.removeLayer(S.markers[i])); S.wps = []; S.markers = [];
   G.path = st.pick?.path || []; G.steps = st.pick?.steps || []; G.virtual = st.pick?.virtual || [];
   S.side = st.side || []; drawSide(); S.placed = st.placed || []; OB.sel = null;
@@ -4570,15 +4571,16 @@ $('#openProj').onchange = async ev => {
   try { await loadProject(JSON.parse(await f.text())); } catch (e) { log('No se pudo abrir: ' + e.message, 'err'); }
   ev.target.value = '';
 };
-// guardado automático en este navegador
+// guardado automático en este navegador (solo lo confirmado: los cambios pendientes del editor no se guardan hasta OK)
 let lastAuto = '';
-setInterval(() => {
+function saveAutoNow() {
   try {
     const st = projectState(); if (!st.pick.path.length && !st.wps.length && !st.rect && !st.side.length && !st.placed.length) return;
     const s = JSON.stringify({ ...st, saved: undefined, view: undefined });
     if (s !== lastAuto) { lastAuto = s; localStorage.setItem('generador-pistas-auto', JSON.stringify(st)); }
   } catch (e) { }
-}, 4000);
+}
+setInterval(saveAutoNow, 4000);
 try {
   const prev = JSON.parse(localStorage.getItem('generador-pistas-auto') || 'null');
   if (prev && prev.app === 'generador-de-pistas') {
@@ -4777,3 +4779,33 @@ if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') ||
     hud.style.display = 'flex';
   }, 400);
 })();
+
+
+// ---------- Versión: qué compilación es esta y si es la última publicada en GitHub ----------
+const BUILD = /*BUILD*/null;
+const VER = {
+  repo: 'lucasbarria/generador-de-pistas',
+  set(state, txt, cls) { const el = $('#verInfo'); if (!el) return; const b = BUILD || {}; const dt = b.date ? new Date(b.date).toLocaleString() : '?';
+    el.innerHTML = `<b>Versión ${b.version || 'sin datos'}</b> · compilada ${dt}${b.commit ? ` · commit <a href="https://github.com/${this.repo}/commit/${b.commit}" target="_blank">${b.commit.slice(0, 7)}</a>` : ''}<br><span class="vst ${cls || ''}">${state}</span>${txt ? ' · ' + txt : ''} <a href="#" id="verRe">comprobar</a>`;
+    $('#verRe').onclick = ev => { ev.preventDefault(); this.check(true); }; },
+  async check(force) {
+    if (!BUILD) { this.set('Versión local diferente de GitHub', 'esta copia no tiene datos de compilación', 'warn'); return; }
+    this.set('Comprobando con GitHub…');
+    try {
+      const key = 'verCheck', cached = !force && JSON.parse(sessionStorage.getItem(key) || 'null');
+      let gh = cached && Date.now() - cached.t < 10 * 60e3 ? cached.gh : null;
+      if (!gh) {
+        const c = await fetch(`https://api.github.com/repos/${this.repo}/commits?path=version.json&per_page=1`, { cache: 'no-store' }); if (!c.ok) throw new Error('GitHub ' + c.status);
+        const j = (await c.json())[0], v = await (await fetch(`https://raw.githubusercontent.com/${this.repo}/${j.sha}/version.json`, { cache: 'no-store' })).json();
+        gh = { sha: j.sha, date: j.commit.committer.date, id: v.id }; sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), gh }));
+      }
+      // lo que sirve ahora GitHub Pages (por si esta pestaña quedó abierta con una versión anterior)
+      let served = null; if (/github\.io$/.test(location.hostname)) { try { served = await (await fetch('version.json?t=' + Date.now(), { cache: 'no-store' })).json(); } catch (e) { } }
+      const when = new Date(gh.date).toLocaleString();
+      if (gh.id === BUILD.id) { BUILD.commit = gh.sha; this.set('Actualizado', `es el último commit de GitHub (${when})${served && served.id !== BUILD.id ? ' · Pages todavía publica otra copia' : ''}`, 'ok'); }
+      else if (new Date(gh.date) > new Date(BUILD.date)) this.set('Hay una nueva versión disponible', `commit ${gh.sha.slice(0, 7)} del ${when}${served && served.id === gh.id ? ' — recargá la página (Ctrl+F5)' : ' — GitHub Pages puede tardar 1–2 min en publicarla'}`, 'warn');
+      else this.set('Versión local diferente de GitHub', `el último commit (${gh.sha.slice(0, 7)}, ${when}) no coincide con esta copia`, 'warn');
+    } catch (e) { this.set('No se pudo comprobar la conexión con GitHub', 'no se sabe si está actualizada', 'err'); }
+  },
+};
+VER.check();

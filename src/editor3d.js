@@ -135,16 +135,69 @@ function edEnsure() { let e = edTarget(); if (!e) { e = edMake(ED_KIND[ED.tool])
 
 // ---------- deshacer ----------
 const edSnap = () => JSON.stringify({ e: S.edits, p: S.placed });
-function edPushUndo() { ED.undo.push(edSnap()); if (ED.undo.length > 100) ED.undo.shift(); ED.redo = []; }
-function edUndo(redo) {
-  const from = redo ? ED.redo : ED.undo, to = redo ? ED.undo : ED.redo; if (!from.length) return;
-  to.push(edSnap()); const st = JSON.parse(from.pop()), lakesBefore = S.placed.filter(o => o.k === 'lake');
+// Edición transaccional: el primer cambio abre una sesión con una copia del estado confirmado. Todo lo que se haga
+// (alturas, pendientes, aplanar, suavizar, superficies, baches, objetos, árboles, trazado…) se ve en vivo pero queda
+// pendiente: OK lo confirma (valida y guarda), Cancelar vuelve exactamente al estado de antes. El historial
+// (deshacer/rehacer) es el de la sesión; cada arrastre completo cuenta como una sola operación.
+function edPushUndo() {
+  if (!ED.session) { ED.session = { base: edSnap(), t: Date.now() }; ED.undo = []; ED.redo = []; }
+  ED.undo.push(edSnap()); if (ED.undo.length > 200) ED.undo.shift(); ED.redo = []; edBarSoon();
+}
+const edPending = () => !!ED.session && ED.session.base !== edSnap();
+function edRestore(snap) {
+  const st = JSON.parse(snap), lakesBefore = S.placed.filter(o => o.k === 'lake');
   const sameEdits = JSON.stringify(st.e) === JSON.stringify(S.edits);
   S.edits = st.e; S.placed = st.p || []; ED.active = null; if (OB.sel && !S.placed.includes(OB.sel)) OB.sel = null;
   if (!sameEdits) editsChanged();
   const lakes = [...lakesBefore, ...S.placed.filter(o => o.k === 'lake')];
   if (lakes.length && S.base) obLakeCommit(lakes.map(o => obXY(o).concat([o.r]))); else obRefresh();
   obPanel();
+}
+function edUndo(redo) {
+  const from = redo ? ED.redo : ED.undo, to = redo ? ED.undo : ED.redo; if (!from.length) return;
+  to.push(edSnap()); edRestore(from.pop()); edBar();
+}
+// OK: valida y confirma todo lo pendiente
+function edConfirm() {
+  if (!ED.session) return;
+  const r = edR(), T = r ? r.total : Infinity; let bad = 0;
+  const fin = v => v == null || (typeof v === 'number' && isFinite(v));
+  S.edits = S.edits.filter(e => { const ok = e && e.kind && Object.values(e).every(v => typeof v !== 'number' || isFinite(v)) && fin(e.d0) && fin(e.d1) && fin(e.d);
+    if (!ok) { bad++; return false; }
+    if (e.d0 != null && e.d1 != null) { if (e.d1 < e.d0) [e.d0, e.d1] = [e.d1, e.d0]; e.d0 = Math.max(0, Math.min(T, e.d0)); e.d1 = Math.max(0, Math.min(T, e.d1)); }
+    return true; });
+  const n = ED.undo.length; ED.session = null; ED.undo = []; ED.redo = [];
+  if (bad) { log(`Se descartaron ${bad} cambios con datos inválidos.`, 'err'); editsChanged(); } else if (ED.pending || (S.live && S.live.dirty)) liveCommit();
+  if (typeof saveAutoNow === 'function') saveAutoNow();
+  log(`Cambios confirmados (${n} operación${n === 1 ? '' : 'es'}).`); edBar();
+}
+// Cancelar: vuelve exactamente al estado confirmado
+function edCancel() {
+  if (!ED.session) return;
+  const base = ED.session.base, dirty = base !== edSnap(); ED.session = null; ED.undo = []; ED.redo = [];
+  if (dirty) edRestore(base); log('Cambios descartados: el tramo quedó como estaba.'); edBar();
+}
+// descripción de cada operación del historial (comparando el estado antes y después)
+function edOpLabel(a, b) {
+  const A = JSON.parse(a), B = JSON.parse(b), ea = A.e || [], eb = B.e || [], txt = e => (EDIT_TXT[e.kind] ? EDIT_TXT[e.kind](e) : e.kind);
+  if (eb.length > ea.length) return 'Nuevo: ' + txt(eb[eb.length - 1]);
+  if (eb.length < ea.length) { const gone = ea.find(x => !eb.some(y => JSON.stringify(y) === JSON.stringify(x))); return 'Borrado: ' + (gone ? txt(gone) : 'cambio'); }
+  for (let k = 0; k < eb.length; k++) if (JSON.stringify(ea[k]) !== JSON.stringify(eb[k])) return 'Ajuste: ' + txt(eb[k]);
+  const pa = (A.p || []).length, pb = (B.p || []).length;
+  return pb > pa ? `Objetos: +${pb - pa}` : pb < pa ? `Objetos: −${pa - pb}` : 'Objetos o árboles movidos';
+}
+let edBarT = 0; function edBarSoon() { clearTimeout(edBarT); edBarT = setTimeout(edBar, 120); }
+function edBar() {
+  const bar = $('#edBar'); if (!bar) return;
+  const dirty = edPending(), n = ED.undo.length;
+  $('#edUndoB').disabled = !ED.undo.length; $('#edRedoB').disabled = !ED.redo.length;
+  $('#edOk').disabled = !ED.session; $('#edCancel').disabled = !ED.session;
+  $('#edState').textContent = ED.session ? (dirty ? `${n} cambio${n === 1 ? '' : 's'} sin confirmar` : 'Sin cambios pendientes') : 'Todo confirmado';
+  bar.classList.toggle('pend', dirty);
+  if ($('#edBar2')) { $('#edUndo2').disabled = $('#edUndoB').disabled; $('#edRedo2').disabled = $('#edRedoB').disabled; $('#edOk2').disabled = $('#edOk').disabled; $('#edCancel2').disabled = $('#edCancel').disabled;
+    $('#edState2').textContent = $('#edState').textContent; $('#edState2').style.color = dirty ? '#ffd200' : ''; }
+  const h = $('#edHist'); if (h) { const L = []; for (let k = 0; k < ED.undo.length; k++) L.push(edOpLabel(ED.undo[k], ED.undo[k + 1] || edSnap()));
+    h.innerHTML = L.length ? L.map((t, k) => `<div>${k + 1}. ${t}</div>`).join('') + ED.redo.slice().reverse().map(() => '').join('') : '<div class="mut">Sin operaciones en esta sesión.</div>'; }
 }
 
 // ---------- actualización en vivo ----------
@@ -912,6 +965,7 @@ function edHookViewer() {
     const k = ev.key.toLowerCase();
     if ((ev.ctrlKey || ev.metaKey) && k === 'z') { ev.preventDefault(); edUndo(ev.shiftKey); return; }
     if ((ev.ctrlKey || ev.metaKey) && k === 'y') { ev.preventDefault(); edUndo(true); return; }
+    if ((ev.ctrlKey || ev.metaKey) && k === 'enter' && ED.session) { ev.preventDefault(); edConfirm(); return; }
     if ((k === 'delete' || k === 'backspace') && ED.tool === 'place' && OB.sel) { ev.preventDefault(); OB.del(); return; }
     if ((k === 'delete' || k === 'backspace') && ED.active) { ev.preventDefault(); edDelete(ED.active); return; }
     if (k === 'escape' && ED.tool === 'place' && OB.sel) { OB.sel = null; obRings(); obPanel(); return; }
@@ -921,3 +975,14 @@ function edHookViewer() {
   window.addEventListener('keyup', ev => ED.keys.delete(ev.key.toLowerCase()));
   window.addEventListener('blur', () => ED.keys.clear());
 }
+
+// ---------- barra de cambios pendientes (OK / Cancelar / deshacer / rehacer / historial) ----------
+(function edBarInit() {
+  if (!$('#edBar')) return;
+  $('#edUndoB').onclick = () => edUndo(false); $('#edRedoB').onclick = () => edUndo(true);
+  $('#edOk').onclick = edConfirm; $('#edCancel').onclick = () => { if (!edPending() || confirm('¿Descartar todos los cambios sin confirmar?')) edCancel(); };
+  if ($('#edBar2')) { $('#edUndo2').onclick = $('#edUndoB').onclick; $('#edRedo2').onclick = $('#edRedoB').onclick; $('#edOk2').onclick = $('#edOk').onclick; $('#edCancel2').onclick = $('#edCancel').onclick; }
+  $('#edHistB').onclick = () => { const h = $('#edHist'); h.style.display = h.style.display === 'none' ? '' : 'none'; edBar(); };
+  window.addEventListener('beforeunload', ev => { if (edPending()) { ev.preventDefault(); ev.returnValue = ''; } });
+  edBar();
+})();
