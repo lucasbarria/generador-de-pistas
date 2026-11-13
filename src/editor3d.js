@@ -317,7 +317,7 @@ function liveCommit() {
       const rd = Core.roadDistFn(r.segs, true);
       for (const m of R.meshes) {
         if (!(m.block || m.blocks) || !edHit(edMeshBB(m), q)) continue;
-        const lim = m.mat === 'tree' || m.mat === 'lenga' ? 1.0 : 0.4; let t = false;
+        const lim = m.mat === 'tree' || m.mat === 'lenga' || m.mat === 'leaves' ? 1.0 : 0.4; let t = false;
         for (const [b, L] of Core.blocksOf(m)) {
           let cx = 0, cy = 0; for (let k = 0; k < L; k++) { cx += m.v[b + k][0]; cy += m.v[b + k][1]; } cx /= L; cy /= L;
           if (cx < q.minx || cx > q.maxx || cy < q.miny || cy > q.maxy) continue;

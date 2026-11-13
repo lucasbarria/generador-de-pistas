@@ -145,7 +145,7 @@ function obLakeCommit(rects) {
 function obClearAuto(x, y, r) {
   const R = S.result; if (!R) return; const r2 = r * r;
   for (const m of R.meshes) {
-    if (m.placed || !(m.block || m.blocks) || !(m.mat === 'tree' || m.mat === 'bark' || m.mat === 'lenga')) continue;
+    if (m.placed || !(m.block || m.blocks) || !(m.mat === 'tree' || m.mat === 'bark' || m.mat === 'lenga' || m.mat === 'leaves')) continue;
     const bb = edMeshBB(m); if (bb.maxx < x - r || bb.minx > x + r || bb.maxy < y - r || bb.miny > y + r) continue;
     let t = false;
     for (const [b, L] of Core.blocksOf(m)) {

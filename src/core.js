@@ -764,59 +764,90 @@ const Core = (() => {
       }
     }
     const meshes = [...walls], PER = 3000;
-    // árboles 3D (tronco + copa en pisos, normales de volumen) cerca del camino; lejos, láminas cruzadas livianas
-    const NEAR = o.near3d == null ? 55 : o.near3d, MAX3D = o.max3d || 14000; let n3d = 0, nLogs = 0, tm = null, bm = null;
-    const near = list.filter(t => t[3] === 1 && rd(t[0], t[1], NEAR + 1) <= NEAR).sort((a, b) => rd(a[0], a[1], NEAR + 1) - rd(b[0], b[1], NEAR + 1)).slice(0, MAX3D), nearSet = new Set(near);
-    const card = (M, pts, uvs, cx, cy, cz, R) => { // lámina de dos caras con normales que salen del centro de la copa
-      for (const back of [0, 1]) { const b = M.v.length; pts.forEach((p, k) => { M.v.push(p); M.uv.push(uvs[k]); const dx = p[0] - cx, dy = p[1] - cy, dz = p[2] - cz + R * 0.5, L = Math.hypot(dx, dy, dz) || 1; M.n.push([dx / L, dy / L, dz / L]); });
+    // ---------- vegetación 3D con niveles de detalle de Assetto Corsa (lodIn/lodOut por malla, agrupadas en celdas de 90 m) ----------
+    // A (≤ 40 m del camino): 3D completo hasta 110 m · 3D simple 110–320 m · lámina más allá
+    // B (≤ 200 m): 3D simple hasta 320 m · lámina más allá · C (lejos): lámina (no se distingue a esa distancia)
+    const CELL = 90, LOD = { full: [0, 110], simple: [110, 320], simpleB: [0, 320], card: [320, 20000], cardC: [0, 20000] };
+    const AMAX = o.max3d || 1800, BMAX = o.maxSimple || 9000, season = o.season || 'summer';
+    const groups = new Map(); let n3d = 0, nSimple = 0, nCard = 0, nLogs = 0, nShrub = 0;
+    const grp = (x, y, tag, mat, lod, show) => { const key = Math.floor(x / CELL) + ',' + Math.floor(y / CELL) + '|' + tag + '|' + mat; let g = groups.get(key);
+      if (!g || g.v.length > 60000) { g = newMesh('TREES_' + tag + '_' + (meshes.length), mat); g.blocks = []; if (mat !== 'bark') g.n = []; g.lod = lod; g.pvHide = !show; groups.set(key, g); meshes.push(g); } return g; };
+    const R = (x, y, k) => hash2(Math.round(x * 7.1), Math.round(y * 7.3), k);
+    // tubo cónico a lo largo de una polilínea (tronco o rama), caras hacia afuera
+    const tube = (M, pts, rads, sides, vS) => { const b0 = M.v.length; let acc = 0;
+      for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[Math.min(pts.length - 1, i + 1)], pr = pts[Math.max(0, i - 1)]; let tx = q[0] - pr[0], ty = q[1] - pr[1], tz = q[2] - pr[2]; const L = Math.hypot(tx, ty, tz) || 1; tx /= L; ty /= L; tz /= L;
+        const ax = Math.abs(tz) < 0.9 ? 0 : 1, az = Math.abs(tz) < 0.9 ? 1 : 0; let ux = ty * az, uy = tz * ax - tx * az, uz = -ty * ax; const ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
+        const wx = ty * uz - tz * uy, wy = tz * ux - tx * uz, wz = tx * uy - ty * ux; if (i) acc += Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1], p[2] - pts[i - 1][2]);
+        for (let k = 0; k <= sides; k++) { const an = k / sides * Math.PI * 2, c = Math.cos(an) * rads[i], sn = Math.sin(an) * rads[i]; M.v.push([p[0] + ux * c + wx * sn, p[1] + uy * c + wy * sn, p[2] + uz * c + wz * sn]); M.uv.push([k / sides, acc / vS]); } }
+      for (let i = 0; i < pts.length - 1; i++) for (let k = 0; k < sides; k++) { const a0 = b0 + i * (sides + 1) + k, a1 = a0 + sides + 1; M.f.push([a0, a1 + 1, a1], [a0, a0 + 1, a1 + 1]); } };
+    // racimo de hojas: lámina chica de dos caras, orientada al azar (no mira a la cámara), normales hacia afuera de la copa
+    const leaf = (M, c, sz, yaw, pitch, slot, C, RC) => { const e1 = [Math.cos(yaw), Math.sin(yaw), 0], e2 = [-Math.sin(yaw) * Math.sin(pitch), Math.cos(yaw) * Math.sin(pitch), Math.cos(pitch)], h = sz / 2;
+      const P4 = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, j]) => [c[0] + (e1[0] * i + e2[0] * j) * h, c[1] + (e1[1] * i + e2[1] * j) * h, c[2] + (e1[2] * i + e2[2] * j) * h]);
+      const u0 = (slot & 1) * 0.5 + 0.005, v0 = (slot >> 1) * 0.5 + 0.005, UV = [[u0, v0], [u0 + 0.49, v0], [u0 + 0.49, v0 + 0.49], [u0, v0 + 0.49]];
+      for (const back of [0, 1]) { const b = M.v.length; P4.forEach((p, k) => { M.v.push(p); M.uv.push(UV[k]); let ex = p[0] - C[0], ey = p[1] - C[1], ez = (p[2] - C[2]) + RC * 0.35; const L = Math.hypot(ex, ey, ez) || 1; M.n.push([ex / L, ey / L, ez / L]); });
         if (back) M.f.push([b, b + 2, b + 1], [b, b + 3, b + 2]); else M.f.push([b, b + 1, b + 2], [b, b + 2, b + 3]); } };
-    for (const t of near) {
-      const [x, y, h, , ra, rb] = t, dRoad = rd(x, y, NEAR + 1);
-      if (!tm || tm.v.length > 60000) { tm = newMesh('TREES_L' + meshes.length, 'lenga'); tm.n = []; tm.blocks = []; meshes.push(tm); }
-      if (!bm || bm.v.length > 60000) { bm = newMesh('TREES_B' + meshes.length, 'bark'); bm.blocks = []; meshes.push(bm); }
-      bm.blocks.push(bm.v.length); tm.blocks.push(tm.v.length); // cada árbol ocupa un tramo de vértices de largo variable
-      // tronco caído en el suelo del bosque (cada tanto, no pegado al camino)
-      if (ra < 0.05 && dRoad > CL + 2 && dRoad < 30) {
-        const a = rb * Math.PI * 2, L = 3 + ra * 60, r = 0.14 + rb * 0.2, ex = x + Math.cos(a) * L, ey = y + Math.sin(a) * L, he = hAt(ex, ey); if (!he) continue; const N = 6, b0 = bm.v.length;
-        for (let k = 0; k <= N; k++) { const q = k / N * Math.PI * 2, px = -Math.sin(a) * Math.cos(q) * r, py = Math.cos(a) * Math.cos(q) * r, pz = Math.sin(q) * r + r * 0.6; bm.v.push([x + px, y + py, h + pz], [ex + px * 0.8, ey + py * 0.8, he.h + pz * 0.8]); bm.uv.push([k / N, 0], [k / N, L / 2]); }
-        for (let k = 0; k < N; k++) { const a0 = b0 + k * 2, a1 = a0 + 2; bm.f.push([a0, a1, a1 + 1], [a0, a1 + 1, a0 + 1]); } nLogs++; continue; }
-      // alturas y edades distintas: renovales, adultos y algún ejemplar viejo
-      const age = hash2(Math.round(x * 3), Math.round(y * 3), 21), Ht = age < 0.3 ? 4 + ra * 4 : age < 0.9 ? 11 + ra * 9 : 19 + ra * 6;
-      const cb = Ht * (0.28 + 0.18 * rb), r0 = 0.08 + Ht * 0.014, lx = (hash2(x | 0, y | 0, 22) - 0.5) * Ht * 0.05, ly = (hash2(x | 0, y | 0, 23) - 0.5) * Ht * 0.05, z0 = h - 0.3;
-      { const N = 6, b0 = bm.v.length; for (let k = 0; k <= N; k++) { const q = k / N * Math.PI * 2; bm.v.push([x + Math.cos(q) * r0, y + Math.sin(q) * r0, z0], [x + lx + Math.cos(q) * r0 * 0.3, y + ly + Math.sin(q) * r0 * 0.3, z0 + Ht * 0.9]); bm.uv.push([k / N, 0], [k / N, Ht / 2.5]); }
-        for (let k = 0; k < N; k++) { const a0 = b0 + k * 2, a1 = a0 + 2; bm.f.push([a0, a1, a1 + 1], [a0, a1 + 1, a0 + 1]); } }
-      // copa en pisos (la lenga arma capas horizontales): por piso, dos láminas verticales y una casi horizontal
-      const T = Ht < 8 ? 2 : 3, Wc = Ht * (0.62 + 0.25 * ra), ccx = x + lx * 0.7, ccy = y + ly * 0.7, ccz = z0 + (cb + Ht) / 2;
-      for (let k = 0; k < T; k++) {
-        const f = k / T, zb = z0 + cb + (Ht - cb) * f - 0.4, zt = z0 + cb + (Ht - cb) * (f + 1.6 / T), R = Wc / 2 * (1 - 0.25 * f) * (0.8 + 0.4 * hash2(k, x | 0, 24)), sl = hash2(k, y | 0, 25) < 0.5 ? 0 : 1, u0 = sl * 0.5 + 0.004, u1 = u0 + 0.492;
-        const cx = x + lx * (f + 0.3), cy = y + ly * (f + 0.3);
-        for (let j = 0; j < 3; j++) { const a = rb * Math.PI + k * 1.1 + j * Math.PI / 3, dx = Math.cos(a) * R, dy = Math.sin(a) * R;
-          card(tm, [[cx - dx, cy - dy, zb], [cx + dx, cy + dy, zb], [cx + dx, cy + dy, zt], [cx - dx, cy - dy, zt]], [[u0, 0.01], [u1, 0.01], [u1, 0.99], [u0, 0.99]], ccx, ccy, ccz, Wc / 2); }
-      }
-      n3d++;
+    const leafSlot = (kind, r) => kind === 0 ? 3 : kind === 2 ? 2 : r < 0.5 ? 0 : 1;
+    // lenga / ñire (latifoliada): tronco con base ensanchada, inclinación y curva; ramas principales en pisos; ramitas; racimos en las puntas
+    const broadleaf = (t, full, BM, LM) => { const [x, y, h, , ra, rb] = t, age = R(x, y, 21), Ht = age < 0.3 ? 4 + ra * 4 : age < 0.9 ? 11 + ra * 9 : 19 + ra * 6, z0 = h - 0.25;
+      const r0 = 0.08 + Ht * (age > 0.9 ? 0.02 : 0.015), lx = (R(x, y, 22) - 0.5) * Ht * 0.07, ly = (R(x, y, 23) - 0.5) * Ht * 0.07, TT = Ht * 0.62, cb = Ht * (0.28 + 0.14 * rb), Wc = Ht * (0.6 + 0.3 * ra);
+      const NS = full ? 6 : 3, spine = [], rad = []; for (let i = 0; i <= NS; i++) { const f = i / NS, bend = Math.sin(f * Math.PI) * 0.06 * Ht * (R(x, y, 24) - 0.5); spine.push([x + lx * f * f + bend, y + ly * f * f - bend * 0.5, z0 + TT * f]); rad.push(r0 * (i === 0 ? 1.35 : 1 - 0.55 * f)); }
+      tube(BM, spine, rad, full ? 8 : 5, 2.5);
+      const at = f => { const i = Math.min(NS - 1, Math.floor(f * NS)), u = f * NS - i, A = spine[i], B = spine[i + 1]; return [A[0] + (B[0] - A[0]) * u, A[1] + (B[1] - A[1]) * u, A[2] + (B[2] - A[2]) * u]; };
+      const C = [x + lx * 0.7, y + ly * 0.7, z0 + (cb + Ht) / 2], RC = Wc / 2, slot = leafSlot(1, ra), nb = full ? (Ht < 8 ? 4 : 5 + Math.floor(ra * 4)) : 3;
+      const tips = [];
+      for (let k = 0; k < nb; k++) { const f = cb / TT + (1 - cb / TT) * (k + 0.5) / nb * 1.05, s0 = at(Math.min(1, f)), az = k * 2.39996 + rb * 6 + (R(x, y, 30 + k) - 0.5) * 0.6, el = 0.25 + 0.5 * (k / nb) + (R(x, y, 40 + k) - 0.5) * 0.25;
+        const L = RC * (0.75 + 0.35 * R(x, y, 50 + k)) * (1 - 0.3 * k / nb) + (k === nb - 1 ? Ht - TT : 0) * 0.6, dx = Math.cos(az) * Math.cos(el), dy = Math.sin(az) * Math.cos(el), dz = Math.sin(el);
+        const pts = [], rr = [], NB = full ? 3 : 2, rb0 = Math.max(0.03, r0 * (0.55 - 0.25 * k / nb)); for (let i = 0; i <= NB; i++) { const u = i / NB; pts.push([s0[0] + dx * L * u, s0[1] + dy * L * u, s0[2] + dz * L * u + 0.12 * L * u * u]); rr.push(rb0 * (1 - 0.8 * u) + 0.01); }
+        tube(BM, pts, rr, full ? 5 : 3, 1.5); tips.push([pts[NB], az, L, pts[Math.ceil(NB / 2)]]);
+        if (full) for (const sg of [-1, 1]) { const m0 = pts[1], az2 = az + sg * (0.5 + 0.4 * R(x, y, 60 + k)), L2 = L * (0.35 + 0.2 * R(x, y, 70 + k)), e2 = [m0[0] + Math.cos(az2) * L2, m0[1] + Math.sin(az2) * L2, m0[2] + L2 * 0.35];
+          tube(BM, [m0, e2], [rb0 * 0.45, 0.012], 3, 1.2); tips.push([e2, az2, L2, null]); } }
+      // racimos: en cada punta y a lo largo de la mitad exterior; capas casi horizontales (la lenga arma pisos), algunos verticales
+      const sz0 = Math.max(1.3, Ht / 7.5) * (full ? 1 : 1.6);
+      for (const [p, az, L, mid] of tips) { const nc = full ? 4 + Math.floor(R(p[0], p[1], 81) * 3) : 4;
+        for (let j = 0; j < nc; j++) { const q = R(p[0] + j, p[1], 82), rr2 = sz0 * (0.6 + 0.5 * q), c = [p[0] + (R(p[0], p[1] + j, 83) - 0.5) * rr2 * 1.6, p[1] + (R(p[0] + j, p[1] + j, 84) - 0.5) * rr2 * 1.6, p[2] + (R(p[0], p[1], 85 + j) - 0.3) * rr2];
+          const pitch = R(p[0], j, 86) < 0.55 ? 0.55 + 0.45 * R(p[1], j, 87) : 0.15 + 0.4 * R(p[1], j, 88); /* oblicuos y casi verticales: de cualquier lado se ve masa, no discos de canto */ leaf(LM, c, sz0 * (0.75 + 0.6 * q), az + R(j, p[0], 89) * 3, pitch, slot, C, RC); }
+        if (mid) for (let j = 0; j < (full ? 2 : 1); j++) leaf(LM, [mid[0] + (R(mid[0], j, 92) - 0.5) * sz0, mid[1] + (R(mid[1], j, 93) - 0.5) * sz0, mid[2] + 0.2 + R(j, mid[2], 94) * sz0 * 0.4], sz0 * 0.85, az + 1.3 + j * 1.7, 0.5 + 0.4 * R(j, mid[0], 95), slot, C, RC); }
+      // relleno del centro de la copa (que no quede hueca)
+      for (let j = 0; j < (full ? 5 : 2); j++) { const q = R(x, y, 150 + j), a = j * 2.4 + rb * 6, rr = RC * (0.15 + 0.35 * q); leaf(LM, [C[0] + Math.cos(a) * rr, C[1] + Math.sin(a) * rr, C[2] + (R(y, x, 160 + j) - 0.3) * (Ht - cb) * 0.4], sz0 * (1.1 + 0.4 * q), a + 1.2, 0.35 + 0.5 * R(x, j, 170), slot, C, RC); }
+      return Ht; };
+    // conífera (raras en Patagonia sur): tronco recto y verticilos de ramas que caen
+    const conifer = (t, full, BM, LM) => { const [x, y, h, , ra, rb] = t, Ht = 7 + ra * 11, z0 = h - 0.25, r0 = 0.1 + Ht * 0.013;
+      tube(BM, [[x, y, z0], [x, y, z0 + Ht * 0.5], [x, y, z0 + Ht]], [r0 * 1.3, r0 * 0.7, 0.02], full ? 7 : 4, 2.5);
+      const C = [x, y, z0 + Ht * 0.55], NW = full ? Math.round(Ht / 1.1) : 4;
+      for (let k = 0; k < NW; k++) { const f = 0.25 + 0.72 * k / NW, z = z0 + Ht * f, Rr = Ht * 0.24 * (1 - f) + 0.4, nwh = full ? 5 : 3;
+        for (let j = 0; j < nwh; j++) { const az = j / nwh * Math.PI * 2 + k * 0.7 + rb * 3, c = [x + Math.cos(az) * Rr * 0.55, y + Math.sin(az) * Rr * 0.55, z - Rr * 0.15]; leaf(LM, c, Rr * (full ? 1.15 : 1.6), az + Math.PI / 2, 1.05 + 0.25 * R(k, j, 91), 3, C, Ht * 0.3); } }
+      return Ht; };
+    // arbusto (ñire bajo, calafate, chaura): varios tallos desde el piso y racimos chicos
+    const shrub = (t, BM, LM) => { const [x, y, h, , ra, rb, , edgeB] = t, Ht = edgeB ? 1.6 + ra * 2 : 0.8 + ra * 1.4, z0 = h - 0.1, ns = 3 + Math.floor(ra * 3), C = [x, y, z0 + Ht * 0.55];
+      for (let k = 0; k < ns; k++) { const az = k * 2.4 + rb * 6, lean = 0.25 + 0.35 * R(x, y, 100 + k), L = Ht * (0.75 + 0.3 * R(x, y, 110 + k)), e = [x + Math.cos(az) * L * lean, y + Math.sin(az) * L * lean, z0 + L];
+        tube(BM, [[x + Math.cos(az) * 0.05, y + Math.sin(az) * 0.05, z0], e], [0.03, 0.008], 3, 1);
+        for (let j = 0; j < 3; j++) { const u = 0.45 + 0.28 * j, c = [x + (e[0] - x) * u + (R(k, j, 120) - 0.5) * 0.4, y + (e[1] - y) * u + (R(j, k, 121) - 0.5) * 0.4, z0 + (e[2] - z0) * u]; leaf(LM, c, Ht * (0.45 + 0.25 * R(k, j, 122)), az + j, 0.5 + 0.9 * R(j, k, 123), 2, C, Ht * 0.5); } }
+      return Ht; };
+    // lámina cruzada para lo lejano (con normales de volumen, sin bordes negros)
+    const card = (t, M) => { const [x, y, h, kind, ra, rb, , edgeB] = t, Ht = kind === 2 ? (edgeB ? 2.2 + ra * 2.4 : 1.2 + ra * 1.5) : kind === 0 ? 7 + ra * 9 : 6 + ra * 7, W = kind === 0 ? Ht * 0.68 : kind === 1 ? Ht * 0.85 : Ht * 1.3;
+      const sl = kind === 1 ? (ra > 0.5 ? 3 : 1) : kind, u0 = sl / 4 + 0.006, u1 = (sl + 1) / 4 - 0.006, ang = rb * Math.PI, z0 = h - 0.3;
+      for (const a of [ang, ang + Math.PI / 2]) { const dx = Math.cos(a) * W / 2, dy = Math.sin(a) * W / 2, b = M.v.length, nn = (px, py, pz) => { const ex = px - x, ey = py - y, ez = pz - (z0 + Ht * 0.55) + W * 0.3, L = Math.hypot(ex, ey, ez) || 1; return [ex / L, ey / L, ez / L]; };
+        for (const back of [0, 1]) { const c = M.v.length; M.v.push([x - dx, y - dy, z0], [x + dx, y + dy, z0], [x + dx, y + dy, z0 + Ht], [x - dx, y - dy, z0 + Ht]); M.uv.push([u0, 0.004], [u1, 0.004], [u1, 0.992], [u0, 0.992]);
+          if (back) M.f.push([c, c + 2, c + 1], [c, c + 3, c + 2]); else M.f.push([c, c + 1, c + 2], [c, c + 2, c + 3]); for (const q of M.v.slice(c)) M.n.push(nn(q[0], q[1], q[2])); } } };
+    // reparto por distancia al camino (los más cercanos primero)
+    const ranked = list.map(t => [t, rd(t[0], t[1], 260)]).sort((p, q) => p[1] - q[1]); let nA = 0, nB = 0;
+    for (const [t, dr] of ranked) {
+      const [x, y, h, kind, ra] = t, tier = dr <= 40 && nA < AMAX ? 'A' : dr <= 200 && nB < BMAX ? 'B' : 'C';
+      const mark = M => { if (M.blocks) M.blocks.push(M.v.length); };
+      // tronco caído en el suelo del bosque (cerca del camino, no pegado)
+      if (tier === 'A' && kind === 1 && ra < 0.04 && dr > CL + 2 && dr < 30) { const BM = grp(x, y, 'A0b', 'bark', LOD.full, true), a2 = t[5] * Math.PI * 2, L = 3 + ra * 60, he = hAt(x + Math.cos(a2) * L, y + Math.sin(a2) * L); if (he) { mark(BM);
+          tube(BM, [[x, y, h + 0.15], [x + Math.cos(a2) * L, y + Math.sin(a2) * L, he.h + 0.12]], [0.2 + t[5] * 0.15, 0.12], 6, 2); nLogs++; continue; } }
+      if (tier === 'A') { nA++;
+        if (kind === 2) { const BM = grp(x, y, 'A0b', 'bark', [0, 90], true), LM = grp(x, y, 'A0l', 'leaves', [0, 90], true); mark(BM); mark(LM); shrub(t, BM, LM); nShrub++; const CM = grp(x, y, 'A2', 'tree', [90, 20000], false); mark(CM); card(t, CM); continue; }
+        for (const [tg, full, lod, show] of [['A0', true, LOD.full, true], ['A1', false, LOD.simple, false]]) { const BM = grp(x, y, tg + 'b', 'bark', lod, show), LM = grp(x, y, tg + 'l', 'leaves', lod, show); mark(BM); mark(LM); (kind === 0 ? conifer : broadleaf)(t, full, BM, LM); }
+        const CM = grp(x, y, 'A2', 'tree', LOD.card, false); mark(CM); card(t, CM); n3d++; continue; }
+      if (tier === 'B' && kind !== 2) { nB++; const BM = grp(x, y, 'B1b', 'bark', LOD.simpleB, true), LM = grp(x, y, 'B1l', 'leaves', LOD.simpleB, true); mark(BM); mark(LM); (kind === 0 ? conifer : broadleaf)(t, false, BM, LM);
+        const CM = grp(x, y, 'B2', 'tree', LOD.card, false); mark(CM); card(t, CM); nSimple++; continue; }
+      const CM = grp(x, y, 'C2', 'tree', LOD.cardC, true); mark(CM); card(t, CM); nCard++;
     }
-    let m = null, n = 0;
-    for (const t of list) {
-      if (nearSet.has(t)) continue;
-      const [x, y, h, kind, ra, rb, , edgeB] = t;
-      if (!m || n >= PER) { m = newMesh('TREES_' + (meshes.length - walls.length), 'tree'); m.n = []; m.block = 16; meshes.push(m); n = 0; }
-      const Ht = kind === 2 ? (edgeB ? 2.2 + ra * 2.4 : 1.2 + ra * 1.5) : kind === 0 ? 7 + ra * 9 : 6 + ra * 7, W = kind === 0 ? Ht * 0.68 : kind === 1 ? Ht * 0.85 : Ht * 1.3;
-      const slot = kind === 1 ? (ra > 0.5 ? 3 : 1) : kind, u0 = slot / 4 + 0.006, u1 = (slot + 1) / 4 - 0.006, ang = rb * Math.PI, z0 = h - 0.3; // sin rayas del árbol vecino del atlas
-      for (const a of [ang, ang + Math.PI / 2]) {
-        const dx = Math.cos(a) * W / 2, dy = Math.sin(a) * W / 2, b = m.v.length;
-        const nn = (px, py, pz) => { const ex = px - x, ey = py - y, ez = pz - (z0 + Ht * 0.55) + W * 0.3, L = Math.hypot(ex, ey, ez) || 1; return [ex / L, ey / L, ez / L]; };
-        m.v.push([x - dx, y - dy, z0], [x + dx, y + dy, z0], [x + dx, y + dy, z0 + Ht], [x - dx, y - dy, z0 + Ht]);
-        m.uv.push([u0, 0.004], [u1, 0.004], [u1, 0.992], [u0, 0.992]);
-        m.f.push([b, b + 1, b + 2], [b, b + 2, b + 3]);
-        const c = m.v.length; // cara trasera (para que se vea de los dos lados)
-        m.v.push([x - dx, y - dy, z0], [x + dx, y + dy, z0], [x + dx, y + dy, z0 + Ht], [x - dx, y - dy, z0 + Ht]);
-        m.uv.push([u0, 0.004], [u1, 0.004], [u1, 0.992], [u0, 0.992]);
-        m.f.push([c, c + 2, c + 1], [c, c + 3, c + 2]);
-        for (const q of m.v.slice(b)) m.n.push(nn(q[0], q[1], q[2]));
-      }
-      n++;
-    }
-    return { meshes, count: list.length, candidates: cand.length, trunks: walls.reduce((a, m) => a + m.f.length / 16, 0), n3d, nLogs };
+    // control de calidad: dentro de 40 m del camino no debe quedar ningún árbol de láminas visible de cerca
+    const planesNear = ranked.filter(([t, dr]) => dr <= 40).length - Math.min(AMAX, ranked.filter(([t, dr]) => dr <= 40).length);
+    return { meshes, count: list.length, candidates: cand.length, trunks: walls.reduce((a, m) => a + m.f.length / 16, 0), n3d, nLogs, nSimple, nCard, nShrub, planesNear, season };
   }
 
 

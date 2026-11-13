@@ -85,6 +85,10 @@ tris = sum(m['nt'] for m in meshes); vis = [m for m in meshes if m['vis']]
 big = [m for m in vis if m['r'] > 1500 and not re.match(r'^\d', m['name'])]
 tiny = [m for m in vis if m['nt'] < 20]
 vram = sum(v[3] for v in tex.values())
+lods = collections.Counter(f"{m['lod'][0]:.0f}-{m['lod'][1]:.0f}" for m in meshes if m['lod'][1] > 0)
+info['niveles_de_detalle'] = dict(lods)
+for m in meshes:
+    if m['lod'][1] and m['lod'][1] <= m['lod'][0]: probs['LOD invertido (lodOut <= lodIn)'].append(m['name'])
 info.update(version=ver, mallas=len(meshes), visibles=len(vis), triangulos=tris, vertices=sum(m['nv'] for m in meshes), texturas=len(tex), texturas_MB=round(vram / 2**20, 1),
             materiales=len(mats), mallas_radio_mayor_1500m=len(big), mallas_menos_20_tris=len(tiny), max_vert_por_malla=max(m['nv'] for m in meshes),
             superficies_fisicas={k: v for k, v in phys.most_common()}, shaders=dict(collections.Counter(m['sh'] for m in mats)))
