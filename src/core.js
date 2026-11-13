@@ -701,6 +701,8 @@ const Core = (() => {
   // ---------- Árboles: dos planos cruzados con textura recortada (como en los simuladores) ----------
   // o: ter (resultado de buildTerrain), bbox, res, segs, spacingAt(x,y,h,slope) -> metros entre árboles (0 = ninguno),
   //    kindAt(x,y,h) -> 0 pino, 1 árbol de hoja, 2 arbusto, maxTrees
+  function vn2c(x, y, s) { const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+    const a = hash2(xi, yi, s), b = hash2(xi + 1, yi, s), c = hash2(xi, yi + 1, s), d = hash2(xi + 1, yi + 1, s); return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; }
   function buildTrees(o) {
     const { ter, bbox, res } = o, nx = ter.nx, ny = ter.ny, H = ter.H, need = ter.need;
     const hAt = (x, y) => {
@@ -721,7 +723,10 @@ const Core = (() => {
         // franja pegada al camino: monte bajo denso (como en los caminos de bosque reales)
         // dr = distancia desde la línea libre (fin de la cuneta, o la berma donde no hay cuneta)
         const edge = dr >= 0 && dr < CL + 5;
-        const dens = (base * base) / (sp * sp) * (edge ? 3.5 : 1);
+        // bosquecillos y claros: la densidad cambia por manchones (ruido de ~60 m y ~18 m), nunca una pared pareja
+        const cl = vn2c(x / 60, y / 60, 11) * 0.7 + vn2c(x / 18, y / 18, 12) * 0.3;
+        if (!edge && kind !== 2 && cl < 0.2) continue; // claro natural
+        const dens = (base * base) / (sp * sp) * (edge ? 3.5 : 1) * (0.35 + 1.3 * Math.max(0, cl - 0.15));
         if (r0 > dens) continue;
         if (edge && dr < CL + 0.7) kind = 2; else if (dr < CL) continue;
         if (dr < 0) continue; // no dentro de la cuneta
@@ -742,13 +747,46 @@ const Core = (() => {
       }
     }
     const meshes = [...walls], PER = 3000;
+    // árboles 3D (tronco + copa en pisos, normales de volumen) cerca del camino; lejos, láminas cruzadas livianas
+    const NEAR = o.near3d == null ? 55 : o.near3d, MAX3D = o.max3d || 14000; let n3d = 0, nLogs = 0, tm = null, bm = null;
+    const near = list.filter(t => t[3] === 1 && rd(t[0], t[1], NEAR + 1) <= NEAR).sort((a, b) => rd(a[0], a[1], NEAR + 1) - rd(b[0], b[1], NEAR + 1)).slice(0, MAX3D), nearSet = new Set(near);
+    const card = (M, pts, uvs, cx, cy, cz, R) => { // lámina de dos caras con normales que salen del centro de la copa
+      for (const back of [0, 1]) { const b = M.v.length; pts.forEach((p, k) => { M.v.push(p); M.uv.push(uvs[k]); const dx = p[0] - cx, dy = p[1] - cy, dz = p[2] - cz + R * 0.5, L = Math.hypot(dx, dy, dz) || 1; M.n.push([dx / L, dy / L, dz / L]); });
+        if (back) M.f.push([b, b + 2, b + 1], [b, b + 3, b + 2]); else M.f.push([b, b + 1, b + 2], [b, b + 2, b + 3]); } };
+    for (const t of near) {
+      const [x, y, h, , ra, rb] = t, dRoad = rd(x, y, NEAR + 1);
+      if (!tm || tm.v.length > 60000) { tm = newMesh('TREES_L' + meshes.length, 'lenga'); tm.n = []; tm.block = 16; meshes.push(tm); }
+      if (!bm || bm.v.length > 60000) { bm = newMesh('TREES_B' + meshes.length, 'bark'); bm.block = 16; meshes.push(bm); }
+      // tronco caído en el suelo del bosque (cada tanto, no pegado al camino)
+      if (ra < 0.05 && dRoad > CL + 2 && dRoad < 30) {
+        const a = rb * Math.PI * 2, L = 3 + ra * 60, r = 0.14 + rb * 0.2, ex = x + Math.cos(a) * L, ey = y + Math.sin(a) * L, he = hAt(ex, ey); if (!he) continue; const N = 6, b0 = bm.v.length;
+        for (let k = 0; k <= N; k++) { const q = k / N * Math.PI * 2, px = -Math.sin(a) * Math.cos(q) * r, py = Math.cos(a) * Math.cos(q) * r, pz = Math.sin(q) * r + r * 0.6; bm.v.push([x + px, y + py, h + pz], [ex + px * 0.8, ey + py * 0.8, he.h + pz * 0.8]); bm.uv.push([k / N, 0], [k / N, L / 2]); }
+        for (let k = 0; k < N; k++) { const a0 = b0 + k * 2, a1 = a0 + 2; bm.f.push([a0, a1, a1 + 1], [a0, a1 + 1, a0 + 1]); } nLogs++; continue; }
+      // alturas y edades distintas: renovales, adultos y algún ejemplar viejo
+      const age = hash2(Math.round(x * 3), Math.round(y * 3), 21), Ht = age < 0.3 ? 4 + ra * 4 : age < 0.9 ? 11 + ra * 9 : 19 + ra * 6;
+      const cb = Ht * (0.28 + 0.18 * rb), r0 = 0.08 + Ht * 0.014, lx = (hash2(x | 0, y | 0, 22) - 0.5) * Ht * 0.05, ly = (hash2(x | 0, y | 0, 23) - 0.5) * Ht * 0.05, z0 = h - 0.3;
+      { const N = 6, b0 = bm.v.length; for (let k = 0; k <= N; k++) { const q = k / N * Math.PI * 2; bm.v.push([x + Math.cos(q) * r0, y + Math.sin(q) * r0, z0], [x + lx + Math.cos(q) * r0 * 0.3, y + ly + Math.sin(q) * r0 * 0.3, z0 + Ht * 0.9]); bm.uv.push([k / N, 0], [k / N, Ht / 2.5]); }
+        for (let k = 0; k < N; k++) { const a0 = b0 + k * 2, a1 = a0 + 2; bm.f.push([a0, a1, a1 + 1], [a0, a1 + 1, a0 + 1]); } }
+      // copa en pisos (la lenga arma capas horizontales): por piso, dos láminas verticales y una casi horizontal
+      const T = Ht < 8 ? 2 : 3, Wc = Ht * (0.62 + 0.25 * ra), ccx = x + lx * 0.7, ccy = y + ly * 0.7, ccz = z0 + (cb + Ht) / 2;
+      for (let k = 0; k < T; k++) {
+        const f = k / T, zb = z0 + cb + (Ht - cb) * f - 0.4, zt = z0 + cb + (Ht - cb) * (f + 1.6 / T), R = Wc / 2 * (1 - 0.25 * f) * (0.8 + 0.4 * hash2(k, x | 0, 24)), sl = hash2(k, y | 0, 25) < 0.5 ? 0 : 1, u0 = sl * 0.5 + 0.004, u1 = u0 + 0.492;
+        const cx = x + lx * (f + 0.3), cy = y + ly * (f + 0.3);
+        for (let j = 0; j < 3; j++) { const a = rb * Math.PI + k * 1.1 + j * Math.PI / 3, dx = Math.cos(a) * R, dy = Math.sin(a) * R;
+          card(tm, [[cx - dx, cy - dy, zb], [cx + dx, cy + dy, zb], [cx + dx, cy + dy, zt], [cx - dx, cy - dy, zt]], [[u0, 0.01], [u1, 0.01], [u1, 0.99], [u0, 0.99]], ccx, ccy, ccz, Wc / 2); }
+      }
+      n3d++;
+    }
     let m = null, n = 0;
-    for (const [x, y, h, kind, ra, rb, , edgeB] of list) {
-      if (!m || n >= PER) { m = newMesh('TREES_' + (meshes.length - walls.length), 'tree'); m.block = 16; meshes.push(m); n = 0; }
+    for (const t of list) {
+      if (nearSet.has(t)) continue;
+      const [x, y, h, kind, ra, rb, , edgeB] = t;
+      if (!m || n >= PER) { m = newMesh('TREES_' + (meshes.length - walls.length), 'tree'); m.n = []; m.block = 16; meshes.push(m); n = 0; }
       const Ht = kind === 2 ? (edgeB ? 2.2 + ra * 2.4 : 1.2 + ra * 1.5) : kind === 0 ? 7 + ra * 9 : 6 + ra * 7, W = kind === 0 ? Ht * 0.68 : kind === 1 ? Ht * 0.85 : Ht * 1.3;
       const slot = kind === 1 ? (ra > 0.5 ? 3 : 1) : kind, u0 = slot / 4 + 0.006, u1 = (slot + 1) / 4 - 0.006, ang = rb * Math.PI, z0 = h - 0.3; // sin rayas del árbol vecino del atlas
       for (const a of [ang, ang + Math.PI / 2]) {
         const dx = Math.cos(a) * W / 2, dy = Math.sin(a) * W / 2, b = m.v.length;
+        const nn = (px, py, pz) => { const ex = px - x, ey = py - y, ez = pz - (z0 + Ht * 0.55) + W * 0.3, L = Math.hypot(ex, ey, ez) || 1; return [ex / L, ey / L, ez / L]; };
         m.v.push([x - dx, y - dy, z0], [x + dx, y + dy, z0], [x + dx, y + dy, z0 + Ht], [x - dx, y - dy, z0 + Ht]);
         m.uv.push([u0, 0.004], [u1, 0.004], [u1, 0.992], [u0, 0.992]);
         m.f.push([b, b + 1, b + 2], [b, b + 2, b + 3]);
@@ -756,10 +794,11 @@ const Core = (() => {
         m.v.push([x - dx, y - dy, z0], [x + dx, y + dy, z0], [x + dx, y + dy, z0 + Ht], [x - dx, y - dy, z0 + Ht]);
         m.uv.push([u0, 0.004], [u1, 0.004], [u1, 0.992], [u0, 0.992]);
         m.f.push([c, c + 2, c + 1], [c, c + 3, c + 2]);
+        for (const q of m.v.slice(b)) m.n.push(nn(q[0], q[1], q[2]));
       }
       n++;
     }
-    return { meshes, count: list.length, candidates: cand.length, trunks: walls.reduce((a, m) => a + m.f.length / 16, 0) };
+    return { meshes, count: list.length, candidates: cand.length, trunks: walls.reduce((a, m) => a + m.f.length / 16, 0), n3d, nLogs };
   }
 
 
@@ -806,6 +845,7 @@ const Core = (() => {
   }
 
   function computeNormals(m) {
+    if (m.n && m.n.length === m.v.length) return m.n; // normales propias (follaje: iluminado como un volumen, no como una lámina)
     const N = m.v.map(() => [0, 0, 0]);
     for (const [a, b, c] of m.f) {
       const A = m.v[a], B = m.v[b], Cc = m.v[c];
