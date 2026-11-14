@@ -1,0 +1,49 @@
+TRAMO PARA RICHARD BURNS RALLY (RallySimFans)
+=============================================
+
+Esta carpeta trae todo para convertir el tramo en un tramo nativo de RBR con Blender y el complemento oficial
+"RBR Track Addon" (https://richardburnsrally.github.io/blender-track-exporter/):
+
+  track.obj, track.mtl   modelo completo (camino, cunetas, banquinas, terreno, árboles, piedras). 1 unidad = 1 metro.
+  texturas/*.dds         texturas DXT1 (opacas) y DXT5 (con transparencia), tamaños potencia de dos
+  rbr_datos.json         driveline (eje del camino con su altimetría), largada, parciales, llegada, fin del tramo,
+                         notas del copiloto, posición del auto y la superficie de cada malla
+  rbr_construir.py       script de Blender que arma y exporta el tramo
+  CREAR_TRAMO_RBR.bat    lo ejecuta todo (doble clic)
+
+QUÉ NECESITÁS (una sola vez)
+ 1. Blender 4.5 (el complemento 0.3.3 pide Blender 4.5; con Blender 5.x falla la driveline).
+    Versión portable: https://download.blender.org/release/Blender4.5/  -> blender-4.5.x-windows-x64.zip
+    Descomprimila en Descargas (el .bat la encuentra ahí o en "Archivos de programa\Blender Foundation").
+ 2. El complemento: rbr-track-exporter-v0.3.3.zip
+    (https://richardburnsrally.github.io/blender-track-exporter/download.html). Ponelo en Descargas o en esta carpeta.
+ 3. RBR con RallySimFans instalado.
+
+CÓMO SE USA
+ Doble clic en CREAR_TRAMO_RBR.bat. La primera vez te pide la carpeta Maps de tu RBR (y la recuerda).
+ Elige solo un número de tramo libre (desde 7001), no pisa ningún tramo existente y no toca Tracks.ini.
+ Al terminar, en RallySimFans el tramo aparece en la categoría "Test stages".
+ Si querés un número fijo: CREAR_TRAMO_RBR.bat 7050
+
+QUÉ HACE EL SCRIPT
+ - Instala y activa el complemento si hace falta, y guarda la carpeta Maps en sus preferencias (tipo RSF).
+ - Importa el modelo y comprueba que el eje caiga sobre la calzada (escala y posición).
+ - Une las mallas por superficie y material. Camino, cunetas, banquinas, terreno, troncos y piedras que se tocan
+   llevan colisión; copas, gravilla fina y líneas son sólo visuales.
+ - Materiales RBR con cada textura y el material físico de RBR según la superficie (seco / húmedo / mojado):
+     ripio firme (huellas)  -> GRAVEL_MEDIUM_SHALLOW     ripio suelto (lomo y bordes) -> GRAVEL_COARSE_DEEP
+     cuneta junto al ripio  -> GRAVEL_FINE_DEEP          banquina                     -> igual que el camino
+     tierra arcillosa       -> DIRT_HARD                 barro / cuneta húmeda        -> DIRT_SOFT / DIRT_MEDIUM
+     pasto                  -> GRASS_MEDIUM              asfalto                      -> TARMAC_MEDIUM_CLEAN
+     troncos                -> TRUNK_MEDIUM              rocas                        -> ROCK_MEDIUM
+ - Driveline sobre el eje real, con largada, 2 parciales, llegada y fin del tramo, y las notas del copiloto
+   (curvas por grado, crestas, saltos, baches, puentes, cambios de piso).
+   Los parciales van a 1/3 y 2/3 del tramo: el generador no tiene parciales reales. Se cambian en rbr_datos.json.
+ - Auto 18 m antes de la largada, mirando en el sentido del tramo. Sol, clima despejado y superficies seco/húmedo/mojado.
+ - Guarda el proyecto rbr_<tramo>.blend, exporta a Maps\<número>-<nombre>\ y verifica los archivos.
+ - Todo queda en rbr_registro.txt y el resultado en rbr_resultado.json.
+
+LO QUE NO HACE
+ - No prueba el tramo manejando: eso hay que hacerlo en el juego (largada, colisiones, agarre, piedras).
+ - RBR no tiene niveles de detalle por objeto como Assetto Corsa: los árboles cercanos van en su versión simplificada
+   y los lejanos como láminas.

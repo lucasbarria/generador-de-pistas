@@ -2767,6 +2767,44 @@ function dxt1Encode(img, w, h) {
   }
   return out;
 }
+// DXT5: color como DXT1 (siempre 4 colores) + bloque de alfa de 8 niveles. Para texturas con transparencia (RBR).
+function dxt5Encode(img, w, h) {
+  const bw = Math.max(1, (w + 3) >> 2), bh = Math.max(1, (h + 3) >> 2), out = new Uint8Array(bw * bh * 16); let o = 0;
+  const to565 = (r, g, b) => ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3), from565 = c => [((c >> 11) & 31) * 255 / 31, ((c >> 5) & 63) * 255 / 63, (c & 31) * 255 / 31];
+  const blk = new Array(16), al = new Array(16);
+  for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) {
+    let mn = [255, 255, 255], mx = [0, 0, 0], a0 = 0, a1 = 255;
+    for (let k = 0; k < 16; k++) { const x = Math.min(w - 1, bx * 4 + (k & 3)), y = Math.min(h - 1, by * 4 + (k >> 2)), i = (y * w + x) * 4; blk[k] = [img[i], img[i + 1], img[i + 2]]; al[k] = img[i + 3];
+      a0 = Math.max(a0, al[k]); a1 = Math.min(a1, al[k]); for (let c = 0; c < 3; c++) { mn[c] = Math.min(mn[c], img[i + c]); mx[c] = Math.max(mx[c], img[i + c]); } }
+    // alfa: a0 > a1 → 8 niveles interpolados
+    if (a0 === a1) { if (a0 === 255) a1 = 254; else a0 = Math.min(255, a1 + 1); }
+    const A = [a0, a1]; for (let k = 1; k < 7; k++) A.push(((7 - k) * a0 + k * a1) / 7);
+    let bits = 0n; for (let k = 0; k < 16; k++) { let best = 0, bd = Infinity; for (let p = 0; p < 8; p++) { const d = Math.abs(al[k] - A[p]); if (d < bd) { bd = d; best = p; } } bits |= BigInt(best) << BigInt(3 * k); }
+    out[o++] = a0; out[o++] = a1; for (let b = 0; b < 6; b++) out[o++] = Number((bits >> BigInt(8 * b)) & 255n);
+    let c0 = to565(...mx), c1 = to565(...mn); if (c0 < c1) [c0, c1] = [c1, c0]; if (c0 === c1) { if (c0 < 65535) c0++; else c1--; }
+    const P0 = from565(c0), P1 = from565(c1), pal = [P0, P1, P0.map((v, c) => (2 * v + P1[c]) / 3), P0.map((v, c) => (v + 2 * P1[c]) / 3)];
+    let idx = 0; for (let k = 0; k < 16; k++) { let best = 0, bd = Infinity; for (let p = 0; p < 4; p++) { const d = (blk[k][0] - pal[p][0]) ** 2 + (blk[k][1] - pal[p][1]) ** 2 + (blk[k][2] - pal[p][2]) ** 2; if (d < bd) { bd = d; best = p; } } idx |= best << (2 * k); }
+    out[o++] = c0 & 255; out[o++] = c0 >> 8; out[o++] = c1 & 255; out[o++] = c1 >> 8; out[o++] = idx & 255; out[o++] = (idx >> 8) & 255; out[o++] = (idx >> 16) & 255; out[o++] = (idx >>> 24) & 255;
+  }
+  return out;
+}
+// DDS DXT1 / DXT5 con mipmaps, a partir de píxeles RGBA (para RBR: tamaños potencia de dos)
+function rgbaToDDS(img, W0, H0, five) {
+  const levels = []; let w = W0, h = H0;
+  for (;;) {
+    levels.push(five ? dxt5Encode(img, w, h) : dxt1Encode(img, w, h)); if (w <= 4 || h <= 4) break;
+    const nw = Math.max(1, w >> 1), nh = Math.max(1, h >> 1), nd = new Uint8ClampedArray(nw * nh * 4);
+    for (let y = 0; y < nh; y++) for (let x = 0; x < nw; x++) for (let c = 0; c < 4; c++) { const x0 = x * 2, y0 = y * 2; nd[(y * nw + x) * 4 + c] = (img[(y0 * w + x0) * 4 + c] + img[(y0 * w + x0 + 1) * 4 + c] + img[((y0 + 1) * w + x0) * 4 + c] + img[((y0 + 1) * w + x0 + 1) * 4 + c]) / 4; }
+    img = nd; w = nw; h = nh;
+  }
+  const head = new DataView(new ArrayBuffer(128));
+  head.setUint32(0, 0x20534444, true); head.setUint32(4, 124, true); head.setUint32(8, 0x1 | 0x2 | 0x4 | 0x1000 | 0x20000 | 0x80000, true);
+  head.setUint32(12, H0, true); head.setUint32(16, W0, true); head.setUint32(20, Math.max(1, W0 >> 2) * Math.max(1, H0 >> 2) * (five ? 16 : 8), true); head.setUint32(28, levels.length, true);
+  head.setUint32(76, 32, true); head.setUint32(80, 0x4, true); head.setUint32(84, five ? 0x35545844 : 0x31545844, true); // 'DXT5' / 'DXT1'
+  head.setUint32(108, 0x1000 | 0x400000 | 0x8, true);
+  const total = 128 + levels.reduce((a, l) => a + l.length, 0), out = new Uint8Array(total); out.set(new Uint8Array(head.buffer), 0); let p = 128; for (const l of levels) { out.set(l, p); p += l.length; }
+  return out;
+}
 // ---------- Textura continua del camino ----------
 // El camino se divide en tramos de 80 m y cada tramo lleva su propia textura "desenrollada" a lo largo del camino:
 // sigue las curvas y los cambios de ancho, sin repeticiones visibles. Si hay ortofoto propia, es la foto real del camino;
@@ -3962,6 +4000,103 @@ function areaEmpties(r, o, P, heightS) {
 }
 
 // ---------- Exportación ----------
+// ---------- Paquete para Richard Burns Rally (RallySimFans) ----------
+// rbr_<tramo>/: track.obj + texturas DDS (potencia de dos; DXT5 si tienen transparencia) + rbr_datos.json (driveline sobre
+// el eje, largada / parciales / llegada, notas de ruta, auto, superficie de cada malla) + el script de Blender que arma y
+// exporta el tramo con el complemento RBR Track Addon (tools/rbr/ en el repo; build.py lo mete acá).
+const RBR_FILES = /*RBR_FILES*/null;
+const rbrPow2 = (x, max = 2048) => Math.min(max, Math.max(4, 2 ** Math.round(Math.log2(Math.max(4, x)))));
+function rgbaOf(cv) {
+  const w = cv.width, h = cv.height; let d = cv.__raw && cv.__raw.length === w * h * 4 ? new Uint8ClampedArray(cv.__raw) : new Uint8ClampedArray(cv.getContext('2d').getImageData(0, 0, w, h).data);
+  if (cv.__alpha && cv.__alpha.length === w * h) for (let i = 0; i < w * h; i++) d[i * 4 + 3] = cv.__alpha[i];
+  return { w, h, d };
+}
+function rgbaResize(src, W, H) { // promedio por caja (achicar) o bilineal (agrandar)
+  if (src.w === W && src.h === H) return src;
+  const out = new Uint8ClampedArray(W * H * 4), sx = src.w / W, sy = src.h / H;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const x0 = x * sx, y0 = y * sy, x1 = Math.max(x0 + 1e-3, (x + 1) * sx), y1 = Math.max(y0 + 1e-3, (y + 1) * sy), acc = [0, 0, 0, 0]; let n = 0;
+    for (let yy = Math.floor(y0); yy < Math.ceil(y1); yy++) for (let xx = Math.floor(x0); xx < Math.ceil(x1); xx++) { const i = (Math.min(src.h - 1, yy) * src.w + Math.min(src.w - 1, xx)) * 4; for (let c = 0; c < 4; c++) acc[c] += src.d[i + c]; n++; }
+    for (let c = 0; c < 4; c++) out[(y * W + x) * 4 + c] = acc[c] / n;
+  }
+  return { w: W, h: H, d: out };
+}
+// terreno de varias capas (máscara + 4 detalles, el shader multicapa de AC): RBR no lo tiene, se hornea en una sola textura
+function rbrBakeChan(mat, D) {
+  const base = rgbaOf(TEX[mat]), W = rbrPow2(base.width || base.w, 2048), H = rbrPow2(base.h, 2048), b = rgbaResize(base, W, H);
+  const mk = TEX['mk_' + mat], m = rgbaResize(rgbaOf(mk), W, H), T = DETAIL.terrain(), mult = D.mult || 1;
+  const tw = Math.max(4, Math.round(W / mult)), th = Math.max(4, Math.round(H / mult)), dets = [T.R, T.G, T.B, T.A].map(c => rgbaResize(rgbaOf(c), tw, th));
+  const out = new Uint8ClampedArray(W * H * 4), mg = D.magic || 1;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = (y * W + x) * 4, j = ((y % th) * tw + (x % tw)) * 4, wsum = (m.d[i] + m.d[i + 1] + m.d[i + 2] + m.d[i + 3]) || 1;
+    for (let c = 0; c < 3; c++) { let v = 0; for (let k = 0; k < 4; k++) v += dets[k].d[j + c] * m.d[i + k]; out[i + c] = b.d[i + c] * (v / 255 / 255) * mg * (255 / Math.max(255, wsum)) * 255 / 255; }
+    out[i + 3] = 255;
+  }
+  return { w: W, h: H, d: out };
+}
+function rbrTexture(mat) {
+  const D = DETAIL.of(mat);
+  if (D && D.chan && TEX['mk_' + mat]) return rbrBakeChan(mat, D);
+  const src = rgbaOf(TEX[mat]), W = rbrPow2(src.w), H = rbrPow2(src.h);
+  return rgbaResize(src, W, H);
+}
+const RBR_NOTE = { horquilla: 'HAIRPIN', 1: '90', 2: 'K', 3: 'MEDIUM', 4: 'FAST', 5: 'EASY', 6: 'FLAT', leve: 'FLAT' };
+function rbrNoteId(nt) {
+  if (nt.kind === 'curva') { const m = /^(izq|dcha) (\S+)/.exec(nt.txt); if (!m) return null; const g = RBR_NOTE[m[2]] || 'MEDIUM', side = m[1] === 'izq' ? 'LEFT' : 'RIGHT';
+    return g === 'HAIRPIN' ? 'NOTE_HAIRPIN' + side : g === '90' ? 'NOTE_' + side + '90' : 'NOTE_' + g + side; }
+  return { cresta: 'NOTE_OVERCREST', pozo: 'NOTE_BUMP', salto: 'NOTE_JUMP', sup: 'NOTE_CARE', puente: 'NOTE_BRIDGE' }[nt.kind] || null;
+}
+async function addRBRPackage(R, zip, slug) {
+  const f = zip.folder('rbr_' + slug), r = R.res, T = r.total, n = r.n;
+  // qué mallas van: RBR no tiene niveles de detalle por objeto como AC, así que se deja una sola versión de cada árbol
+  const objetos = {}, used = new Set(); let omit = 0;
+  for (const m of R.meshes) {
+    const fis = (/^\d+([A-Z]+)$/.exec(m.name) || [])[1] || null, L = m.lod;
+    let cat = 'cerca';
+    if (L && L[0] > 0 && L[1] >= 20000) cat = 'omitir';                       // lámina lejana que duplica un árbol 3D
+    else if (/^TREES_A0/.test(m.name) && L && L[1] === 110) cat = 'omitir';    // árbol completo de cerca: queda su versión simple
+    else if (L && L[0] === 0 && L[1] >= 20000) cat = 'lejos';                  // árboles lejanos (láminas)
+    objetos[m.name] = { fis, rbr: cat };
+    if (cat === 'omitir') omit++; else used.add(m.mat);
+  }
+  const keep = R.meshes.filter(m => objetos[m.name].rbr !== 'omitir');
+  $('#prog').textContent = 'RBR: escribiendo el modelo…'; await tick();
+  f.file('track.obj', Core.toOBJ(keep, 'track.mtl')); await tick();
+  const texturas = {};
+  let k = 0;
+  for (const mat of used) {
+    if (!TEX[mat]) continue;
+    $('#prog').textContent = `RBR: texturas DDS ${++k}/${used.size}…`; await tick();
+    const t = rbrTexture(mat); let alfa = false; for (let i = 3; i < t.d.length; i += 16) if (t.d[i] < 245) { alfa = true; break; }
+    f.file(`texturas/${mat}.dds`, rgbaToDDS(t.d, t.w, t.h, alfa));
+    texturas[mat] = { dds: `texturas/${mat}.dds`, alfa, w: t.w, h: t.h };
+  }
+  f.file('track.mtl', Core.toMTL([...used].filter(m => texturas[m]).map(m => [m, texturas[m].dds, '1 1 1'])));
+  // driveline: el eje del camino con su altimetría final, cada ~6 m
+  const st = Math.max(1, Math.round(6 / ((r.dist[1] - r.dist[0]) || 2))), idx = []; for (let i = 0; i < n; i += st) idx.push(i); if (idx[idx.length - 1] !== n - 1) idx.push(n - 1);
+  const pt = i => [+r.C[i][0].toFixed(3), +r.C[i][1].toFixed(3), +r.hs[i].toFixed(3)];
+  const driveline = idx.map(pt), dAt = d => Math.max(0, Math.min(n - 1, Math.round(d / ((r.dist[1] - r.dist[0]) || 2))));
+  // RBR mide las notas a lo largo de la driveline en 3D (con las subidas): se pasa cada distancia del eje (en planta) a esa medida
+  const c3 = [0]; for (let k = 1; k < idx.length; k++) c3.push(c3[k - 1] + Math.hypot(...driveline[k].map((v, q) => v - driveline[k - 1][q])));
+  const to3 = d => { let k = 1; while (k < idx.length - 1 && r.dist[idx[k]] < d) k++; const d0 = r.dist[idx[k - 1]], d1 = r.dist[idx[k]], t = Math.max(0, Math.min(1, (d - d0) / ((d1 - d0) || 1))); return c3[k - 1] + (c3[k] - c3[k - 1]) * t; };
+  const start = Math.min(40, T * 0.03), finish = Math.max(start + 50, T - 60), end = Math.max(finish + 20, T - 8);
+  const eventos = [{ nombre: 'Largada', id: 'EVENT_START', m: start },
+    { nombre: 'Parcial 1 (a 1/3 del tramo: no hay parciales reales cargados)', id: 'EVENT_CHECKPOINT', m: start + (finish - start) / 3 },
+    { nombre: 'Parcial 2 (a 2/3 del tramo)', id: 'EVENT_CHECKPOINT', m: start + (finish - start) * 2 / 3 },
+    { nombre: 'Llegada', id: 'EVENT_FINISH', m: finish }, { nombre: 'Fin del tramo', id: 'EVENT_ENDSTAGE', m: end }].map(e => ({ ...e, m_eje: +e.m.toFixed(1), m: +to3(e.m).toFixed(1) }));
+  const notas = []; for (const nt of R.info.notes || []) { const id = rbrNoteId(nt); if (id && nt.d > start && nt.d < finish) notas.push({ m: +to3(nt.d).toFixed(1), m_eje: +nt.d.toFixed(1), id, txt: nt.txt }); }
+  const ic = dAt(Math.max(4, start - 18)), tg = r.T[ic];
+  const auto = { m: +(start - r.dist[ic]).toFixed(1), pos: [+r.C[ic][0].toFixed(3), +r.C[ic][1].toFixed(3), +(r.hs[ic] + 0.4).toFixed(3)], rumbo: Math.atan2(tg[1], tg[0]) };
+  const cnt = {}; for (const kk of r.SURF) cnt[kk] = (cnt[kk] || 0) + 1; const main = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0][0];
+  const datos = { version: 1, generado: new Date().toISOString(), generador: (typeof BUILD !== 'undefined' && BUILD && BUILD.version) || '', nombre: R.o.name, carpeta: 'rbr_' + slug,
+    pais: 'AR', autor: 'Generador de Pistas', superficie_rbr: main === 'ROAD' ? 'TARMAC' : main === 'SNOW' || main === 'ICE' ? 'SNOW' : 'GRAVEL', luz_vertices: 0.82,
+    modelo: 'track.obj', largo_driveline_m: +c3[c3.length - 1].toFixed(1), largo_eje_m: +T.toFixed(1), driveline, eventos, notas, auto, texturas, objetos,
+    nota: 'Coordenadas en metros: x = este, y = norte, z = altura (Blender, Z arriba). La driveline es el eje del camino del generador.' };
+  f.file('rbr_datos.json', JSON.stringify(datos));
+  if (RBR_FILES) for (const [name, txt] of Object.entries(RBR_FILES)) f.file(name, /\.bat$/i.test(name) ? txt.replace(/\r?\n/g, '\r\n') : txt);
+  log(`RBR: paquete rbr_${slug} con ${keep.length} mallas (${omit} duplicados de distancia omitidos), ${Object.keys(texturas).length} texturas DDS, ${eventos.length} eventos y ${notas.length} notas de ruta.`);
+}
+
 function blenderScript(R) {
   const E = R.spawnList.map(([n, p, f]) => `    ("${n}", (${p.map(v => v.toFixed(3)).join(', ')}), (${f.map(v => v.toFixed(4)).join(', ')})),`).join('\n');
   return `# Script de Blender (3.x / 4.x) - convierte track.obj en track.fbx listo para KsEditor
@@ -4121,6 +4256,7 @@ async function buildZip(R) {
     for (const m of usedMats) src.file(m + '.png', await canvasBlob(TEX[m]));
     src.file('blender_a_fbx.py', blenderScript(R));
   }
+  if ($('#withRBR') && $('#withRBR').checked && R.mode === 'route' && R.res) await addRBRPackage(R, zip, slug);
   if (PHOTOMAT.on) { $('#prog').textContent = 'Agregando materiales de fotos reales…'; await tick(); await addPhotoMatFiles(ref); }
   $('#prog').textContent = 'Creando el modelo .kn5 para Assetto Corsa…'; await tick();
   tr.file(slug + '.kn5', await buildKN5(R, slug, $('#invertSpawn').checked));
