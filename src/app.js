@@ -123,12 +123,25 @@ async function refreshRoute() {
   if (id !== routeReq) return;
   setRouteGeom(geom, `${S.wps.length} puntos`);
 }
+// Largo máximo de un tramo: todo se genera y se dibuja en el navegador. Medido: 3 km ≈ 1 GB de memoria y 1 min; 10 km ≈ 1,4 GB y 2,5 min.
+// Con 50 km el navegador se queda sin memoria. Para tramos más largos: dividirlos en varios.
+const MAX_KM = 20, WARN_KM = 12;
+function kmCheck(km) {
+  const el = $('#kmWarn'); if (!el) return;
+  if (km > MAX_KM) { el.style.display = 'block'; el.style.background = '#7f1d1d'; el.style.color = '#fff';
+    el.textContent = `⛔ ${km.toFixed(1)} km: el máximo es ${MAX_KM} km por tramo (más largo se queda sin memoria y se tilda). Deshacé puntos o dividilo en dos tramos y generá cada uno por separado.`; }
+  else if (km > WARN_KM) { el.style.display = 'block'; el.style.background = '#78350f'; el.style.color = '#fff';
+    el.textContent = `⚠ Tramo largo (${km.toFixed(1)} km): puede tardar unos ${Math.ceil(km * 0.25)} minutos en generarse y la vista 3D va a andar más lenta. Máximo ${MAX_KM} km.`; }
+  else el.style.display = 'none';
+  if (S.routeLine && S.routeLine.setStyle) S.routeLine.setStyle({ color: km > MAX_KM ? '#e11d48' : '#ffd200' });
+}
 function setRouteGeom(geom, extra) {
   S.routeGeom = geom;
   if (S.routeLine) map.removeLayer(S.routeLine);
   S.routeLine = geom.length > 1 ? L.polyline(geom, { color: '#ffd200', weight: 6, opacity: 0.95, interactive: false }).addTo(map) : null;
   let d = 0; for (let i = 1; i < geom.length; i++) d += map.distance(geom[i - 1], geom[i]);
   setInfo(geom.length > 1 ? `Recorrido: ${(d / 1000).toFixed(2)} km · ${extra}` : 'Sin recorrido todavía.');
+  kmCheck(geom.length > 1 ? d / 1000 : 0);
 }
 
 // ---------- Calles reales: teselas vectoriales de OpenFreeMap (datos de OpenStreetMap) ----------
@@ -1732,6 +1745,9 @@ async function generate() {
   logEl().innerHTML = ''; busy(true);
   try { await photoReady; await MATLIB.apply(); renderLibInfo(); } catch (e) { console.warn('biblioteca', e); }
   try { await REFS.load(); } catch (e) { }
+  if (S.mode === 'route' && S.routeGeom && S.routeGeom.length > 1) { const km = routeLen(); kmCheck(km);
+    if (km > MAX_KM) throw new Error(`El recorrido mide ${km.toFixed(1)} km y el máximo es ${MAX_KM} km por tramo: más largo, el navegador se queda sin memoria y se tilda. Acortalo o dividilo en dos tramos.`);
+    if (km > WARN_KM) log(`Tramo largo (${km.toFixed(1)} km): puede tardar unos ${Math.ceil(km * 0.25)} minutos. No cierres la pestaña.`); }
   const o = opt(), key = dataKey(o);
   if (!S.base || S.base.key !== key) await fetchBase(o, key);
   else log('Mismo recorrido: reutilizo la elevación descargada.');

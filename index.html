@@ -158,6 +158,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
         <div class="stage"><input id="stA" placeholder="Inicio: -54.6262612, -67.2421884"><input id="stB" placeholder="Fin (opcional)"><button class="b" id="goStage">Ir al tramo</button></div>
         <div class="row"><label><input type="checkbox" id="avoidMain" checked> Evitar rutas principales</label><button class="b" id="findAlt">Buscar caminos reales</button></div>
         <div class="mut" id="routeInfo">Sin recorrido todavía.</div>
+        <div id="kmWarn" style="display:none;font-size:12px;margin-top:4px;padding:5px 7px;border-radius:6px"></div>
         <details class="texbox"><summary>Más opciones de trazado</summary>
 <div class="row"><label><input type="checkbox" id="closed"> Circuito cerrado</label><button class="b" id="loadNet">Recargar calles de la vista</button></div>
 <div class="row"><label title="Para partes del tramo que no figuran en el mapa: cada clic agrega un punto, sin seguir calles (Ctrl+clic hace lo mismo)"><input type="checkbox" id="freePts"> Puntos libres (tramo sin calle en el mapa)</label></div>
@@ -1152,7 +1153,7 @@ const Core = (() => {
     const CELL = 90, LOD = { full: [0, 110], simple: [110, 320], simpleB: [0, 320], card: [320, 20000], cardC: [0, 20000] };
     const AMAX = o.max3d || 1800, BMAX = o.maxSimple || 9000, season = o.season || 'summer';
     const groups = new Map(); let n3d = 0, nSimple = 0, nCard = 0, nLogs = 0, nShrub = 0;
-    const grp = (x, y, tag, mat, lod, show) => { const key = Math.floor(x / CELL) + ',' + Math.floor(y / CELL) + '|' + tag + '|' + mat; let g = groups.get(key);
+    const grp = (x, y, tag, mat, lod, show) => { const key = Math.floor(x / CELL) + ',' + Math.floor(y / CELL) + '|' + tag + '|' + mat + '|' + lod[1]; let g = groups.get(key);
       if (!g || g.v.length > 60000) { g = newMesh('TREES_' + tag + '_' + (meshes.length), mat); g.blocks = []; if (mat !== 'bark') g.n = []; g.lod = lod; g.pvHide = !show; groups.set(key, g); meshes.push(g); } return g; };
     const R = (x, y, k) => hash2(Math.round(x * 7.1), Math.round(y * 7.3), k);
     // tubo cónico a lo largo de una polilínea (tronco o rama), caras hacia afuera
@@ -1442,12 +1443,25 @@ async function refreshRoute() {
   if (id !== routeReq) return;
   setRouteGeom(geom, `${S.wps.length} puntos`);
 }
+// Largo máximo de un tramo: todo se genera y se dibuja en el navegador. Medido: 3 km ≈ 1 GB de memoria y 1 min; 10 km ≈ 1,4 GB y 2,5 min.
+// Con 50 km el navegador se queda sin memoria. Para tramos más largos: dividirlos en varios.
+const MAX_KM = 20, WARN_KM = 12;
+function kmCheck(km) {
+  const el = $('#kmWarn'); if (!el) return;
+  if (km > MAX_KM) { el.style.display = 'block'; el.style.background = '#7f1d1d'; el.style.color = '#fff';
+    el.textContent = `⛔ ${km.toFixed(1)} km: el máximo es ${MAX_KM} km por tramo (más largo se queda sin memoria y se tilda). Deshacé puntos o dividilo en dos tramos y generá cada uno por separado.`; }
+  else if (km > WARN_KM) { el.style.display = 'block'; el.style.background = '#78350f'; el.style.color = '#fff';
+    el.textContent = `⚠ Tramo largo (${km.toFixed(1)} km): puede tardar unos ${Math.ceil(km * 0.25)} minutos en generarse y la vista 3D va a andar más lenta. Máximo ${MAX_KM} km.`; }
+  else el.style.display = 'none';
+  if (S.routeLine && S.routeLine.setStyle) S.routeLine.setStyle({ color: km > MAX_KM ? '#e11d48' : '#ffd200' });
+}
 function setRouteGeom(geom, extra) {
   S.routeGeom = geom;
   if (S.routeLine) map.removeLayer(S.routeLine);
   S.routeLine = geom.length > 1 ? L.polyline(geom, { color: '#ffd200', weight: 6, opacity: 0.95, interactive: false }).addTo(map) : null;
   let d = 0; for (let i = 1; i < geom.length; i++) d += map.distance(geom[i - 1], geom[i]);
   setInfo(geom.length > 1 ? `Recorrido: ${(d / 1000).toFixed(2)} km · ${extra}` : 'Sin recorrido todavía.');
+  kmCheck(geom.length > 1 ? d / 1000 : 0);
 }
 
 // ---------- Calles reales: teselas vectoriales de OpenFreeMap (datos de OpenStreetMap) ----------
@@ -3051,6 +3065,9 @@ async function generate() {
   logEl().innerHTML = ''; busy(true);
   try { await photoReady; await MATLIB.apply(); renderLibInfo(); } catch (e) { console.warn('biblioteca', e); }
   try { await REFS.load(); } catch (e) { }
+  if (S.mode === 'route' && S.routeGeom && S.routeGeom.length > 1) { const km = routeLen(); kmCheck(km);
+    if (km > MAX_KM) throw new Error(`El recorrido mide ${km.toFixed(1)} km y el máximo es ${MAX_KM} km por tramo: más largo, el navegador se queda sin memoria y se tilda. Acortalo o dividilo en dos tramos.`);
+    if (km > WARN_KM) log(`Tramo largo (${km.toFixed(1)} km): puede tardar unos ${Math.ceil(km * 0.25)} minutos. No cierres la pestaña.`); }
   const o = opt(), key = dataKey(o);
   if (!S.base || S.base.key !== key) await fetchBase(o, key);
   else log('Mismo recorrido: reutilizo la elevación descargada.');
@@ -6405,7 +6422,7 @@ if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') ||
 
 
 // ---------- Versión: qué compilación es esta y si es la última publicada en GitHub ----------
-const BUILD = {"id": "959ab6611efa", "date": "2026-11-14T02:46:42Z", "version": "2026.11.14+959ab66", "base": "1404c7ebc6bf9d332e0421aaa2e500ded6db453c"};
+const BUILD = {"id": "3995d5199cb3", "date": "2026-11-14T04:25:34Z", "version": "2026.11.14+3995d51", "base": "172d7959e37aaf15abafd9aa2584d9c4e55502f2"};
 const VER = {
   repo: 'lucasbarria/generador-de-pistas',
   set(state, txt, cls) { const el = $('#verInfo'); if (!el) return; const b = BUILD || {}; const dt = b.date ? new Date(b.date).toLocaleString() : '?';

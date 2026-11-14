@@ -840,7 +840,7 @@ const Core = (() => {
     const CELL = 90, LOD = { full: [0, 110], simple: [110, 320], simpleB: [0, 320], card: [320, 20000], cardC: [0, 20000] };
     const AMAX = o.max3d || 1800, BMAX = o.maxSimple || 9000, season = o.season || 'summer';
     const groups = new Map(); let n3d = 0, nSimple = 0, nCard = 0, nLogs = 0, nShrub = 0;
-    const grp = (x, y, tag, mat, lod, show) => { const key = Math.floor(x / CELL) + ',' + Math.floor(y / CELL) + '|' + tag + '|' + mat; let g = groups.get(key);
+    const grp = (x, y, tag, mat, lod, show) => { const key = Math.floor(x / CELL) + ',' + Math.floor(y / CELL) + '|' + tag + '|' + mat + '|' + lod[1]; let g = groups.get(key);
       if (!g || g.v.length > 60000) { g = newMesh('TREES_' + tag + '_' + (meshes.length), mat); g.blocks = []; if (mat !== 'bark') g.n = []; g.lod = lod; g.pvHide = !show; groups.set(key, g); meshes.push(g); } return g; };
     const R = (x, y, k) => hash2(Math.round(x * 7.1), Math.round(y * 7.3), k);
     // tubo cónico a lo largo de una polilínea (tronco o rama), caras hacia afuera
