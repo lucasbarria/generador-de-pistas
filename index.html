@@ -2965,12 +2965,17 @@ const PACK = {
     const n = 4096; return { r: r / n, g: g / n, b: b / n, alpha: a / n, sd: Math.sqrt(Math.max(0, l2 / n - (l / n) ** 2)) };
   },
   // nombres conocidos (tramos de rally finlandeses y genéricos): rol del material, o 'none' con el motivo
-  LIBNAMES: [[/^(ground|penkka|risteys|road_plate)_?\d*_?(diff|mask|nm)?\./, 'none', 'pintada para el mapa de otro tramo'], [/^(otpo|otpt|ttpo|postilaatikot|sahkopla|katos|kanniranni|merkit|lidi3d|nauha|fence|punto|blank|collision|jarvi|nm\.|penkka_diff)/, 'none', 'objeto o atlas (no es suelo)'],
+  LIBNAMES: [
+    // biblioteca RIO_GRANDE_GROUND (suelo seco de Río Grande, sacado de fotos propias): un archivo por rol
+    [/^rg_west_dry\.dds$/, 'det_road'], [/^rg_west_dry_nm\.dds$/, 'nm_road'], [/^rg_east_dry\.dds$/, 'none', 'sector este: para usarlo, elegí "Detalle fino del ripio" (reemplaza al oeste)'],
+    [/^rg_east_dry_nm\.dds$/, 'none', 'normal del sector este: elegí "Relieve fino del camino (mapa normal)" si usás el este'], [/^rg_tire_loose_soil\.dds$/, 'det_dirt'], [/^rg_shoulder_berm\.dds$/, 'det_rock'],
+    [/^rg_bank_soil\.dds$/, 'bank'], [/^rg_edge_vegetation\.dds$/, 'det_grass'], [/^rg_[a-z_]+\.dds$/, 'none', 'material de la biblioteca de Río Grande sin rol directo en el generador'],
+    [/^(ground|penkka|risteys|road_plate)_?\d*_?(diff|mask|nm)?\./, 'none', 'pintada para el mapa de otro tramo'], [/^(otpo|otpt|ttpo|postilaatikot|sahkopla|katos|kanniranni|merkit|lidi3d|nauha|fence|punto|blank|collision|jarvi|nm\.|penkka_diff)/, 'none', 'objeto o atlas (no es suelo)'],
     [/_nm\b|_nm\.|normal/, 'none', 'mapa de normales (va con su textura)'], [/^grass_02\./, 'grass'], [/^ruoho_p01\./, 'side_a'], [/^metsa_google\./, 'forest'], [/^ruoho_p02\./, 'side_c'], [/^(ruoho_0[123]|grass_0\d|pelto|kulunut)/, 'det_grass'], [/^(metsa|mustikka)/, 'det_forest'], [/^(maasto|ruoho_p02)/, 'det_dirt'],
     [/^(kallio6?|kivet)\./, 'det_rock'], [/^(sora|gravel_\d+_detail|rajatievix_detail)\./, 'det_road'], [/^oja\./, 'det_ditch'], [/^(tienpenkka|ojanpenkka|ruotsipenkka|kallioleikkaus)/, 'bank'],
     [/^(rajatievix|rajatievix_kumpu)\.dds$/, 'road_strip'], [/^rajatievix_sora\.dds$/, 'road_loose'], [/^(rajatievix_2kuoppa|road_)/, 'none', 'camino con pozos pintados en lugares fijos (no coincidirían con los pozos reales de la malla)'], [/^(treewall|mantymetsaa|horisontti)/, 'none', 'fondo de bosque boreal (pino/abeto, no lenga)'], [/^(lapinakyva_jarrutus)/, 'brake'], [/^(vesi|pohja)/, 'none', 'agua / base lejana']],
   // la mejor de cada rol cuando hay varias (orden de preferencia por nombre)
-  PREF: { det_grass: ['ruoho_02', 'grass_01', 'ruoho_03', 'ruoho_01', 'grass_02', 'pelto', 'kulunut'], det_forest: ['mustikkapohja2', 'metsa_google', 'mustikka4_metsa', 'mustikkapohja4', 'metsa_02'], det_dirt: ['maasto_02', 'maasto_01', 'ruoho_p02'], det_rock: ['kallio.', 'kallio6', 'kivet'], det_road: ['gravel_01_detail', 'rajatievix_detail', 'sora'], det_ditch: ['oja'], bank: ['tienpenkka_4', 'tienpenkka_7', 'tienpenkka_6', 'ojanpenkka4', 'ojanpenkka'], road_strip: ['rajatievix.', 'rajatievix_kumpu'] },
+  PREF: { nm_road: ['rg_west_dry_nm'], det_grass: ['rg_edge_vegetation', 'ruoho_02', 'grass_01', 'ruoho_03', 'ruoho_01', 'grass_02', 'pelto', 'kulunut'], det_forest: ['mustikkapohja2', 'metsa_google', 'mustikka4_metsa', 'mustikkapohja4', 'metsa_02'], det_dirt: ['rg_tire_loose_soil', 'maasto_02', 'maasto_01', 'ruoho_p02'], det_rock: ['rg_shoulder_berm', 'kallio.', 'kallio6', 'kivet'], det_road: ['rg_west_dry', 'gravel_01_detail', 'rajatievix_detail', 'sora'], det_ditch: ['oja'], bank: ['rg_bank_soil', 'tienpenkka_4', 'tienpenkka_7', 'tienpenkka_6', 'ojanpenkka4', 'ojanpenkka'], road_strip: ['rajatievix.', 'rajatievix_kumpu'] },
   classify(it) {
     const n0 = it.name.toLowerCase().replace(/^.*[\\/]/, ''); for (const [re, role, why] of this.LIBNAMES) if (re.test(n0)) { it.why = why || ''; return role; }
     const n = it.name.toLowerCase(), s = this.stats(it.cv), big = Math.max(it.cv.width, it.cv.height) >= 1024, green = s.g > s.r * 1.04 && s.g > s.b * 1.1;
@@ -6561,7 +6566,7 @@ if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') ||
 
 
 // ---------- Versión: qué compilación es esta y si es la última publicada en GitHub ----------
-const BUILD = {"id": "aaf4bb8d124e", "date": "2026-11-14T20:00:03Z", "version": "2026.11.14+aaf4bb8", "base": "f6e5bdee573a0fd308993f3138bb5ce4f7ef602b"};
+const BUILD = {"id": "747ed8498f73", "date": "2026-11-14T22:55:27Z", "version": "2026.11.14+747ed84", "base": "e9fa38b35efe28df3cdd3149e61fbbdb61063d34"};
 const VER = {
   repo: 'lucasbarria/generador-de-pistas',
   set(state, txt, cls) { const el = $('#verInfo'); if (!el) return; const b = BUILD || {}; const dt = b.date ? new Date(b.date).toLocaleString() : '?';
