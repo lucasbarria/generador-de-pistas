@@ -38,7 +38,7 @@ if not defined ADDON (
 
 rem --- carpeta Maps de RBR ---
 if not defined RBR_MAPS (
-  for %%p in ("C:\Richard Burns Rally\Maps" "C:\Games\Richard Burns Rally\Maps" "D:\Richard Burns Rally\Maps" "D:\Games\Richard Burns Rally\Maps" "C:\RBR\Maps" "%USERPROFILE%\Games\Richard Burns Rally\Maps") do if exist "%%~p" set "RBR_MAPS=%%~p"
+  for %%p in ("D:\RBR\Maps" "C:\RBR\Maps" "C:\Richard Burns Rally\Maps" "C:\Games\Richard Burns Rally\Maps" "D:\Richard Burns Rally\Maps" "D:\Games\Richard Burns Rally\Maps" "C:\RBR\Maps" "%USERPROFILE%\Games\Richard Burns Rally\Maps") do if exist "%%~p" set "RBR_MAPS=%%~p"
 )
 if not defined RBR_MAPS (
   set /p "RBR_MAPS=Carpeta Maps de tu RBR (ej. C:\Richard Burns Rally\Maps): "

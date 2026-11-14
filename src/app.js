@@ -4061,7 +4061,9 @@ async function addRBRPackage(R, zip, slug) {
   }
   const keep = R.meshes.filter(m => objetos[m.name].rbr !== 'omitir');
   $('#prog').textContent = 'RBR: escribiendo el modelo…'; await tick();
-  f.file('track.obj', Core.toOBJ(keep, 'track.mtl')); await tick();
+  // el modelo en varias partes: un .obj de un tramo largo pasa el límite de texto del navegador (~500 millones de caracteres)
+  const modelo = []; { let part = [], nv = 0; const flush = async () => { if (!part.length) return; const nm = `track_${String(modelo.length + 1).padStart(2, '0')}.obj`; f.file(nm, Core.toOBJ(part, 'track.mtl')); modelo.push(nm); part = []; nv = 0; await tick(); };
+    for (const m of keep) { part.push(m); nv += m.v.length; if (nv > 600000) await flush(); } await flush(); }
   const texturas = {};
   let k = 0;
   for (const mat of used) {
@@ -4090,7 +4092,7 @@ async function addRBRPackage(R, zip, slug) {
   const cnt = {}; for (const kk of r.SURF) cnt[kk] = (cnt[kk] || 0) + 1; const main = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0][0];
   const datos = { version: 1, generado: new Date().toISOString(), generador: (typeof BUILD !== 'undefined' && BUILD && BUILD.version) || '', nombre: R.o.name, carpeta: 'rbr_' + slug,
     pais: 'AR', autor: 'Generador de Pistas', superficie_rbr: main === 'ROAD' ? 'TARMAC' : main === 'SNOW' || main === 'ICE' ? 'SNOW' : 'GRAVEL', luz_vertices: 0.82,
-    modelo: 'track.obj', largo_driveline_m: +c3[c3.length - 1].toFixed(1), largo_eje_m: +T.toFixed(1), driveline, eventos, notas, auto, texturas, objetos,
+    modelo, largo_driveline_m: +c3[c3.length - 1].toFixed(1), largo_eje_m: +T.toFixed(1), driveline, eventos, notas, auto, texturas, objetos,
     nota: 'Coordenadas en metros: x = este, y = norte, z = altura (Blender, Z arriba). La driveline es el eje del camino del generador.' };
   f.file('rbr_datos.json', JSON.stringify(datos));
   if (RBR_FILES) for (const [name, txt] of Object.entries(RBR_FILES)) f.file(name, /\.bat$/i.test(name) ? txt.replace(/\r?\n/g, '\r\n') : txt);

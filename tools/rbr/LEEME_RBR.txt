@@ -4,7 +4,7 @@ TRAMO PARA RICHARD BURNS RALLY (RallySimFans)
 Esta carpeta trae todo para convertir el tramo en un tramo nativo de RBR con Blender y el complemento oficial
 "RBR Track Addon" (https://richardburnsrally.github.io/blender-track-exporter/):
 
-  track.obj, track.mtl   modelo completo (camino, cunetas, banquinas, terreno, árboles, piedras). 1 unidad = 1 metro.
+  track_NN.obj, track.mtl modelo completo (en partes) (camino, cunetas, banquinas, terreno, árboles, piedras). 1 unidad = 1 metro.
   texturas/*.dds         texturas DXT1 (opacas) y DXT5 (con transparencia), tamaños potencia de dos
   rbr_datos.json         driveline (eje del camino con su altimetría), largada, parciales, llegada, fin del tramo,
                          notas del copiloto, posición del auto y la superficie de cada malla

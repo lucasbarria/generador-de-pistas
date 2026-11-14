@@ -178,9 +178,11 @@ def elegir_id(maps, pedido):
 def importar(D):
     fase("3. Importación del modelo")
     bpy.ops.wm.read_homefile(use_empty=True)
-    obj_path = os.path.join(BASE, D["modelo"])
+    partes = D["modelo"] if isinstance(D["modelo"], list) else [D["modelo"]]
     t0 = time.time()
-    bpy.ops.wm.obj_import(filepath=obj_path, forward_axis="NEGATIVE_Z", up_axis="Y")
+    for k, nm in enumerate(partes):
+        log(f"  importando {nm} ({k + 1}/{len(partes)})")
+        bpy.ops.wm.obj_import(filepath=os.path.join(BASE, nm), forward_axis="NEGATIVE_Z", up_axis="Y")
     objs = [o for o in bpy.context.scene.objects if o.type == "MESH"]
     nv = sum(len(o.data.vertices) for o in objs)
     log(f"{len(objs)} mallas, {nv:,} vértices importados en {time.time() - t0:.0f} s")
