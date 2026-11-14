@@ -1849,9 +1849,16 @@ function editFns(o, total, closed) {
       return o.surface === 'gravel' || o.surface === 'auto' ? 'GRAVEL' : 'ROAD';
     },
     smoothSecs: S.edits.filter(e => e.kind === 'smooth'),
+    // sección transversal editada por tramo y lado: cuneta (m, 0 = sin cuneta), ancho de cuneta (×), banquina (m), talud (H:V)
+    sectionAt: S.edits.some(e => e.kind === 'section') ? (d, sd) => {
+      let out = null;
+      for (const e of S.edits) { if (e.kind !== 'section' || (e.side === 'L' && sd < 0) || (e.side === 'R' && sd > 0)) continue;
+        const x = d < e.d0 ? e.d0 - d : d > e.d1 ? d - e.d1 : 0, ramp = 6; if (x >= ramp) continue; const t = ss(1 - x / ramp);
+        out = { t, ditch: e.ditch ?? null, wf: e.wf ?? null, berm: e.berm ?? null, talud: e.talud ?? null }; }
+      return out; } : null,
     // aplanar y pendiente constante: reemplazan la altura del sector por una recta (horizontal o con pendiente),
     // con transiciones de 5.º grado a cada lado (continuas en altura, pendiente y curvatura) y una intensidad 0–1
-    levelApply: S.edits.some(e => e.kind === 'flat' || e.kind === 'grade' || (e.kind === 'raise' && e.d1 - e.d0 >= 1)) ? (dist, hs) => {
+    levelApply: S.edits.some(e => e.kind === 'flat' || e.kind === 'grade' || e.kind === 'lock' || (e.kind === 'raise' && e.d1 - e.d0 >= 1)) ? (dist, hs) => {
       let h = hs.slice(); const n = h.length;
       const hAt = d => { let i = 0, j = n - 1; while (j - i > 1) { const m = (i + j) >> 1; if (dist[m] <= d) i = m; else j = m; } const t = Math.max(0, Math.min(1, (d - dist[i]) / ((dist[j] - dist[i]) || 1))); return h[i] * (1 - t) + h[j] * t; };
       const sm5 = t => t * t * t * (t * (t * 6 - 15) + 10);
@@ -1869,6 +1876,10 @@ function editFns(o, total, closed) {
           const w = d < e.d0 ? sm5(1 - (e.d0 - d) / fa) : d > e.d1 ? sm5(1 - (d - e.d1) / fz) : 1;
           const tgt = T0 + g * (d - e.d0); out[i] = h[i] + (tgt - h[i]) * w * k; }
         h = out; }
+      // puntos fijos: al final de todo, cada uno vuelve a su altura (al dato medido o a la que tenía al fijarlo) con una campana suave
+      const locks = S.edits.filter(e => e.kind === 'lock');
+      for (let pass = 0; pass < (locks.length > 1 ? 3 : 1); pass++) for (const e of locks) { const dl = e.h - hAt(e.d), r = e.r || 25; if (Math.abs(dl) < 1e-4) continue;
+        for (let i = 0; i < n; i++) { const x = Math.abs(dist[i] - e.d); if (x < r) h[i] += dl * 0.5 * (1 + Math.cos(Math.PI * x / r)); } }
       return h;
     } : null,
     // perfiles por puntos de control: reemplazan la altura base (antes de saltos, lomadas, etc.)
@@ -3837,6 +3848,8 @@ const EDIT_TXT = {
   smooth: () => 'Suavizar', flat: e => `Aplanar (${{ start: 'altura inicial', end: 'altura final', avg: 'promedio', abs: (e.h ?? 0).toFixed(1) + ' m' }[e.ref || 'start']}${(e.k ?? 1) < 1 ? ', ' + Math.round(e.k * 100) + '%' : ''})`, grade: e => `Pendiente constante ${e.pct != null ? (e.pct > 0 ? '+' : '') + e.pct.toFixed(1) + '%' : fmtH(e.dh) + ' m'}`, bump: e => `Lomada ${+e.h.toFixed(2)} m`, jump: e => `Salto ${+e.h.toFixed(2)} m`, cattle: () => 'Guardaganado',
   shape: e => `Curva movida ${Math.hypot(e.dx, e.dy).toFixed(1)} m`, pothole: e => `Bache ${+e.h.toFixed(2)} m`, width: e => `Ancho ${+e.w.toFixed(1)} m`,
   bank: e => e.abs ? `Inclinación ${+e.deg.toFixed(1)}°` : `Peralte ${+e.deg.toFixed(1)}°`, surface: e => SURF[e.key].name,
+  section: e => `Sección ${{ both: 'ambos lados', L: 'izquierda', R: 'derecha' }[e.side || 'both']}: ` + [e.ditch == null ? null : e.ditch === 0 ? 'sin cuneta' : `cuneta ${e.ditch} m`, e.wf != null && e.wf !== 1 ? `ancho ×${e.wf}` : null, e.berm != null ? `banquina ${e.berm} m` : null, e.talud != null ? `talud ${e.talud}:1` : null].filter(Boolean).join(', '),
+  lock: e => `Punto fijo ${fmtH(+(e.h + (S.result ? S.result.h0 : 0)).toFixed(2))} m (${e.ref === 'dato' ? 'dato medido' : 'altura fijada'})`,
 };
 const fmtH = h => (h > 0 ? '+' : '') + (+h.toFixed(2));
 function where(e) { return e.d !== undefined ? `${(e.d / 1000).toFixed(2)} km` : e.d1 - e.d0 < 1 ? `${(e.d0 / 1000).toFixed(2)} km` : `${(e.d0 / 1000).toFixed(2)}–${(e.d1 / 1000).toFixed(2)} km`; }
@@ -3867,6 +3880,17 @@ if ($('#tDown')) $('#tDown').onclick = () => gradeEdit(-1);
 $('#tBump').onclick = () => { if (!needSel()) return; addEdit({ kind: 'bump', d: ptSel(), h: Math.abs(num('#fh', 0.4)), len: 10 }); };
 $('#tJump').onclick = () => { if (!needSel()) return; addEdit({ kind: 'jump', d: ptSel(), h: Math.abs(num('#fh', 1)), len: 24 }); };
 $('#tPot').onclick = () => { if (!needSel()) return; addEdit({ kind: 'pothole', d: ptSel(), h: Math.abs(num('#fh', 0.25)), len: 5 }); };
+// sección transversal por tramo
+if ($('#tSec')) $('#tSec').onclick = () => { if (!needSel()) return; const v = id => { const x = $(id).value.trim(); return x === '' ? null : +x; }, dm = $('#secDitch').value;
+  const e = { kind: 'section', ...secSel(), side: $('#secSide').value, ditch: dm === 'auto' ? null : dm === 'none' ? 0 : Math.max(0.13, Math.min(1.5, v('#secD') ?? 0.45)), wf: v('#secW'), berm: v('#secB'), talud: v('#secT') };
+  if (e.wf != null) e.wf = Math.max(0.4, Math.min(3, e.wf)); if (e.berm != null) e.berm = Math.max(0, Math.min(3, e.berm)); if (e.talud != null) e.talud = Math.max(0.3, Math.min(4, e.talud));
+  if (e.ditch == null && e.wf == null && e.berm == null && e.talud == null) { $('#selInfo').textContent = '⚠ Elegí al menos un cambio de sección (cuneta, ancho, banquina o talud).'; return; }
+  addEdit(e); };
+// punto fijo: al dato medido o a la altura actual
+const lockAt = ref => { if (!needSel()) return; const r = S.result.res, d = ptSel(), i = fixIdx(d); const h = ref === 'dato' ? r.raw[i] : r.hs[i];
+  if (!isFinite(h)) { $('#selInfo').textContent = '⚠ No hay dato medido en ese punto.'; return; } addEdit({ kind: 'lock', d: +d.toFixed(2), h: +h.toFixed(3), ref, r: 25 }); };
+if ($('#tLockDato')) $('#tLockDato').onclick = () => lockAt('dato');
+if ($('#tLockNow')) $('#tLockNow').onclick = () => lockAt('actual');
 $('#tWidth').onclick = () => { if (!needSel()) return; addEdit({ kind: 'width', ...secSel(), w: Math.max(3, Math.min(25, num('#ew', 7))) }); };
 $('#tBank').onclick = () => { if (!needSel()) return; addEdit({ kind: 'bank', ...secSel(), deg: Math.max(-15, Math.min(25, num('#eb', 6))) }); };
 $('#tSurf').onclick = () => { if (!needSel()) return; addEdit({ kind: 'surface', ...secSel(), key: $('#surfKey').value }); };

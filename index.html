@@ -273,6 +273,21 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
       <div class="tool"><span>Ancho</span><input id="ew" type="number" value="9" step="0.5" min="3" max="25" title="metros"><button class="b" id="tWidth">Aplicar ancho</button></div>
       <div class="tool"><span>Peralte</span><input id="eb" type="number" value="6" step="1" min="-15" max="25" title="grados; negativo = en contra"><button class="b" id="tBank">Aplicar peralte</button></div>
       <div class="tool"><span>Suelo</span><select id="surfKey"></select><button class="b" id="tSurf">Aplicar</button></div>
+      <h2 style="margin-top:14px">Sección transversal</h2>
+      <canvas id="xsec" style="width:100%;height:170px;display:block;background:#0b1118;border-radius:6px" title="Corte del camino en el punto elegido (o donde pasás el mouse en el perfil)"></canvas>
+      <div class="mut" id="xsecInfo" style="font-size:12px;margin:4px 0">Elegí un punto en el perfil para ver el corte.</div>
+      <div class="tool" style="flex-wrap:wrap;gap:4px"><span>Cuneta</span>
+        <select id="secSide" title="lado"><option value="both">ambos lados</option><option value="L">izquierda</option><option value="R">derecha</option></select>
+        <select id="secDitch" title="cuneta"><option value="auto">automática</option><option value="none">sin cuneta</option><option value="m">profundidad →</option></select>
+        <input id="secD" type="number" value="0.45" step="0.05" min="0.13" max="1.5" style="width:54px" title="profundidad de la cuneta (m)">
+        <input id="secW" type="number" placeholder="ancho ×" step="0.1" min="0.4" max="3" style="width:62px" title="ancho de la cuneta: multiplicador (vacío = automático)">
+      </div>
+      <div class="tool" style="flex-wrap:wrap;gap:4px"><span>Bordes</span>
+        <input id="secB" type="number" placeholder="banquina m" step="0.1" min="0" max="3" style="width:84px" title="banquina: distancia del borde del ripio hasta donde empieza la cuneta o el talud (vacío = automático)">
+        <input id="secT" type="number" placeholder="talud H:V" step="0.1" min="0.3" max="4" style="width:76px" title="pendiente del talud o terraplén: metros horizontales por metro de alto (1 = 45°, 2 = suave; vacío = automático)">
+        <button class="b" id="tSec">Aplicar al tramo</button>
+      </div>
+      <div class="tool"><span>Fijar</span><button class="b" id="tLockDato" title="El camino vuelve a pasar por la altura medida en este punto, aunque haya otras ediciones">Al dato medido</button><button class="b" id="tLockNow" title="Este punto queda a la altura que tiene ahora, aunque después edites alrededor">A la altura actual</button></div>
       <h2 style="margin-top:16px">Agarre</h2>
       <label class="row"><input type="checkbox" id="showGrip" checked> Mostrar mapa de agarre en el mapa</label>
       <div class="legend"><span><i style="background:#2ecc71"></i>&gt;110 km/h</span><span><i style="background:#c6e23a"></i>70–110</span><span><i style="background:#ffb020"></i>45–70</span><span><i style="background:#ff4d4d"></i>&lt;45</span></div>
@@ -559,11 +574,16 @@ const Core = (() => {
     // claros, playones y cruces: donde el satélite muestra suelo pelado ancho junto al camino no hay cuneta (es una explanada)
     if (o.clearAt) { const open = (i, sd) => { const b = o.clearAt(dist[i], sd); return b == null ? 0 : Math.max(0, Math.min(1, (b - 0.45) / 0.25)); };
       DLs = smooth1D(DLs.map((v, i) => v * (1 - open(i, 1))), 3, closed); DRs = smooth1D(DRs.map((v, i) => v * (1 - open(i, -1))), 3, closed); }
+    // sección editada a mano (cuneta / banquina / talud por tramo y lado): manda sobre lo automático, con transición suave en los extremos
+    const secOv = (i, sd) => { const q = o.sectionAt ? o.sectionAt(dist[i], sd) : null; return q && q.t > 0 ? q : null; };
+    if (o.sectionAt) { const ap = (A, sd) => A.map((v, i) => { const q = secOv(i, sd); return q && q.ditch != null ? v + (q.ditch - v) * q.t : v; }); DLs = ap(DLs, 1); DRs = ap(DRs, -1); }
     // perfil transversal de cada costado (distancias desde el borde del ripio):
     // berma de piedras → cuneta en V con fondo → contratalud que sube (o baja) hasta el terreno real de ese lado
     const sideProf = (i, sd, force) => {
       const sl = sd > 0 ? SLL[i] : SLR[i], Dd = force === true ? Math.max(0.13, sd > 0 ? DLs[i] : DRs[i]) : force === false ? 0 : sd > 0 ? DLs[i] : DRs[i], hw = W[i] / 2, edge = surfH(i, sd * hw);
-      const bare = o.bareAt ? o.bareAt(dist[i], sd) : 1, bw = Math.max(0.25, Math.min(1.0, 0.35 * bare + 0.15));
+      const ov = secOv(i, sd), ot = ov ? ov.t : 0, mix = (a, b) => b == null ? a : a + (b - a) * ot;
+      const slF = (dh, fill, cut) => mix(dh < 0 ? fill : cut, ov ? ov.talud : null); // talud (horizontal : vertical)
+      const bare = o.bareAt ? o.bareAt(dist[i], sd) : 1, bw = mix(Math.max(0.25, Math.min(1.0, 0.35 * bare + 0.15)), ov ? ov.berm : null);
       const tg = e => hs[i] + sl * (hw + e) - 0.05;
       let pts, xe, clear;
       if (Dd > 0.12) {
@@ -575,16 +595,16 @@ const Core = (() => {
         const d = dist[i], open = (1 - FOR[i]) * Math.min(1, WETP[i] * 1.6), wf = (0.85 + 0.35 * vn1(d / 45, sd * 7)) * (1 + 0.6 * open);
         const up = Math.max(0, Math.min(1, (sl - 0.03) / 0.2)), down = Math.max(0, Math.min(1, -sl / 0.15));
         const nz = 0.5 + 0.3 * vn1(d / 17, sd * 29 + 7) + 0.25 * vn1(d / 5.5, sd * 31 + 9) + 0.15 * vn1(d / 2.3, sd * 47 + 2);
-        const D = Math.max(0.05, Dd * nz * (1 - 0.8 * up) * (1 - 0.4 * down));
+        const D = mix(Math.max(0.05, Dd * nz * (1 - 0.8 * up) * (1 - 0.4 * down)), ov && ov.ditch > 0.12 ? ov.ditch * (0.94 + 0.12 * vn1(d / 9, sd * 71 + 3)) : null);
         const ox = (vn1(d / 9, sd * 37 + 1) - 0.5) * 0.55 + (vn1(d / 27, sd * 41 + 3) - 0.5) * 1.0; // corrimiento del fondo (m)
-        const ww = wf * (0.75 + 0.55 * vn1(d / 13, sd * 43 + 5));                                // ancho que respira
+        const ww = wf * (0.75 + 0.55 * vn1(d / 13, sd * 43 + 5)) * mix(1, ov ? ov.wf : null);                                // ancho que respira
         // tierra que sacaron al cavar, amontonada sin forma (en ladera que sube no hay bordo: está el talud)
         const outC = sd === -Math.sign(K[i] || 0) ? Math.min(1, Math.abs(K[i]) * 60) : 0;
         const nL = vn1(d / 7, sd * 11 + 3) * 0.6 + vn1(d / 2.2, sd * 13 + 5) * 0.4, lump = (0.03 + 0.34 * Math.pow(Math.max(0, nL - 0.25), 1.3)) * (1 - 0.75 * open) * (1 - up) * (1 + 1.4 * outC);
         const mw = 0.8 + 0.8 * vn1(d / 12, sd * 17 + 2);
-        const a0 = 0.08 + 0.06 * vn1(d / 6, sd * 53 + 1), a2 = Math.max(a0 + 0.22, a0 + 0.42 * ww + ox), a1 = a0 + (a2 - a0) * 0.55, a3 = a2 + Math.max(0.2, 0.36 * ww * mw), a4 = a3 + 0.42 * ww * mw;
+        const a0 = mix(0.08 + 0.06 * vn1(d / 6, sd * 53 + 1), ov ? ov.berm : null), a2 = Math.max(a0 + 0.22, a0 + 0.42 * ww + ox), a1 = a0 + (a2 - a0) * 0.55, a3 = a2 + Math.max(0.2, 0.36 * ww * mw), a4 = a3 + 0.42 * ww * mw;
         const bot = edge - D, crest = Math.max(edge + 0.02, tg(a4)), mtop = (edge + Math.max(0.02, lump)) * (1 - up) + crest * up;
-        xe = a4 + 0.8; for (let k = 0; k < 3; k++) { const dh = tg(xe) - mtop; xe = Math.min(9, a4 + Math.max(0.8, Math.abs(dh) * (dh < 0 ? 1.5 : 1.1))); }
+        xe = a4 + 0.8; for (let k = 0; k < 3; k++) { const dh = tg(xe) - mtop; xe = Math.min(ov && ov.talud != null ? 14 : 9, a4 + Math.max(0.8, Math.abs(dh) * slF(dh, 1.5, 1.1))); }
         const top = tg(xe), mid = mtop + (top - mtop) * 0.5 + lump * 0.3;
         // paredes redondeadas (labio, fondo cóncavo, hombro) para que se funda con la banquina y el terreno sin escalón
         const ero = (vn1(d / 3.1, sd * 67 + 2) - 0.5) * 0.06; // labio erosionado, desparejo
@@ -592,7 +612,7 @@ const Core = (() => {
         clear = a4 + 0.3;
       } else {
         const b0 = edge - 0.06; xe = bw + 1;
-        for (let k = 0; k < 3; k++) { const dh = tg(xe) - b0; xe = Math.min(9, bw + Math.max(1, Math.abs(dh) * (dh < 0 ? 1.5 : 1.2))); }
+        for (let k = 0; k < 3; k++) { const dh = tg(xe) - b0; xe = Math.min(ov && ov.talud != null ? 14 : 9, bw + Math.max(1, Math.abs(dh) * slF(dh, 1.5, 1.2))); }
         const top = tg(xe), L = (f) => [bw + (xe - bw) * f, b0 + (top - b0) * f];
         pts = [[0, edge], [bw, b0], L(0.33), L(0.66), L(0.85), [xe, top]];
         clear = bw + 0.3;
@@ -3146,9 +3166,16 @@ function editFns(o, total, closed) {
       return o.surface === 'gravel' || o.surface === 'auto' ? 'GRAVEL' : 'ROAD';
     },
     smoothSecs: S.edits.filter(e => e.kind === 'smooth'),
+    // sección transversal editada por tramo y lado: cuneta (m, 0 = sin cuneta), ancho de cuneta (×), banquina (m), talud (H:V)
+    sectionAt: S.edits.some(e => e.kind === 'section') ? (d, sd) => {
+      let out = null;
+      for (const e of S.edits) { if (e.kind !== 'section' || (e.side === 'L' && sd < 0) || (e.side === 'R' && sd > 0)) continue;
+        const x = d < e.d0 ? e.d0 - d : d > e.d1 ? d - e.d1 : 0, ramp = 6; if (x >= ramp) continue; const t = ss(1 - x / ramp);
+        out = { t, ditch: e.ditch ?? null, wf: e.wf ?? null, berm: e.berm ?? null, talud: e.talud ?? null }; }
+      return out; } : null,
     // aplanar y pendiente constante: reemplazan la altura del sector por una recta (horizontal o con pendiente),
     // con transiciones de 5.º grado a cada lado (continuas en altura, pendiente y curvatura) y una intensidad 0–1
-    levelApply: S.edits.some(e => e.kind === 'flat' || e.kind === 'grade' || (e.kind === 'raise' && e.d1 - e.d0 >= 1)) ? (dist, hs) => {
+    levelApply: S.edits.some(e => e.kind === 'flat' || e.kind === 'grade' || e.kind === 'lock' || (e.kind === 'raise' && e.d1 - e.d0 >= 1)) ? (dist, hs) => {
       let h = hs.slice(); const n = h.length;
       const hAt = d => { let i = 0, j = n - 1; while (j - i > 1) { const m = (i + j) >> 1; if (dist[m] <= d) i = m; else j = m; } const t = Math.max(0, Math.min(1, (d - dist[i]) / ((dist[j] - dist[i]) || 1))); return h[i] * (1 - t) + h[j] * t; };
       const sm5 = t => t * t * t * (t * (t * 6 - 15) + 10);
@@ -3166,6 +3193,10 @@ function editFns(o, total, closed) {
           const w = d < e.d0 ? sm5(1 - (e.d0 - d) / fa) : d > e.d1 ? sm5(1 - (d - e.d1) / fz) : 1;
           const tgt = T0 + g * (d - e.d0); out[i] = h[i] + (tgt - h[i]) * w * k; }
         h = out; }
+      // puntos fijos: al final de todo, cada uno vuelve a su altura (al dato medido o a la que tenía al fijarlo) con una campana suave
+      const locks = S.edits.filter(e => e.kind === 'lock');
+      for (let pass = 0; pass < (locks.length > 1 ? 3 : 1); pass++) for (const e of locks) { const dl = e.h - hAt(e.d), r = e.r || 25; if (Math.abs(dl) < 1e-4) continue;
+        for (let i = 0; i < n; i++) { const x = Math.abs(dist[i] - e.d); if (x < r) h[i] += dl * 0.5 * (1 + Math.cos(Math.PI * x / r)); } }
       return h;
     } : null,
     // perfiles por puntos de control: reemplazan la altura base (antes de saltos, lomadas, etc.)
@@ -5134,6 +5165,8 @@ const EDIT_TXT = {
   smooth: () => 'Suavizar', flat: e => `Aplanar (${{ start: 'altura inicial', end: 'altura final', avg: 'promedio', abs: (e.h ?? 0).toFixed(1) + ' m' }[e.ref || 'start']}${(e.k ?? 1) < 1 ? ', ' + Math.round(e.k * 100) + '%' : ''})`, grade: e => `Pendiente constante ${e.pct != null ? (e.pct > 0 ? '+' : '') + e.pct.toFixed(1) + '%' : fmtH(e.dh) + ' m'}`, bump: e => `Lomada ${+e.h.toFixed(2)} m`, jump: e => `Salto ${+e.h.toFixed(2)} m`, cattle: () => 'Guardaganado',
   shape: e => `Curva movida ${Math.hypot(e.dx, e.dy).toFixed(1)} m`, pothole: e => `Bache ${+e.h.toFixed(2)} m`, width: e => `Ancho ${+e.w.toFixed(1)} m`,
   bank: e => e.abs ? `Inclinación ${+e.deg.toFixed(1)}°` : `Peralte ${+e.deg.toFixed(1)}°`, surface: e => SURF[e.key].name,
+  section: e => `Sección ${{ both: 'ambos lados', L: 'izquierda', R: 'derecha' }[e.side || 'both']}: ` + [e.ditch == null ? null : e.ditch === 0 ? 'sin cuneta' : `cuneta ${e.ditch} m`, e.wf != null && e.wf !== 1 ? `ancho ×${e.wf}` : null, e.berm != null ? `banquina ${e.berm} m` : null, e.talud != null ? `talud ${e.talud}:1` : null].filter(Boolean).join(', '),
+  lock: e => `Punto fijo ${fmtH(+(e.h + (S.result ? S.result.h0 : 0)).toFixed(2))} m (${e.ref === 'dato' ? 'dato medido' : 'altura fijada'})`,
 };
 const fmtH = h => (h > 0 ? '+' : '') + (+h.toFixed(2));
 function where(e) { return e.d !== undefined ? `${(e.d / 1000).toFixed(2)} km` : e.d1 - e.d0 < 1 ? `${(e.d0 / 1000).toFixed(2)} km` : `${(e.d0 / 1000).toFixed(2)}–${(e.d1 / 1000).toFixed(2)} km`; }
@@ -5164,6 +5197,17 @@ if ($('#tDown')) $('#tDown').onclick = () => gradeEdit(-1);
 $('#tBump').onclick = () => { if (!needSel()) return; addEdit({ kind: 'bump', d: ptSel(), h: Math.abs(num('#fh', 0.4)), len: 10 }); };
 $('#tJump').onclick = () => { if (!needSel()) return; addEdit({ kind: 'jump', d: ptSel(), h: Math.abs(num('#fh', 1)), len: 24 }); };
 $('#tPot').onclick = () => { if (!needSel()) return; addEdit({ kind: 'pothole', d: ptSel(), h: Math.abs(num('#fh', 0.25)), len: 5 }); };
+// sección transversal por tramo
+if ($('#tSec')) $('#tSec').onclick = () => { if (!needSel()) return; const v = id => { const x = $(id).value.trim(); return x === '' ? null : +x; }, dm = $('#secDitch').value;
+  const e = { kind: 'section', ...secSel(), side: $('#secSide').value, ditch: dm === 'auto' ? null : dm === 'none' ? 0 : Math.max(0.13, Math.min(1.5, v('#secD') ?? 0.45)), wf: v('#secW'), berm: v('#secB'), talud: v('#secT') };
+  if (e.wf != null) e.wf = Math.max(0.4, Math.min(3, e.wf)); if (e.berm != null) e.berm = Math.max(0, Math.min(3, e.berm)); if (e.talud != null) e.talud = Math.max(0.3, Math.min(4, e.talud));
+  if (e.ditch == null && e.wf == null && e.berm == null && e.talud == null) { $('#selInfo').textContent = '⚠ Elegí al menos un cambio de sección (cuneta, ancho, banquina o talud).'; return; }
+  addEdit(e); };
+// punto fijo: al dato medido o a la altura actual
+const lockAt = ref => { if (!needSel()) return; const r = S.result.res, d = ptSel(), i = fixIdx(d); const h = ref === 'dato' ? r.raw[i] : r.hs[i];
+  if (!isFinite(h)) { $('#selInfo').textContent = '⚠ No hay dato medido en ese punto.'; return; } addEdit({ kind: 'lock', d: +d.toFixed(2), h: +h.toFixed(3), ref, r: 25 }); };
+if ($('#tLockDato')) $('#tLockDato').onclick = () => lockAt('dato');
+if ($('#tLockNow')) $('#tLockNow').onclick = () => lockAt('actual');
 $('#tWidth').onclick = () => { if (!needSel()) return; addEdit({ kind: 'width', ...secSel(), w: Math.max(3, Math.min(25, num('#ew', 7))) }); };
 $('#tBank').onclick = () => { if (!needSel()) return; addEdit({ kind: 'bank', ...secSel(), deg: Math.max(-15, Math.min(25, num('#eb', 6))) }); };
 $('#tSurf').onclick = () => { if (!needSel()) return; addEdit({ kind: 'surface', ...secSel(), key: $('#surfKey').value }); };
@@ -6351,7 +6395,7 @@ if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') ||
 
 
 // ---------- Versión: qué compilación es esta y si es la última publicada en GitHub ----------
-const BUILD = {"id": "c7b576b94c71", "date": "2026-11-13T21:32:00Z", "version": "2026.11.13+c7b576b", "base": "2246245c2955254c4a02d8a5518a64dbc5910200"};
+const BUILD = {"id": "b16c565325fe", "date": "2026-11-14T02:23:53Z", "version": "2026.11.14+b16c565", "base": "6be71c60203e22093dfd92af318f912721c9afda"};
 const VER = {
   repo: 'lucasbarria/generador-de-pistas',
   set(state, txt, cls) { const el = $('#verInfo'); if (!el) return; const b = BUILD || {}; const dt = b.date ? new Date(b.date).toLocaleString() : '?';
@@ -6590,7 +6634,9 @@ function liveRoute() {
   const args = { ...L.routeArgs, ...editFns(o, S.lastTotal, B.closed), cache: L.cache };
   const prof = Core.buildRoute({ ...args, profileOnly: true });
   const same = (a, b, eps) => { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > eps) return false; return true; };
-  const fast = prof.C === old.C && same(prof.W, old.W, 1e-6) && prof.SURF.every((k, i) => k === old.SURF[i]);
+  const secSig = JSON.stringify(S.edits.filter(e => e.kind === 'section')); // la sección cambia cunetas y taludes: hay que rehacer los costados
+  const fast = prof.C === old.C && same(prof.W, old.W, 1e-6) && prof.SURF.every((k, i) => k === old.SURF[i]) && secSig === (L.secSig || '[]');
+  L.secSig = secSig;
   let i0 = Infinity, i1 = -1;
   if (fast) {
     const n = old.n, dh = new Float64Array(n), ds = new Float64Array(n);
@@ -7319,9 +7365,9 @@ const PROF = makeProf($('#profile'), {
   hoverInfo: d => {
     const r = S.result.res, i = fixIdx(d), g = S.result.info.grip;
     $('#hoverInfo').textContent = `${(d / 1000).toFixed(3)} km · ${(r.hs[i] + S.result.h0).toFixed(0)} m · pendiente ${(g.GR[i] * 100).toFixed(1)}% · ancho ${r.W[i].toFixed(1)} m · ${SURF[r.SURF[i]].name} · vel. segura ≈ ${g.V[i].toFixed(0)} km/h`;
-    const ll = S.result.info.ll[i]; if (!PROF.dot) PROF.dot = L.circleMarker(ll, { radius: 6, color: '#fff', fillColor: '#00c8ff', fillOpacity: 1 }).addTo(map); else PROF.dot.setLatLng(ll);
+    XSEC.hover = d; const ll = S.result.info.ll[i]; if (!PROF.dot) PROF.dot = L.circleMarker(ll, { radius: 6, color: '#fff', fillColor: '#00c8ff', fillOpacity: 1 }).addTo(map); else PROF.dot.setLatLng(ll);
   },
-  leave: () => { if (PROF.dot) { map.removeLayer(PROF.dot); PROF.dot = null; } },
+  leave: () => { if (PROF.dot) { map.removeLayer(PROF.dot); PROF.dot = null; } XSEC.hover = null; },
 });
 const PROF3 = makeProf($('#vprof'), {
   dock: true,
@@ -7332,7 +7378,39 @@ const PROF3 = makeProf($('#vprof'), {
     let a = c - half, b = c + half; if (a < 0) { b -= a; a = 0; } if (b > r.total) { a -= b - r.total; b = r.total; } return [Math.max(0, a), b];
   },
 });
-function drawProfile() { PROF.draw(); if ($('#viewer').style.display !== 'none' && ED.panelOn) PROF3.draw(); if (typeof profileStats === 'function') profileStats(); }
+// ---------- corte transversal: camino diseñado (cuneta, banquina, talud) sobre el terreno medido ----------
+const XSEC = {
+  hover: null,
+  draw() {
+    const cv = $('#xsec'); if (!cv || !S.result || S.result.mode !== 'route' || !cv.clientWidth) return;
+    const dpr = window.devicePixelRatio || 1, Wc = cv.clientWidth, Hc = cv.clientHeight; if (cv.width !== Wc * dpr) { cv.width = Wc * dpr; cv.height = Hc * dpr; }
+    const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, Wc, Hc);
+    const d = this.hover != null ? this.hover : S.sel ? (S.sel.d0 + S.sel.d1) / 2 : null, r = S.result.res, info = $('#xsecInfo');
+    if (d == null || !r.SP) { if (info) info.textContent = 'Elegí un punto en el perfil para ver el corte.'; return; }
+    const i = fixIdx(d), hw = r.W[i] / 2, B = S.base, nx = -r.T[i][1], ny = r.T[i][0], at = s => [r.C[i][0] + nx * s, r.C[i][1] + ny * s];
+    const side = (sp, sd) => sp.pts.slice(0, sp.pts.length - 1).map(([x, h]) => [sd * (hw + x), h]); // sin el faldón que va debajo del terreno
+    const L = side(r.SP[i][0], 1), Rr = side(r.SP[i][1], -1), road = [...Rr.slice().reverse(), [0, r.hs[i]], ...L];
+    const span = Math.max(10, ...road.map(p => Math.abs(p[0]))) + 4, meas = [], fin = [], gnd = typeof obGround === 'function' ? obGround(S.result.ter) : null;
+    for (let k = 0; k <= 80; k++) { const s = -span + 2 * span * k / 80, [x, y] = at(s), hm = B.height(x, y), hf = gnd ? gnd(x, y) : null; if (hm != null && isFinite(hm)) meas.push([s, hm]); if (hf != null) fin.push([s, hf]); }
+    const all = [...road, ...meas, ...fin].map(p => p[1]), lo = Math.min(...all), hi = Math.max(...all), sx = (Wc - 16) / (2 * span), sy = Math.min(sx * 3, (Hc - 48) / Math.max(0.5, hi - lo)), ex = sy / sx;
+    const X = s => Wc / 2 - s * sx, Y = h => (Hc - 6) / 2 - (h - (lo + hi) / 2) * sy; // mirando hacia adelante: la izquierda del camino queda a la izquierda
+    const line = (P, col, w, dash) => { if (P.length < 2) return; g.beginPath(); g.setLineDash(dash || []); g.strokeStyle = col; g.lineWidth = w; P.forEach(([s, h], k) => k ? g.lineTo(X(s), Y(h)) : g.moveTo(X(s), Y(h))); g.stroke(); g.setLineDash([]); };
+    g.fillStyle = '#ffffff10'; g.fillRect(X(hw), 0, X(-hw) - X(hw), Hc);
+    line(fin, '#7a8a6a', 1.5, [4, 3]); line(meas, '#4cc3ff', 1.5); line(road, '#ffb020', 2.2);
+    g.fillStyle = '#ffb020'; for (const [s, h] of road) { g.beginPath(); g.arc(X(s), Y(h), 2.2, 0, 6.3); g.fill(); }
+    g.font = '11px system-ui'; g.fillStyle = '#cbd5e1'; g.fillText('izq.', 4, 12); g.fillText('der.', Wc - 24, 12);
+    g.fillStyle = '#4cc3ff'; g.fillText('— terreno medido', 4, Hc - 5); g.fillStyle = '#ffb020'; g.fillText('— camino', 100, Hc - 5); g.fillStyle = '#7a8a6a'; g.fillText('- - terreno final', 152, Hc - 5);
+    g.fillStyle = '#94a3b8'; g.textAlign = 'center'; g.fillText(`escala vertical ×${ex.toFixed(1)}`, Wc / 2, 12); g.textAlign = 'left';
+    const dep = (sp) => sp.Dd > 0.12 ? Math.max(0, sp.pts[0][1] - Math.min(...sp.pts.slice(0, -2).map(p => p[1]))) : 0;
+    const tal = (sp) => { const q = sp.pts, a = q[q.length - (sp.Dd > 0.12 ? 5 : 6)], b = q[q.length - 3], dh = b[1] - a[1]; return Math.abs(dh) < 0.05 ? 'plano' : `${(Math.abs(b[0] - a[0]) / Math.abs(dh)).toFixed(1)}:1 ${dh > 0 ? 'corte' : 'terraplén'}`; };
+    const [la, lo2] = B.P.inv(r.C[i][0], r.C[i][1]), src = DEM.sourceAt ? DEM.sourceAt(la, lo2) : 'modelo de elevación';
+    const ed = S.edits.filter(e => (e.kind === 'section' || e.kind === 'width' || e.kind === 'bank') && d >= e.d0 - 6 && d <= e.d1 + 6).map(e => e.kind);
+    if (info) info.innerHTML = `<b>${(d / 1000).toFixed(3)} km</b> · ancho ${r.W[i].toFixed(1)} m · pendiente transversal ${(r.SL[i] * 100).toFixed(1)} %` +
+      ` · cuneta izq. ${dep(r.SP[i][0]) ? dep(r.SP[i][0]).toFixed(2) + ' m' : 'no'} / der. ${dep(r.SP[i][1]) ? dep(r.SP[i][1]).toFixed(2) + ' m' : 'no'} · talud izq. ${tal(r.SP[i][0])} / der. ${tal(r.SP[i][1])}` +
+      `<br>Terreno: <b>medido</b> (${src}). Camino, cuneta y talud: <b>${ed.length ? 'editados a mano' : 'estimados'}</b>${ed.length ? '' : ' (el modelo de elevación no mide bordes ni cunetas)'}.`;
+  },
+};
+function drawProfile() { PROF.draw(); if ($('#viewer').style.display !== 'none' && ED.panelOn) PROF3.draw(); if (typeof profileStats === 'function') profileStats(); try { XSEC.draw(); } catch (e) { console.error(e); } }
 window.addEventListener('resize', () => drawProfile());
 
 // ---------- eventos de la vista 3D ----------

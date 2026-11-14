@@ -273,6 +273,21 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
       <div class="tool"><span>Ancho</span><input id="ew" type="number" value="9" step="0.5" min="3" max="25" title="metros"><button class="b" id="tWidth">Aplicar ancho</button></div>
       <div class="tool"><span>Peralte</span><input id="eb" type="number" value="6" step="1" min="-15" max="25" title="grados; negativo = en contra"><button class="b" id="tBank">Aplicar peralte</button></div>
       <div class="tool"><span>Suelo</span><select id="surfKey"></select><button class="b" id="tSurf">Aplicar</button></div>
+      <h2 style="margin-top:14px">Sección transversal</h2>
+      <canvas id="xsec" style="width:100%;height:170px;display:block;background:#0b1118;border-radius:6px" title="Corte del camino en el punto elegido (o donde pasás el mouse en el perfil)"></canvas>
+      <div class="mut" id="xsecInfo" style="font-size:12px;margin:4px 0">Elegí un punto en el perfil para ver el corte.</div>
+      <div class="tool" style="flex-wrap:wrap;gap:4px"><span>Cuneta</span>
+        <select id="secSide" title="lado"><option value="both">ambos lados</option><option value="L">izquierda</option><option value="R">derecha</option></select>
+        <select id="secDitch" title="cuneta"><option value="auto">automática</option><option value="none">sin cuneta</option><option value="m">profundidad →</option></select>
+        <input id="secD" type="number" value="0.45" step="0.05" min="0.13" max="1.5" style="width:54px" title="profundidad de la cuneta (m)">
+        <input id="secW" type="number" placeholder="ancho ×" step="0.1" min="0.4" max="3" style="width:62px" title="ancho de la cuneta: multiplicador (vacío = automático)">
+      </div>
+      <div class="tool" style="flex-wrap:wrap;gap:4px"><span>Bordes</span>
+        <input id="secB" type="number" placeholder="banquina m" step="0.1" min="0" max="3" style="width:84px" title="banquina: distancia del borde del ripio hasta donde empieza la cuneta o el talud (vacío = automático)">
+        <input id="secT" type="number" placeholder="talud H:V" step="0.1" min="0.3" max="4" style="width:76px" title="pendiente del talud o terraplén: metros horizontales por metro de alto (1 = 45°, 2 = suave; vacío = automático)">
+        <button class="b" id="tSec">Aplicar al tramo</button>
+      </div>
+      <div class="tool"><span>Fijar</span><button class="b" id="tLockDato" title="El camino vuelve a pasar por la altura medida en este punto, aunque haya otras ediciones">Al dato medido</button><button class="b" id="tLockNow" title="Este punto queda a la altura que tiene ahora, aunque después edites alrededor">A la altura actual</button></div>
       <h2 style="margin-top:16px">Agarre</h2>
       <label class="row"><input type="checkbox" id="showGrip" checked> Mostrar mapa de agarre en el mapa</label>
       <div class="legend"><span><i style="background:#2ecc71"></i>&gt;110 km/h</span><span><i style="background:#c6e23a"></i>70–110</span><span><i style="background:#ffb020"></i>45–70</span><span><i style="background:#ff4d4d"></i>&lt;45</span></div>

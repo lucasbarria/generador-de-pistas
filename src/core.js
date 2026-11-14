@@ -262,11 +262,16 @@ const Core = (() => {
     // claros, playones y cruces: donde el satélite muestra suelo pelado ancho junto al camino no hay cuneta (es una explanada)
     if (o.clearAt) { const open = (i, sd) => { const b = o.clearAt(dist[i], sd); return b == null ? 0 : Math.max(0, Math.min(1, (b - 0.45) / 0.25)); };
       DLs = smooth1D(DLs.map((v, i) => v * (1 - open(i, 1))), 3, closed); DRs = smooth1D(DRs.map((v, i) => v * (1 - open(i, -1))), 3, closed); }
+    // sección editada a mano (cuneta / banquina / talud por tramo y lado): manda sobre lo automático, con transición suave en los extremos
+    const secOv = (i, sd) => { const q = o.sectionAt ? o.sectionAt(dist[i], sd) : null; return q && q.t > 0 ? q : null; };
+    if (o.sectionAt) { const ap = (A, sd) => A.map((v, i) => { const q = secOv(i, sd); return q && q.ditch != null ? v + (q.ditch - v) * q.t : v; }); DLs = ap(DLs, 1); DRs = ap(DRs, -1); }
     // perfil transversal de cada costado (distancias desde el borde del ripio):
     // berma de piedras → cuneta en V con fondo → contratalud que sube (o baja) hasta el terreno real de ese lado
     const sideProf = (i, sd, force) => {
       const sl = sd > 0 ? SLL[i] : SLR[i], Dd = force === true ? Math.max(0.13, sd > 0 ? DLs[i] : DRs[i]) : force === false ? 0 : sd > 0 ? DLs[i] : DRs[i], hw = W[i] / 2, edge = surfH(i, sd * hw);
-      const bare = o.bareAt ? o.bareAt(dist[i], sd) : 1, bw = Math.max(0.25, Math.min(1.0, 0.35 * bare + 0.15));
+      const ov = secOv(i, sd), ot = ov ? ov.t : 0, mix = (a, b) => b == null ? a : a + (b - a) * ot;
+      const slF = (dh, fill, cut) => mix(dh < 0 ? fill : cut, ov ? ov.talud : null); // talud (horizontal : vertical)
+      const bare = o.bareAt ? o.bareAt(dist[i], sd) : 1, bw = mix(Math.max(0.25, Math.min(1.0, 0.35 * bare + 0.15)), ov ? ov.berm : null);
       const tg = e => hs[i] + sl * (hw + e) - 0.05;
       let pts, xe, clear;
       if (Dd > 0.12) {
@@ -278,16 +283,16 @@ const Core = (() => {
         const d = dist[i], open = (1 - FOR[i]) * Math.min(1, WETP[i] * 1.6), wf = (0.85 + 0.35 * vn1(d / 45, sd * 7)) * (1 + 0.6 * open);
         const up = Math.max(0, Math.min(1, (sl - 0.03) / 0.2)), down = Math.max(0, Math.min(1, -sl / 0.15));
         const nz = 0.5 + 0.3 * vn1(d / 17, sd * 29 + 7) + 0.25 * vn1(d / 5.5, sd * 31 + 9) + 0.15 * vn1(d / 2.3, sd * 47 + 2);
-        const D = Math.max(0.05, Dd * nz * (1 - 0.8 * up) * (1 - 0.4 * down));
+        const D = mix(Math.max(0.05, Dd * nz * (1 - 0.8 * up) * (1 - 0.4 * down)), ov && ov.ditch > 0.12 ? ov.ditch * (0.94 + 0.12 * vn1(d / 9, sd * 71 + 3)) : null);
         const ox = (vn1(d / 9, sd * 37 + 1) - 0.5) * 0.55 + (vn1(d / 27, sd * 41 + 3) - 0.5) * 1.0; // corrimiento del fondo (m)
-        const ww = wf * (0.75 + 0.55 * vn1(d / 13, sd * 43 + 5));                                // ancho que respira
+        const ww = wf * (0.75 + 0.55 * vn1(d / 13, sd * 43 + 5)) * mix(1, ov ? ov.wf : null);                                // ancho que respira
         // tierra que sacaron al cavar, amontonada sin forma (en ladera que sube no hay bordo: está el talud)
         const outC = sd === -Math.sign(K[i] || 0) ? Math.min(1, Math.abs(K[i]) * 60) : 0;
         const nL = vn1(d / 7, sd * 11 + 3) * 0.6 + vn1(d / 2.2, sd * 13 + 5) * 0.4, lump = (0.03 + 0.34 * Math.pow(Math.max(0, nL - 0.25), 1.3)) * (1 - 0.75 * open) * (1 - up) * (1 + 1.4 * outC);
         const mw = 0.8 + 0.8 * vn1(d / 12, sd * 17 + 2);
-        const a0 = 0.08 + 0.06 * vn1(d / 6, sd * 53 + 1), a2 = Math.max(a0 + 0.22, a0 + 0.42 * ww + ox), a1 = a0 + (a2 - a0) * 0.55, a3 = a2 + Math.max(0.2, 0.36 * ww * mw), a4 = a3 + 0.42 * ww * mw;
+        const a0 = mix(0.08 + 0.06 * vn1(d / 6, sd * 53 + 1), ov ? ov.berm : null), a2 = Math.max(a0 + 0.22, a0 + 0.42 * ww + ox), a1 = a0 + (a2 - a0) * 0.55, a3 = a2 + Math.max(0.2, 0.36 * ww * mw), a4 = a3 + 0.42 * ww * mw;
         const bot = edge - D, crest = Math.max(edge + 0.02, tg(a4)), mtop = (edge + Math.max(0.02, lump)) * (1 - up) + crest * up;
-        xe = a4 + 0.8; for (let k = 0; k < 3; k++) { const dh = tg(xe) - mtop; xe = Math.min(9, a4 + Math.max(0.8, Math.abs(dh) * (dh < 0 ? 1.5 : 1.1))); }
+        xe = a4 + 0.8; for (let k = 0; k < 3; k++) { const dh = tg(xe) - mtop; xe = Math.min(ov && ov.talud != null ? 14 : 9, a4 + Math.max(0.8, Math.abs(dh) * slF(dh, 1.5, 1.1))); }
         const top = tg(xe), mid = mtop + (top - mtop) * 0.5 + lump * 0.3;
         // paredes redondeadas (labio, fondo cóncavo, hombro) para que se funda con la banquina y el terreno sin escalón
         const ero = (vn1(d / 3.1, sd * 67 + 2) - 0.5) * 0.06; // labio erosionado, desparejo
@@ -295,7 +300,7 @@ const Core = (() => {
         clear = a4 + 0.3;
       } else {
         const b0 = edge - 0.06; xe = bw + 1;
-        for (let k = 0; k < 3; k++) { const dh = tg(xe) - b0; xe = Math.min(9, bw + Math.max(1, Math.abs(dh) * (dh < 0 ? 1.5 : 1.2))); }
+        for (let k = 0; k < 3; k++) { const dh = tg(xe) - b0; xe = Math.min(ov && ov.talud != null ? 14 : 9, bw + Math.max(1, Math.abs(dh) * slF(dh, 1.5, 1.2))); }
         const top = tg(xe), L = (f) => [bw + (xe - bw) * f, b0 + (top - b0) * f];
         pts = [[0, edge], [bw, b0], L(0.33), L(0.66), L(0.85), [xe, top]];
         clear = bw + 0.3;
