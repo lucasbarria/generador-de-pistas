@@ -148,10 +148,34 @@ def preparar_complemento():
 
 
 # ---------------------------------------------------------------- 2. identificador libre
-def elegir_id(maps, pedido):
+def carpeta_propia(maps, n, pid, nombre):
+    """True si Maps/<n> es una carpeta que dejó este mismo tramo en una corrida anterior
+    (mismo nombre, y sólo archivos que escribe el exportador para ese identificador)."""
+    d = os.path.join(maps, n)
+    if not os.path.isdir(d):
+        return False
+    try:
+        from rbr_track_formats import tracks_ini  # type: ignore
+        esperado = f"{pid}-{tracks_ini.sanitise_stage_name(nombre)}"
+    except Exception:
+        esperado = f"{pid}-" + re.sub(r"[^0-9a-zA-Z]", "-", nombre)
+    if n.lower() != esperado.lower():
+        return False
+    if os.path.exists(os.path.join(d, "generador_de_pistas.txt")):
+        return True
+    ok = re.compile(rf"^((tracks?|tracksettings){pid}\.ini|track-{pid}_.*)$", re.I)
+    return all(ok.match(f) for f in os.listdir(d))
+
+
+def elegir_id(maps, pedido, nombre=""):
     fase("2. Identificador del tramo")
     usados = set()
+    propios = set()
     for n in os.listdir(maps):
+        m0 = re.match(r"^(\d+)-", n)
+        if m0 and nombre and carpeta_propia(maps, n, int(m0.group(1)), nombre):
+            propios.add(int(m0.group(1)))
+            continue
         m = re.match(r"^(\d+)[-_ ]", n) or re.match(r"^track-(\d+)_", n) or re.match(r"^Tracks?(\d+)\.ini$", n, re.I)
         if m:
             usados.add(int(m.group(1)))
@@ -161,10 +185,15 @@ def elegir_id(maps, pedido):
             m = re.match(r"^\s*\[Map(\d+)\]", line)
             if m:
                 usados.add(int(m.group(1)))
+    propios -= usados
+    if propios and not pedido:
+        pid = min(propios)
+        log(f"Se reutiliza el identificador {pid}: su carpeta es de una corrida anterior de este mismo tramo")
+        return pid
     log(f"{len(usados)} identificadores ocupados en Maps (máximo {max(usados) if usados else '-'})")
     if pedido:
         pid = int(pedido)
-        if pid in usados:
+        if pid in usados and pid not in propios:
             raise RuntimeError(f"El identificador {pid} ya está usado en {maps}: no se pisa otro tramo.")
         return pid
     pid = 7001
@@ -192,12 +221,15 @@ def importar(D):
     for o in objs:
         if not re.match(r"^\d+(GRAVEL|LOOSE|CLAY|MUD|ROAD|SNOW|ICE|SAND|WET)$", o.name.split(".")[0]):
             continue
+        # el importador de OBJ deja el giro de ejes en la transformación del objeto:
+        # se compara en coordenadas de mundo, que son las que exporta el complemento
+        mw = o.matrix_world
         vs = o.data.vertices
         for i in range(0, len(vs), 7):
-            v = vs[i]
-            dd = (v.co.x - p0[0]) ** 2 + (v.co.y - p0[1]) ** 2
+            w = mw @ vs[i].co
+            dd = (w.x - p0[0]) ** 2 + (w.y - p0[1]) ** 2
             if best is None or dd < best[0]:
-                best = (dd, v.co.z)
+                best = (dd, w.z)
     if best is None:
         aviso("No encontré la calzada para comprobar la escala.")
     else:
@@ -249,6 +281,12 @@ def materiales(D, grupos):
     from rbr_track_addon.shaders.shader_node import make_rbr_blender_material, UV_DIFFUSE_1, VC_COLOR  # type: ignore
     from rbr_track_formats.mat import MaterialID  # type: ignore
     tex = D["texturas"]
+    # Los materiales que trae el OBJ se llaman igual que las texturas: el complemento arma el
+    # material RBR con el nombre de la textura y, si ya existe uno con ese nombre, lo reutiliza
+    # (y ése no es un material RBR -> error E0104). Se les cambia el nombre antes.
+    for m in list(bpy.data.materials):
+        if not m.name.startswith("obj_"):
+            m.name = "obj_" + m.name
     cache = {}
     imgs = {}
     sin_fis = []
@@ -433,6 +471,14 @@ def exportar(D, tid):
     except RBRAddonError as e:
         raise RuntimeError("El exportador de RBR rechazó el tramo: " + e.report(Language.EN))
     log(f"Exportado en {time.time() - t0:.0f} s")
+    try:
+        from rbr_track_formats import tracks_ini  # type: ignore
+        d = os.path.join(os.path.abspath(str(arg("--maps"))), f"{tid}-{tracks_ini.sanitise_stage_name(D['nombre'])}")
+        with open(os.path.join(d, "generador_de_pistas.txt"), "w", encoding="utf-8") as f:
+            f.write(f"Tramo generado por Generador de Pistas: {D['nombre']} (id {tid}).\n"
+                    "Esta marca permite volver a exportarlo en el mismo identificador sin tocar otros tramos.\n")
+    except Exception as ex:
+        aviso(f"No pude escribir la marca del tramo: {ex}")
     return tid
 
 
@@ -471,7 +517,7 @@ def main():
         D = json.load(f)
     log(f"Tramo: {D['nombre']} · {D['largo_driveline_m'] / 1000:.2f} km · generado {D.get('generado', '?')}")
     maps = preparar_complemento()
-    tid = elegir_id(maps, arg("--id"))
+    tid = elegir_id(maps, arg("--id"), D["nombre"])
     objs = importar(D)
     grupos = clasificar(D, objs)
     materiales(D, grupos)
