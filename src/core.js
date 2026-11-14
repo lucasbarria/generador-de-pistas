@@ -447,10 +447,11 @@ const Core = (() => {
     for (const side of [1, -1]) {
       const Dd = side > 0 ? DLs : DRs, SLs = side > 0 ? SLL : SLR, onBridge = i => o.bridge && o.bridge(C[i][0], C[i][1]);
       // cuneta con barro y agua donde el suelo es húmedo; con piedra donde corta la ladera en seco; normal en el resto
-      const sideKey = i => onBridge(i) ? 'NONE' : Dd[i] > 0.12 ? (WETP[i] > 0.55 ? 'DITCHMUD' : SLs[i] > 0.28 && WETP[i] < 0.4 ? 'DITCHROCK' : 'DITCH') : 'VERGE', runs2 = [];
+      // el costado toma el suelo del medio del camino (para el agarre de la cuneta y la banquina): un tramo nuevo cuando cambia
+      const sideKey = i => onBridge(i) ? 'NONE' : (Dd[i] > 0.12 ? (WETP[i] > 0.55 ? 'DITCHMUD' : SLs[i] > 0.28 && WETP[i] < 0.4 ? 'DITCHROCK' : 'DITCH') : 'VERGE') + ':' + SURF[i], runs2 = [];
       for (let i = 0; i < segCount; i++) { const k = sideKey(i), last = runs2[runs2.length - 1]; if (last && last.key === k) last.i1 = i; else runs2.push({ key: k, i0: i, i1: i }); }
       for (const run of runs2) {
-        if (run.key === 'NONE') continue; // en los puentes no hay banquina: se ve el río abajo
+        if (run.key === 'NONE') continue; const roadK = run.key.split(':')[1]; run.key = run.key.split(':')[0]; // en los puentes no hay banquina: se ve el río abajo
         const isD = run.key.startsWith('DITCH'), cut = isD ? CUT_D : CUT_V, U = isD ? UD : UV, inner = [], outer = [], wall = [], bankP = [], BK = !!o.bankMat;
         for (let ii = run.i0; ii <= run.i1 + 1; ii++) {
           const i = ii % n, hw = W[i] / 2, sp0 = SP[i][side > 0 ? 0 : 1], P = (sp0.Dd > 0.12) === isD ? sp0.pts : sideProf(i, side, isD).pts;
@@ -464,10 +465,11 @@ const Core = (() => {
           else if (BK && !isD && Bc.length > 2) { const kb = Math.min(3, Bc.length - 1); bankP.push({ cols: rv(nz(Bc.slice(0, kb), P, cut)), d, step }); Bout = Bc.slice(kb - 1); }
           inner.push({ cols: rv(Ain), d, step }); outer.push({ cols: rv(Bout), d, step, mat: o.sideMatAt ? o.sideMatAt(d, side) : null });
         }
-        const key = run.key === 'DITCHMUD' ? 'SOFT' : isD ? 'DITCH' : 'GRASS', mat = run.key === 'DITCHMUD' ? 'ditchmud' : run.key === 'DITCHROCK' ? 'ditchrock' : isD ? 'ditchside' : 'verge';
-        for (const m of ribbonMeshes(inner, false, key, mat, 7, { next: () => (key === 'GRASS' ? 500 : key === 'SOFT' ? 700 : 0) + cnt(key) })) meshes.push(m);
-        if (wall.length > 1) for (const m of ribbonMeshes(wall, false, key, o.bankMat, o.bankLen || 5, { next: () => (key === 'GRASS' ? 500 : key === 'SOFT' ? 700 : 0) + cnt(key) })) meshes.push(m);
-        if (bankP.length > 1) for (const m of ribbonMeshes(bankP, false, 'GRASS', o.bankMat, o.bankLen || 5, { next: () => 500 + cnt('GRASS') })) meshes.push(m);
+        // superficie física: cuneta / cuneta húmeda / banquina + suelo del camino (DITCHGRAVEL, SOFTCLAY, VERGEROAD…): agarre apenas menor que el camino
+        const key = (run.key === 'DITCHMUD' ? 'SOFT' : isD ? 'DITCH' : 'VERGE') + roadK, mat = run.key === 'DITCHMUD' ? 'ditchmud' : run.key === 'DITCHROCK' ? 'ditchrock' : isD ? 'ditchside' : 'verge';
+        for (const m of ribbonMeshes(inner, false, key, mat, 7, { next: () => cnt(key) })) meshes.push(m);
+        if (wall.length > 1) for (const m of ribbonMeshes(wall, false, key, o.bankMat, o.bankLen || 5, { next: () => cnt(key) })) meshes.push(m);
+        if (bankP.length > 1) for (const m of ribbonMeshes(bankP, false, key, o.bankMat, o.bankLen || 5, { next: () => cnt(key) })) meshes.push(m);
         // el talud cambia de tipo a lo largo (pasto con flores, tierra con agujas de pino, pasto seco con piedras): una malla por tramo
         let a0 = 0; for (let k = 1; k <= outer.length; k++) { if (k < outer.length && (outer[k].mat || 'grass') === (outer[a0].mat || 'grass')) continue;
           const part = outer.slice(a0, Math.min(outer.length, k + 1)); if (part.length > 1) for (const m of ribbonMeshes(part, false, 'GRASS', outer[a0].mat || 'grass', 7, { next: () => 500 + cnt('GRASS') })) meshes.push(m); a0 = k; }

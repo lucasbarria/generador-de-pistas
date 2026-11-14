@@ -4007,13 +4007,21 @@ function materialsReport() {
     'Entre dos superficies, la geometría cambia de a poco en ~16 m; la textura del camino mezcla los dos materiales en manchas de ~10 m.', '',
     ...Object.values(MATDEF).filter(m => m.phys).map(m => `${m.key} — ${m.name}\n  ${m.desc || ''}\n  física: FRICTION ${m.phys.mu} · DAMPING ${m.phys.damp} · SIN ${m.phys.sin.join(' / ')}\n  geometría: ${G(m.geo)}${m.lib.det ? `\n  detalle de la biblioteca: ${m.lib.det}` : ''}\n`)].join('\n');
 }
+// costados del camino: la cuneta, la cuneta húmeda y la banquina toman el agarre del suelo del medio del camino, apenas menor
+// (−3 % / −4 % / −3 %) y casi sin frenado extra: tocar la cuneta no puede hacer trompo ni dejar el auto sin agarre
+const SIDE_SURF = { DITCH: { drop: 0.03, damp: 0.01, sin: 1.4, name: 'Cuneta' }, SOFT: { drop: 0.04, damp: 0.02, sin: 1.6, name: 'Cuneta húmeda' }, VERGE: { drop: 0.03, damp: 0.005, sin: 1.2, name: 'Banquina' } };
+function surfDef(k) {
+  if (SURF[k]) return SURF[k];
+  const m = /^(DITCH|SOFT|VERGE)([A-Z]+)$/.exec(k), b = m && SURF[m[2]]; if (!b) return null; const q = SIDE_SURF[m[1]];
+  return { name: `${q.name} (junto a ${b.name.toLowerCase()})`, mu: b.mu * (1 - q.drop), damp: +((b.damp || 0) + q.damp).toFixed(3), sin: [+(Math.max(0.003, (b.sin[0] || 0.003) * q.sin)).toFixed(4), b.sin[1] || 0.6], col: b.col, dirt: m[1] !== 'VERGE' || ['GRAVEL', 'CLAY', 'LOOSE', 'MUD'].includes(m[2]), side: m[1], base: m[2] };
+}
 function surfacesIni(keys) {
   const list = ['ROAD', 'GRASS', 'KERB', 'SAND', ...keys.filter(k => !['ROAD', 'GRASS', 'SAND'].includes(k))];
   const extra = { KERB: { mu: 0.92, sin: [0.004, 0.3], damp: 0 }, SAND: { mu: 0.6, sin: [0, 0], damp: 0.3, off: true } };
   return `; Superficies de la pista. FRICTION = agarre (1 = asfalto seco). Podés ajustar los valores.\n; DAMPING frena el auto (barro, nieve profunda). SIN_HEIGHT/SIN_LENGTH = irregularidad del suelo.\n; El camino de ripio está partido a lo ancho: huellas firmes (GRAVEL) y lomo central + bordes de ripio suelto con piedras (LOOSE),\n; así cada rueda tiene el agarre de lo que pisa. Baches, huellas hundidas, serrucho y pozos están en la malla (la suspensión los copia).\n\n` +
     list.map((k, i) => {
-      const s = SURF[k] || extra[k];
-      return `${MATDEF[k] && MATDEF[k].desc ? '; ' + MATDEF[k].desc + '\n' : ''}[SURFACE_${i}]\nKEY=${k}\nFRICTION=${s.mu.toFixed(2)}\nDAMPING=${s.damp}\nWAV=\nWAV_PITCH=0\nFF_EFFECT=NULL\nDIRT_ADDITIVE=${['GRAVEL', 'CLAY', 'LOOSE', 'MUD', 'GRASS', 'SAND', 'SOFT'].includes(k) ? 1 : 0}\nIS_VALID_TRACK=${s.off ? 0 : 1}\nBLACK_FLAG=0\nSIN_HEIGHT=${s.sin[0]}\nSIN_LENGTH=${s.sin[1]}\nIS_PITLANE=0\nVIBRATION_GAIN=${s.sin[0] ? 0.2 : 0}\nVIBRATION_LENGTH=${s.sin[0] ? 0.5 : 0}\n`;
+      const s = surfDef(k) || extra[k];
+      return `${MATDEF[k] && MATDEF[k].desc ? '; ' + MATDEF[k].desc + '\n' : s.side ? `; ${s.name}: ${SIDE_SURF[s.side].drop * 100} % menos agarre que el camino, sin frenado fuerte\n` : ''}[SURFACE_${i}]\nKEY=${k}\nFRICTION=${s.mu.toFixed(3)}\nDAMPING=${s.damp}\nWAV=\nWAV_PITCH=0\nFF_EFFECT=NULL\nDIRT_ADDITIVE=${['GRAVEL', 'CLAY', 'LOOSE', 'MUD', 'GRASS', 'SAND', 'SOFT'].includes(k) || s.dirt ? 1 : 0}\nIS_VALID_TRACK=${s.off ? 0 : 1}\nBLACK_FLAG=0\nSIN_HEIGHT=${s.sin[0]}\nSIN_LENGTH=${s.sin[1]}\nIS_PITLANE=0\nVIBRATION_GAIN=${s.sin[0] ? 0.2 : 0}\nVIBRATION_LENGTH=${s.sin[0] ? 0.5 : 0}\n`;
     }).join('\n');
 }
 
@@ -4148,7 +4156,7 @@ async function buildZip(R) {
 }
 
 function readme(R, slug, keys, mats) {
-  const surfLines = keys.map(k => `     ${k.padEnd(7)} ${SURF[k] ? SURF[k].name + ' — agarre ' + SURF[k].mu : ''}`).join('\n');
+  const surfLines = keys.map(k => { const q = surfDef(k); return `     ${k.padEnd(11)} ${q ? q.name + ' — agarre ' + q.mu.toFixed(3) : ''}`; }).join('\n');
   return `PISTA: ${R.o.name}
 Longitud: ${(R.length / 1000).toFixed(2)} km · Tipo: ${R.mode === 'route' ? (R.closed ? 'circuito cerrado' : 'tramo punto a punto') : 'mundo abierto'}${R.o.snow ? ` · Nieve desde ${R.o.snowAlt} m` : ''}
 Ediciones aplicadas: ${S.edits.length}
@@ -4166,7 +4174,7 @@ ${surfLines}
      TREES_n  copas de los árboles (solo visual)
      nWALL    troncos de los árboles cercanos al camino y piedras grandes: obstáculos sólidos, se choca
      ROCKS_n  piedras chicas (solo visual)
-     nDITCH   cunetas: piso resbaladizo y frenante
+     nDITCH…  cunetas y banquinas: agarre del camino de al lado, apenas menor (3–4 %)
 
 ======================== ASSETTO CORSA ========================
 LISTO PARA USAR: la carpeta content/tracks/${slug} ya trae el modelo ${slug}.kn5.
