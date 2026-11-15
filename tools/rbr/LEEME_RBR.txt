@@ -40,6 +40,13 @@ QUÉ HACE EL SCRIPT
    (curvas por grado, crestas, saltos, baches, puentes, cambios de piso).
    Los parciales van a 1/3 y 2/3 del tramo: el generador no tiene parciales reales. Se cambian en rbr_datos.json.
  - Auto 18 m antes de la largada, mirando en el sentido del tramo. Sol, clima despejado y superficies seco/húmedo/mojado.
+ - Antes de armar: chequeo_previo.py revisa el paquete (superficie de manejo continua cada 0,5 m, sin solapes, normales
+   hacia arriba, sin escalones > 12 cm, colisión en toda la traza, texturas presentes) -> chequeo_previo.txt
+ - Matas, alambrado, tranqueras y carteles (texturas con transparencia) van como Object Blocks: en los Geom Blocks RBR no
+   aplica el alfa y se veían cuadrados negros (probado en RBR, tramos de diagnóstico 7010/7011). El alambrado conserva la
+   colisión con una copia invisible. Para volver al modo anterior: --alfa-geom.
+ - Blender 4.5 marca todas las texturas como transparentes; después de exportar se deja OpacityMap=true sólo en las que
+   tienen alfa (paso 9b del registro).
  - Guarda el proyecto rbr_<tramo>.blend, exporta a Maps\<número>-<nombre>\ y verifica los archivos.
  - Todo queda en rbr_registro.txt y el resultado en rbr_resultado.json.
 
