@@ -1638,14 +1638,21 @@ const RGLIB = {
     c = boost(c, sm, 2.2);
     const tint = (D, k) => [0, 1, 2].map(i => 1 + (sm[i] / Math.max(1, D.mean[i]) - 1) * k); // acerca el tono de un detalle al del sector
     // tierra suelta (removida por los neumáticos) en manchones
-    if (L.S) { const q = vn2(s / 1.3 + 5, d / 3.4, 311) * 0.7 + vn2(s / 0.5, d / 1.2, 312) * 0.3; if (q > 0.62) { const t = Math.min(1, (q - 0.62) / 0.12) * 0.7, k = tint(L.S, 0.5), c2 = this.stoch(L.S, s, d, 0.9, 540, false); c = mix(c, [c2[0] * k[0], c2[1] * k[1], c2[2] * k[2]], t); } }
+    // (Etapa 3 V3: la tierra suelta oscura dentro de la huella parecía grieta/asfalto roto en los renders: queda fuera de la huella y más suave)
+    const tr = this.trackW(d, s, hw);
+    if (L.S) { const q = vn2(s / 1.3 + 5, d / 3.4, 311) * 0.7 + vn2(s / 0.5, d / 1.2, 312) * 0.3; if (q > 0.62) { const t = Math.min(1, (q - 0.62) / 0.12) * 0.35 * (1 - tr), k = tint(L.S, 0.7), c2 = this.stoch(L.S, s, d, 0.9, 540, false); c = mix(c, [c2[0] * k[0], c2[1] * k[1], c2[2] * k[2]], t); } }
+    // manchones de grava media entre la huella y el borde (granulometría variable, fotos 6869/6883)
+    if (L.L) { const gq = vn2(s / 2.6 + 9, d / 2.6, 351) * 0.75 + vn2(s / 0.9, d / 0.9, 352) * 0.25, gt = Math.max(0, Math.min(1, (gq - 0.58) / 0.1)) * (1 - tr) * 0.6;
+      if (gt > 0.02) { const k = tint(L.L, 0.6), c2 = this.stoch(L.L, s + 1.3, d + 2.1, 0.9, 585, true); c = mix(c, [c2[0] * k[0], c2[1] * k[1], c2[2] * k[2]], gt); } }
     // huellas compactadas: más lisas, del mismo tono del sector y algo más oscuras
-    const tr = this.trackW(d, s, hw); if (tr > 0.01 && L.T) { const k = tint(L.T, 0.75), c2 = this.stoch(L.T, s, d, 1.1, 560, false), m = (c[0] + c[1] + c[2]) / 3;
+    if (tr > 0.01 && L.T) { const k = tint(L.T, 0.75), c2 = this.stoch(L.T, s, d, 1.1, 560, false), m = (c[0] + c[1] + c[2]) / 3;
       const cc = [c2[0] * k[0] * 1.12, c2[1] * k[1] * 1.12, c2[2] * k[2] * 1.1]; c = c.map(v => m + (v - m) * (1 - 0.65 * tr)); c = mix(c, cc, tr * 0.8); } // apisonado: más liso y algo más claro (como en las fotos 6887/6899)
     // grava suelta: lomo central y franjas cerca de los bordes, en manchas (no franjas parejas)
     if (L.L) { const ridge = Math.exp(-((s / (0.5 + 0.3 * vn2(d / 17, 1, 321))) ** 2)) * (0.55 + 0.45 * vn2(d / 7, s / 0.6, 322));
       const ed = Math.max(0, Math.min(1, (a - (hw - 1.1 - 0.35 * vn2(d / 13, s > 0 ? 3 : 4, 323))) / 0.7)) * (0.55 + 0.45 * vn2(d / 4, s / 0.5, 324));
-      const t = Math.min(1, Math.max(ridge, ed) * (1 - tr)); if (t > 0.02) { const k = tint(L.L, 0.6), c2 = boost(this.stoch(L.L, s, d, 0.9, 580, true), L.L.mean, 2.8); c = mix(c, [c2[0] * k[0] * 0.84, c2[1] * k[1] * 0.85, c2[2] * k[2] * 0.87], t * 0.9); } }
+      const t = Math.min(1, Math.max(ridge, ed) * (1 - tr)); if (t > 0.02) { const k = tint(L.L, 0.6), c2 = boost(this.stoch(L.L, s, d, 0.9, 580, true), L.L.mean, 2.8); c = mix(c, [c2[0] * k[0] * 0.84, c2[1] * k[1] * 0.85, c2[2] * k[2] * 0.87], t * 0.9);
+        // núcleo del lomo y del cordón con canto rodado GRUESO gris azulado (det_berm = RG_SHOULDER_BERM), como en las fotos: es lo que separa huella / suelto
+        const tc = Math.max(0, Math.min(1, (t - 0.45) / 0.35)); if (L.B && tc > 0.02) { const kb = tint(L.B, 0.25), c3 = this.stoch(L.B, s + 0.7, d + 3.1, 0.9, 590, true); c = mix(c, [c3[0] * kb[0], c3[1] * kb[1], c3[2] * kb[2]], tc * 0.85); } } }
     // banquina: acumulación lateral (cordón) en el borde y fuera del ancho del camino
     if (L.B) { const t = Math.max(0, Math.min(1, (a - (hw - 0.3 - 0.35 * vn2(d / 6, s > 0 ? 5 : 6, 331) - 0.15 * vn2(d / 1.3, s / 0.4, 332))) / 0.6)); if (t > 0.02) { const k = tint(L.B, 0.4), c2 = this.stoch(L.B, s, d, 0.9, 600, true); c = mix(c, [c2[0] * k[0], c2[1] * k[1], c2[2] * k[2]], t); } }
     // variación grande y lenta (sectores más claros/oscuros): ±5 %, no cambia la composición
@@ -3833,8 +3840,8 @@ async function rebuild(keepCam) {
     TEX.leaves = makeLeafAtlas(($('#season') && $('#season').value) || 'summer'); if (PV.mats && PV.mats.leaves && PV.mats.leaves.map) { PV.mats.leaves.map.image = TEX.leaves; PV.mats.leaves.map.needsUpdate = true; }
     const tr = Core.buildTrees({ season: ($('#season') && $('#season').value) || 'summer',
       trunkDist: o.treeHit ? 30 : 0, wallCounter, clear: o.treeClear,
-      ter, bbox: B.bbox, res: o.res, segs: res.segs, base: 3, maxTrees: { 0.5: 30000, 1: 60000, 1.8: 100000 }[o.density] || 60000,
-      spacingAt: (x, y) => { if (CARVE && CARVE(x, y) > 0.3) return 0; if (res && res.accessPts && res.accessPts.some(a => Math.abs(a.x - x) < a.r && Math.abs(a.y - y) < a.r)) return 0; if (obCleared(x, y)) return 0; if (OCC.some(q => Math.abs(q.c[0] - x) < q.R && Math.abs(q.c[1] - y) < q.R)) return 0; const sp = SP[B.landAt(x, y)]; return sp ? sp / Math.sqrt(o.density) : 0; },
+      ter, bbox: B.bbox, res: o.res, segs: res.segs, base: 3, maxTrees: o.density <= 0 ? 0 : ({ 0.5: 30000, 1: 60000, 1.8: 100000 }[o.density] || 60000),
+      spacingAt: (x, y) => { if (CARVE && CARVE(x, y) > 0.3) return 0; if (res && res.accessPts && res.accessPts.some(a => Math.abs(a.x - x) < a.r && Math.abs(a.y - y) < a.r)) return 0; if (obCleared(x, y)) return 0; if (OCC.some(q => Math.abs(q.c[0] - x) < q.R && Math.abs(q.c[1] - y) < q.R)) return 0; const sp = SP[B.landAt(x, y)]; return sp && o.density > 0 ? sp / Math.sqrt(o.density) : 0; }, // densidad 0 = sin árboles (estepa)
       kindAt: (x, y, h) => {
         const lc = B.landAt(x, y); if (lc === 'wetland') return 2;
         const alt = h + B.h0, r = frac(x, y);
