@@ -226,7 +226,14 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
 <label class="f">Textura continua del camino <span><input type="checkbox" id="roadTex" checked></span></label>
 <details class="texbox"><summary>Pack de texturas DDS (opcional)</summary><div class="mut">Cargá las texturas de un tramo que tengas (.dds, .png, .jpg; varios archivos o la carpeta entera). La app reconoce sola cuáles son detalle de ripio, de pasto, de tierra y colores base, y las usa en la vista 3D y en el .kn5. Quedan guardadas solo en esta compu: no se suben ni se publican. Si compartís la pista exportada, revisá la licencia de esas texturas.</div>
 <div class="row" style="margin-top:6px"><label class="b">Elegir archivos<input type="file" id="packFiles" multiple accept=".dds" style="display:none"></label> <label class="b">Elegir carpeta<input type="file" id="packDir" webkitdirectory multiple style="display:none"></label> <button class="b" id="packClear">Quitar todas</button></div>
-<label class="f">Usar el pack <span><input type="checkbox" id="packOn"></span></label><div id="packList"></div></details>
+<label class="f">Usar el pack <span><input type="checkbox" id="packOn"></span></label><div id="packList"></div>
+<div id="rgBox" style="margin-top:8px;border-top:1px solid #444;padding-top:6px"><b>Sectores de suelo (biblioteca rg_*)</b>
+<div class="mut">Puntos MEDIDOS: km del tramo y sector (O = oeste, E = este), uno por línea (ej. "0,545 E"). Entre dos puntos de distinto sector el cambio es progresivo e irregular; no se inventa dónde cambia. Sin puntos: todo con el suelo oeste.</div>
+<textarea id="rgSect" rows="4" style="width:100%;box-sizing:border-box" placeholder="0,545 E&#10;0,996 E&#10;2,148 O&#10;2,568 O"></textarea>
+<label class="f">Largo de la transición (m; 0 = todo el tramo sin datos) <span><input type="number" id="rgTrans" min="0" step="10" value="0" style="width:70px"></span></label>
+<label class="f" title="Piedras reales recortadas de la foto 6902, agregadas a las que ya trae la textura del este. Referencia medida: la textura tiene 67/m² de 25 mm o más y la foto 77/m².">Piedras sueltas extra del este (por m²) <span><input type="number" id="rgStones" min="0" max="80" step="1" value="10" style="width:60px"></span></label>
+<label class="f">Intensidad de las huellas <span><input type="range" id="rgTracks" min="0" max="1.5" step="0.05" value="1"></span></label>
+<div id="rgInfo" class="mut"></div></div></details>
 </details>
       <details class="texbox"><summary>Datos de elevación y fuentes</summary>
 <div style="display:none"><label class="f">Elevación base <select id="demSrc"><option value="auto" selected>Copernicus GLO-30 (si no hay, Terrarium)</option><option value="terrarium">Terrarium (SRTM y otras)</option></select></label></div>
