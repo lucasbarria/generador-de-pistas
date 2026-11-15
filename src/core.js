@@ -241,8 +241,8 @@ const Core = (() => {
     const vn1 = (x, sd) => { const i0 = Math.floor(x), f = x - i0, t = f * f * (3 - 2 * f); return hsh(i0, sd) * (1 - t) + hsh(i0 + 1, sd) * t; };
     // cuneta: en el bosque, zanja cavada (0,38–0,6 m) más honda del lado del cerro; en campo húmedo, baja y ancha con agua (0,16–0,28 m)
     const autoD = (sl, i, sd) => { if (sl < -0.15) return 0; const v = 0.75 + 0.5 * vn1(dist[i] / 70, sd * 3 + 1), open = (1 - FOR[i]) * Math.min(1, WETP[i] * 1.6);
-      const deep = (0.38 + 0.22 * Math.min(1, Math.max(0, (sl + 0.02) / 0.15))) * v, shallow = 0.16 + 0.12 * vn1(dist[i] / 40, sd * 5 + 2);
-      return deep * (1 - open) + shallow * open; };
+      const DP = o.ditchP || {}, deep = ((DP.bmin ?? 0.38) + (DP.bext ?? 0.22) * Math.min(1, Math.max(0, (sl + 0.02) / 0.15))) * v, shallow = (DP.cmin ?? 0.16) + (DP.cext ?? 0.12) * vn1(dist[i] / 40, sd * 5 + 2);
+      return (deep * (1 - open) + shallow * open) * (DP.k ?? 1); }; // medidas: config/parametros_fisicos.json → geometria.cunetas (PROVISIONALES)
     // accesos y entradas (OSM + procedurales): la cuneta se corta y queda un paso de tierra a nivel
     const ACC = [];
     if (mode !== 'none') {
@@ -331,6 +331,12 @@ const Core = (() => {
       if (x <= rw) { const t = x / rw; return -r.D * (1 - t * t); }                    // canal del surco (fondo redondeado)
       if (x <= rw + 0.16) { const t = (x - rw) / 0.16; return r.D * 0.35 * Math.sin(t * Math.PI); } // labio de barro empujado
       return Math.abs(s) < r.tw - rw - 0.16 ? r.D * 0.12 : 0; };                         // lomo central algo más alto
+    // columnas de la calzada con relieve (Etapa 4: parámetro columnas_calzada, por defecto 21 = cada 0,1 del medio ancho; V3: 15)
+    const SCR = (() => { const nC = o.roadCols && o.roadCols >= 15 ? o.roadCols | 1 : 15; if (nC === 15) return [-1, -0.86, -0.72, -0.58, -0.44, -0.3, -0.15, 0, 0.15, 0.3, 0.44, 0.58, 0.72, 0.86, 1];
+      return Array.from({ length: nC }, (_, k) => -1 + 2 * k / (nC - 1)); })();
+    // franjas de superficie física a lo ancho: suelto en el lomo central (|f| < 0,12) y en los cordones/bordes (|f| > 0,7), firme en las huellas
+    const BANDS = key => { const out = []; for (let j = 0; j + 1 < SCR.length; j++) { const f = Math.abs((SCR[j] + SCR[j + 1]) / 2), k = f < 0.12 || f > 0.7 ? 'LOOSE' : key;
+      if (out.length && out[out.length - 1][2] === k) out[out.length - 1][1] = j + 1; else out.push([j, j + 1, k]); } return out; };
     const sec = (i, j, dOff, rutMode) => {
       const hw = W[i] / 2;
       if (rutMode) { // todas las secciones del tramo con la misma cantidad de columnas (la malla no se rompe)
@@ -339,7 +345,7 @@ const Core = (() => {
         const S2 = [-hw, ...side.map(v => -v), 0, ...side.slice().reverse(), hw];
         return { cols: S2.map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s) + rutOff(r, s), u: (s + hw) / W[i], s, i, sc: s }; }), d: dist[i] + dOff, step };
       }
-      const SC = o.reliefAt ? [-1, -0.86, -0.72, -0.58, -0.44, -0.3, -0.15, 0, 0.15, 0.3, 0.44, 0.58, 0.72, 0.86, 1] : [-1, -0.5, 0, 0.5, 1];
+      const SC = o.reliefAt ? SCR : [-1, -0.5, 0, 0.5, 1];
       return { cols: SC.map(f => { const s = f * hw, [x, y] = pos(i, s); return { x, y, h: surfH(i, s), u: (s + hw) / W[i], s, i, sc: s }; }), d: dist[i] + dOff, step };
     };
     // relieve del piso (baches, surcos de agua, morros suaves): se suma a la malla del camino, que es la superficie física.
@@ -433,8 +439,8 @@ const Core = (() => {
         if (prev && o.reliefAt) for (const q of subSecs(prev, cur, 4)) secs.push(addRelief(q));
         secs.push(prev = cur); }
       if (o.reliefAt) for (const q of secs) if (q.step === step) addRelief(q);
-      const bands = o.reliefAt && !rutMode && (run.key === 'GRAVEL' || run.key === 'CLAY') && secs.length && secs[0].cols.length === 15
-        ? [[0, 2, 'LOOSE'], [2, 6, run.key], [6, 8, 'LOOSE'], [8, 12, run.key], [12, 14, 'LOOSE']] : [[0, secs.length ? secs[0].cols.length - 1 : 0, run.key]];
+      const bands = o.reliefAt && !rutMode && (run.key === 'GRAVEL' || run.key === 'CLAY') && secs.length && secs[0].cols.length === SCR.length
+        ? BANDS(run.key) : [[0, secs.length ? secs[0].cols.length - 1 : 0, run.key]];
       for (const [a, b, key] of bands) { const part = bands.length > 1 ? secs.map(q => ({ ...q, cols: q.cols.slice(a, b + 1) })) : secs;
         for (const m of ribbonMeshes(part, false, key, MAT[run.key], 7, { next: () => cnt(key) })) { m.road = true; meshes.push(m); } }
       if (STONY[run.key] && !rutMode) placeStones(secs, run.key);

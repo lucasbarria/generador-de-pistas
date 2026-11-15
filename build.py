@@ -7,10 +7,13 @@ from pathlib import Path
 root = Path(__file__).parent
 s = root / 'src'
 core = (s / 'core.js').read_text(encoding='utf8').replace("if (typeof module !== 'undefined') module.exports = Core;", '')
-app = (s / 'app.js').read_text(encoding='utf8') + '\n' + (s / 'editor3d.js').read_text(encoding='utf8') + '\n' + (s / 'objetos.js').read_text(encoding='utf8')
+app = (s / 'rgmask.js').read_text(encoding='utf8').replace("if (typeof module !== 'undefined') module.exports = RGMASK;", '') + '\n' + (s / 'app.js').read_text(encoding='utf8') + '\n' + (s / 'editor3d.js').read_text(encoding='utf8') + '\n' + (s / 'objetos.js').read_text(encoding='utf8')
 tpl = (s / 'template.html').read_text(encoding='utf8')
 # archivos del paquete para Richard Burns Rally (tools/rbr): van dentro de la app, se agregan al ZIP si se pide
 rbr = {f.name: f.read_text(encoding='utf8') for f in sorted((root / 'tools' / 'rbr').glob('*')) if f.suffix.lower() in ('.py', '.bat', '.txt')}
+# parámetros físicos (Etapa 4): un único archivo, se incrusta en la app
+phys = json.loads((root / 'config' / 'parametros_fisicos.json').read_text(encoding='utf8'))
+app = app.replace('/*PHYS*/null', json.dumps(phys, ensure_ascii=False).replace('</', '<\\/'))
 app = app.replace('/*RBR_FILES*/null', json.dumps(rbr, ensure_ascii=False).replace('</', '<\\/'))
 html = tpl.replace('/*CORE*/', core).replace('/*APP*/', app)
 bid = hashlib.sha1(html.encode('utf8')).hexdigest()[:12]

@@ -240,6 +240,142 @@ def importar(D):
     return objs
 
 
+# ---------------------------------------------------------------- 3b. diagnóstico de transparencias (opcional)
+DIAG_MATS = ("tuft", "fwire", "banner", "fgate")
+DIAG_VAR = {"b": ("_b", "DXT5 con color rellenado bajo el alfa"), "c": ("_c", "DXT1 de 1 bit (OneBitOpacity) con color rellenado"),
+            "d": ("_b", "DXT5 rellenado, como Object Block en vez de Geom Block")}
+
+
+def diag_alfa(D, objs):
+    """Divide matas, alambrados y carteles cerca de la largada en 4 variantes (A = actual, B, C, D) para ver en RBR
+    cuál se dibuja bien. Desde el auto, en los primeros 90 m: izquierda A, derecha B; de 90 a 180 m: izquierda C, derecha D."""
+    fase("3b. Diagnóstico de transparencias (variantes A/B/C/D)")
+    from mathutils.kdtree import KDTree  # type: ignore
+    dl = D["driveline"]
+    cum = [0.0]
+    for i in range(1, len(dl)):
+        cum.append(cum[-1] + math.hypot(dl[i][0] - dl[i - 1][0], dl[i][1] - dl[i - 1][1]))
+    kd = KDTree(len(dl))
+    for i, p in enumerate(dl):
+        kd.insert((p[0], p[1], 0.0), i)
+    kd.balance()
+    dcar = float(D.get("auto", {}).get("m", 0))
+
+    def variante(w):
+        _, i, _ = kd.find((w.x, w.y, 0.0))
+        d = cum[i] - dcar
+        j, i0 = min(i + 1, len(dl) - 1), max(i - 1, 0)
+        tx, ty = dl[j][0] - dl[i0][0], dl[j][1] - dl[i0][1]
+        izq = tx * (w.y - dl[i][1]) - ty * (w.x - dl[i][0]) > 0
+        orden = str(arg("--diag-orden", "ab,cd"))  # qué variantes van en los primeros 90 m y en los 90 siguientes (izquierda, derecha)
+        p1, p2 = (orden.split(",") + ["ab", "cd"])[:2]
+        if 0 <= d < 90:
+            return p1[0] if izq else p1[1]
+        if 90 <= d < 180:
+            return p2[0] if izq else p2[1]
+        return "a"
+
+    for nm in DIAG_MATS:
+        t = D["texturas"].get(nm)
+        if not t:
+            continue
+        for v, (suf, _) in DIAG_VAR.items():
+            D["texturas"][f"{nm}_{v}"] = {**t, "dds": f"texturas/{nm}{suf}.dds", "alfa": True}
+            if not os.path.exists(os.path.join(BASE, "texturas", f"{nm}{suf}.dds")):
+                raise RuntimeError(f"Falta texturas/{nm}{suf}.dds (la arma dds_alfa.py)")
+    cuenta = {}
+    for o in list(objs):
+        if not o.material_slots or not o.material_slots[0].material:
+            continue
+        m = o.material_slots[0].material
+        nm = m.name.split(".")[0]
+        if nm not in DIAG_MATS:
+            continue
+        me, mw = o.data, o.matrix_world
+        grupos = {}
+        for p in me.polygons:
+            grupos.setdefault(variante(mw @ p.center), []).append(p.index)
+        if set(grupos) == {"a"}:
+            continue
+        for v, idx in grupos.items():
+            cuenta[f"{nm}_{v}"] = cuenta.get(f"{nm}_{v}", 0) + len(idx)
+            if v == "a":
+                continue
+            mv = bpy.data.materials.get(f"{nm}_{v}")
+            if mv is None:
+                mv = m.copy()
+                mv.name = f"{nm}_{v}"
+            me.materials.append(mv)
+            k = len(me.materials) - 1
+            for i in idx:
+                me.polygons[i].material_index = k
+        bpy.ops.object.select_all(action="DESELECT")
+        o.select_set(True)
+        bpy.context.view_layer.objects.active = o
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.separate(type="MATERIAL")
+        bpy.ops.object.mode_set(mode="OBJECT")
+    # cada pieza queda con un solo material (el que usa)
+    for o in [o for o in bpy.context.scene.objects if o.type == "MESH"]:
+        me = o.data
+        if len(me.materials) <= 1 or not len(me.polygons):
+            continue
+        usado = me.materials[me.polygons[0].material_index]
+        me.materials.clear()
+        me.materials.append(usado)
+        me.polygons.foreach_set("material_index", [0] * len(me.polygons))
+    for k in sorted(cuenta):
+        log(f"  {k}: {cuenta[k]} caras")
+    for v, (suf, desc) in DIAG_VAR.items():
+        log(f"  variante {v.upper()}: {desc}")
+    log("  variante A: la actual (DXT5, color negro bajo el alfa, Geom Block)")
+    return [o for o in bpy.context.scene.objects if o.type == "MESH"]
+
+
+def diag_ini(maps, tid, D):
+    """El complemento escribe siempre OneBitOpacity=false: para la variante C se corrige en el .ini del tramo."""
+    from rbr_track_formats import tracks_ini  # type: ignore
+    d = os.path.join(maps, f"{tid}-{tracks_ini.sanitise_stage_name(D['nombre'])}")
+    for f in os.listdir(d):
+        if not re.match(rf"track-{tid}_[MNEO]\.ini$", f, re.I):
+            continue
+        p = os.path.join(d, f)
+        txt = open(p, encoding="latin-1").read()
+        n = 0
+
+        def fix(mo):
+            nonlocal n
+            n += 1
+            return mo.group(0).replace("OneBitOpacity=false", "OneBitOpacity=true")
+        txt = re.sub(r"\[(?:" + "|".join(DIAG_MATS) + r")_c(?:_[A-Z]+)?_T\.dds\][^\[]*", fix, txt)
+        open(p, "w", encoding="latin-1").write(txt)
+        log(f"  {f}: OneBitOpacity=true en {n} texturas de la variante C")
+
+
+def corregir_opacidad(maps, tid, D):
+    """Etapa 4: en Blender 4.5 el complemento marca TODAS las texturas como transparentes (OpacityMap=true, sufijo _T),
+    también el piso. Se deja OpacityMap=true sólo en las que tienen alfa (matas, alambrado, carteles, tranquera)."""
+    fase("9b. Opacidad de las texturas en el .ini del tramo")
+    from rbr_track_formats import tracks_ini  # type: ignore
+    alfa = {k for k, v in D["texturas"].items() if v.get("alfa")}
+    d = os.path.join(maps, f"{tid}-{tracks_ini.sanitise_stage_name(D['nombre'])}")
+    for f in os.listdir(d):
+        if not re.match(rf"track-{tid}_[MNEO]\.ini$", f, re.I):
+            continue
+        p = os.path.join(d, f)
+        txt = open(p, encoding="latin-1").read()
+        cuenta = {"opaca": 0, "alfa": 0}
+
+        def fix(mo):
+            nombre = re.sub(r"_[TO]\.dds$", "", mo.group(1), flags=re.I)
+            es_alfa = any(nombre == a or nombre.startswith(a + "_") for a in alfa)
+            cuenta["alfa" if es_alfa else "opaca"] += 1
+            return mo.group(0) if es_alfa else re.sub(r"OpacityMap=true", "OpacityMap=false", mo.group(0))
+        txt = re.sub(r"\[([^\]]+\.dds)\][^\[]*", fix, txt)
+        open(p, "w", encoding="latin-1").write(txt)
+        log(f"  {f}: {cuenta['alfa']} texturas con transparencia, {cuenta['opaca']} opacas (OpacityMap=false)")
+
+
 # ---------------------------------------------------------------- 4. agrupar mallas
 def clasificar(D, objs):
     fase("4. Clasificación y unión de mallas")
@@ -324,6 +460,14 @@ def materiales(D, grupos):
                 m.blend_method = "CLIP" if t.get("alfa") else "OPAQUE"
             except Exception as ex:
                 aviso(f"blend_method en {m.name}: {ex}")
+            try:  # Blender 4.2+: blend_method quedó obsoleto; el modo real es surface_render_method
+                m.surface_render_method = "BLENDED" if t.get("alfa") else "DITHERED"
+            except Exception:
+                pass
+            if not t.get("alfa") and getattr(m, "blend_method", "OPAQUE") != "OPAQUE" and not getattr(materiales, "_avisado", False):
+                materiales._avisado = True
+                log(f"  nota: Blender devuelve blend_method={m.blend_method!r} aunque se pidió OPAQUE; "
+                    "la opacidad de cada textura se corrige en el .ini después de exportar (paso 9b)")
             m.use_backface_culling = bool(fis) and not t.get("alfa")
             cache[key] = m
             log(f"  {mat}{' + ' + fis if fis else ''} -> {'DXT5 con alfa' if t.get('alfa') else 'DXT1'}"
@@ -345,14 +489,41 @@ def materiales(D, grupos):
 
 
 # ---------------------------------------------------------------- 6. colisiones y tipos de objeto
-def tipos(grupos):
+def tipos(grupos, D=None):
     fase("6. Colisiones y tipos de objeto")
     ncol = 0
-    for o, fis, mat, cat in grupos:
+    alfa = {k for k, v in ((D or {}).get("texturas") or {}).items() if v.get("alfa")}
+    nob, ninv = 0, 0
+    for o, fis, mat, cat in list(grupos):
         s = o.rbr_object_settings
         if not s.exported:
             continue
         s.type = "GEOM_BLOCKS"
+        # Etapa 4 (probado en RBR, tramos 7010/7011): en los Geom Blocks RBR NO aplica el alfa de la textura (matas,
+        # alambrado y tranqueras se ven como cuadrados enteros). Como Object Blocks sí. Lo que tenía colisión (alambrado)
+        # se duplica como Geom Block invisible con colisión, para que el auto lo siga sintiendo.
+        if not arg("--diag-alfa") and mat in alfa and not arg("--alfa-geom"):
+            if fis:
+                dup = o.copy()
+                dup.data = o.data.copy()
+                dup.name = o.name + "_col"
+                bpy.context.scene.collection.objects.link(dup)
+                ds = dup.rbr_object_settings
+                ds.exported = True
+                ds.type = "GEOM_BLOCKS"
+                ds.geom_blocks_distance = "NEAR"
+                ds.is_geom_blocks_collision = True
+                ds.is_geom_blocks_invisible = True
+                ninv += 1
+                ncol += 1
+            s.type = "OBJECT_BLOCKS"
+            s.object_blocks_detail = "BOTH"
+            nob += 1
+            continue
+        if arg("--diag-alfa") and mat.endswith("_d"):
+            s.type = "OBJECT_BLOCKS"
+            s.object_blocks_detail = "BOTH"
+            continue
         if fis:
             s.geom_blocks_distance = "NEAR"
             s.is_geom_blocks_collision = True
@@ -361,6 +532,7 @@ def tipos(grupos):
         else:
             s.geom_blocks_distance = "ANY" if cat == "lejos" else "NEAR"
             s.is_geom_blocks_collision = False
+    log(f"{nob} objetos con transparencia como Object Blocks (matas, alambrado, tranqueras, carteles); {ninv} copias invisibles con colisión")
     log(f"{ncol} objetos con colisión (camino, cunetas, banquinas, terreno, troncos y piedras que se tocan); "
         f"{len(grupos) - ncol} sólo visuales (copas, gravilla fina, líneas)")
 
@@ -517,14 +689,33 @@ def main():
         D = json.load(f)
     log(f"Tramo: {D['nombre']} · {D['largo_driveline_m'] / 1000:.2f} km · generado {D.get('generado', '?')}")
     maps = preparar_complemento()
+    if arg("--diag-alfa"):
+        D["nombre"] = D["nombre"][:40] + " DIAG ALFA" + (" " + str(arg("--diag-orden")).upper().replace(",", "-") if arg("--diag-orden") else "")
     tid = elegir_id(maps, arg("--id"), D["nombre"])
+    fase("0. Chequeo previo del paquete (superficie continua, solapes, normales, escalones, colisión, texturas)")
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import chequeo_previo  # type: ignore
+        cp = chequeo_previo.main(BASE)
+        log(f"  cobertura {cp['cobertura_superficie_pct']} % · huecos {cp['n_huecos']} · solapes {cp['n_solapamientos']} · normales mal {cp['n_normales_invertidas']}"
+            f" · escalones {cp['n_escalones_largo']}+{cp['n_escalones_ancho']} · texturas faltantes {len(cp['texturas_faltantes'])}")
+        for p_ in cp["problemas"]:
+            aviso("chequeo previo: " + p_)
+    except Exception as ex:
+        aviso(f"No se pudo hacer el chequeo previo: {ex}")
     objs = importar(D)
+    if arg("--diag-alfa"):
+        objs = diag_alfa(D, objs)
     grupos = clasificar(D, objs)
     materiales(D, grupos)
-    tipos(grupos)
+    tipos(grupos, D)
     driveline(D)
     auto_y_sol(D)
     exportar(D, tid)
+    if not arg("--solo-blend"):
+        corregir_opacidad(maps, tid, D)
+    if arg("--diag-alfa") and not arg("--solo-blend"):
+        diag_ini(maps, tid, D)
     carpeta = None if arg("--solo-blend") else validar(maps, tid, D)
     fase("RESUMEN")
     log(f"Identificador: {tid}")
