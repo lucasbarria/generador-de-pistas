@@ -2890,7 +2890,7 @@ function imageryAt(lat, lon, S2) { for (const R of ORTHO) { const v = R.rgb(lat,
 // cuánto de cada una sale del tipo de suelo del mapa, la pendiente (roca), la cercanía al agua (barro, suelo húmedo) y la
 // altura (pasto más seco arriba). Los límites se corren con ruido: manchas naturales, nunca líneas rectas.
 function terrainLibOn() { return DETAIL.enabled() && PACK.on && !!PACK.get('det_grass') && !!(PACK.get('det_forest') || PACK.get('det_dirt') || PACK.get('det_rock')); }
-function bakeInternalTerrain(B, ter, meshes, res, rd, env = {}) {
+async function bakeInternalTerrain(B, ter, meshes, res, rd, env = {}) {
   const TML = terrainLibOn();
   const groups = new Map();
   for (const m of meshes) if (m.terrain && m.chunk) { const k = m.chunk.join('_'); (groups.get(k) || groups.set(k, []).get(k)).push(m); }
@@ -2969,6 +2969,9 @@ function bakeInternalTerrain(B, ter, meshes, res, rd, env = {}) {
     if (mk) { mk.__raw = mkd.data; mk.getContext('2d').putImageData(mkd, 0, 0); TEX['mk_' + name] = mk; /* __raw: el canvas premultiplica alfa y perdería los canales donde no hay roca */ out.__ml = { mult: size / 4.5 }; } else delete TEX['mk_' + name];
     for (const m of list) { m.mat = name; m.uv = m.v.map(v => [(v[0] - x0) / size, (v[1] - y0) / size]); }
     n++;
+    // cada sector se hornea con canvas (1024×1024 px): en tramos largos hay cientos de sectores,
+    // se cede el hilo entre sector y sector para que la página no se congele
+    $('#prog').textContent = `Pintando el terreno ${n}/${groups.size}`; await tick();
   }
   return { chunks: n, mats: [...used], ml: TML };
 }
@@ -3674,7 +3677,7 @@ function repaintStrips(range) { const C = S.stripCtx; if (!C || !range) return 0
   C.strips.forEach((st, k) => { if (st.d0 + STRIP_LEN < range[0] || st.d0 > range[1]) return; C.paint(k, TEX[st.name]); names.push(st.name); });
   stripsRefresh(names); return names.length; }
 function hashU(a, b, s) { const v = Math.sin(a * 127.1 + b * 311.7 + s * 74.7) * 43758.5453; return v - Math.floor(v); }
-function buildRoadStrips(B, res, o = {}, opt = {}) {
+async function buildRoadStrips(B, res, o = {}, opt = {}) {
   const r = res, total = r.total, nSeg = Math.max(1, Math.ceil(total / STRIP_LEN)), roads = r.meshes.filter(m => m.road && m.ds);
   if (!roads.length) return null;
   // superficie (material) en cada punto del camino
@@ -3815,7 +3818,11 @@ function buildRoadStrips(B, res, o = {}, opt = {}) {
       if (RGL && RGL.T) { mc.__raw = new Uint8ClampedArray(md); mc.__rgA = true; } // el canvas premultiplica alfa: se guarda la máscara cruda
       mx.putImageData(mi, 0, 0); TEX['mk_rs_' + k] = mc; }
   };
+  let t0s = performance.now(), optPr = null;
   for (let k = 0; k < nSeg; k++) {
+    // en un tramo largo son más de 100 tiras de 2048 px de alto: se pinta por lotes y se cede el hilo
+    // (en el editor 3D se reusan las tiras intactas y se repinta poco, así que ahí no hace falta ceder)
+    if (!opt.reuse && (optPr = Core.yieldIfOver(t0s, 30)) != null) { await optPr; t0s = performance.now(); if (typeof $ !== 'undefined' && $('#prog')) $('#prog').textContent = `Textura del camino ${k + 1}/${nSeg}`; }
     const d0 = k * STRIP_LEN, d1 = Math.min(total, d0 + STRIP_LEN); let hwMax = 0;
     for (let d = d0; d <= d1; d += 4) hwMax = Math.max(hwMax, at(d).hw);
     const name = 'rs_' + k, old = opt.prev && opt.prev[k];
@@ -3969,7 +3976,7 @@ async function rebuild(keepCam) {
     res.hsrc = res.C.map(p => roadH && roadH(p[0], p[1]) != null ? 'G' : (() => { const [la, lo] = B.P.inv(p[0], p[1]); return DEM.covered(la, lo) ? 'M' : 'S'; })());
     res.zone = useZ ? { pres: ZPRE - 30, start: ZPRE, finish: res.total - ZPOST, stop: res.total - ZPOST + 30 } : null;
     if (useZ) log('Largada y llegada: se tomaron 30 m antes de la largada para la presentación (control horario) y 30 m después de la llegada para el control stop, donde se entrega el carnet y los tiempos. El reloj corre desde la largada hasta la llegada.');
-    if (o.roadTex) { try { log('Armando la textura continua del camino…'); await tick(); const st = buildRoadStrips(B, res, o);
+    if (o.roadTex) { try { log('Armando la textura continua del camino…'); await tick(); const st = await buildRoadStrips(B, res, o);
       if (st && st.ab) { const M = PHOTOMAT.all, U = PHOTOMAT.usable(); log(`Materiales desde fotos reales: ${U.length} fotos usadas (${U.filter(p => !p.user).length} de Aguas Blancas, ${U.filter(p => p.user).length} que subiste), ${M.length} materiales (${M.map(m => m.id).join(', ')}). El satélite los reparte por sector; detalle en "Reconstrucción de materiales desde fotos reales".`, 'ok'); }
       if (st && st.lib) log(`Camino con la tira de tu biblioteca (${PACK.items.filter(i => i.role === 'road_strip' || i.role === 'road_loose').map(i => i.name).join(', ')}): las huellas de la textura caen sobre las huellas de la malla, y baches y charcos se pintan donde está la geometría.`, 'ok');
       if (TEX.bank && PACK.on) log(`Taludes con la tira de barranco de tu biblioteca (${(PACK.items.find(i => i.cv === TEX.bank.__src) || {}).name || ''}).`, 'ok');
@@ -4038,13 +4045,13 @@ async function rebuild(keepCam) {
       return LAND_SURF[lc] || null;
     },
   };
-  const ter = Core.buildTerrain(terOpts, p => { $('#prog').textContent = `Terreno ${(p * 100).toFixed(0)}%`; });
+  const ter = await Core.buildTerrain(terOpts, p => { $('#prog').textContent = `Terreno ${(p * 100).toFixed(0)}%`; });
   if (B.mode === 'route') S.live.terOpts = terOpts; else S.live = null;
   meshes.push(...ter.meshes);
   // texturas del terreno: solo materiales internos, mezclados según suelo, pendiente, altura y cercanía a ríos
   S.imgStats = null;
   try { log('Pintando el terreno con los materiales internos…'); await tick();
-    const st = bakeInternalTerrain(B, ter, ter.meshes, o.res, Core.roadDistFn(res.segs, true), { carve: CARVE, snow: o.snow, snowAlt: o.snowAlt });
+    const st = await bakeInternalTerrain(B, ter, ter.meshes, o.res, Core.roadDistFn(res.segs, true), { carve: CARVE, snow: o.snow, snowAlt: o.snowAlt });
     if (st.ml) log('Terreno multicapa: cada sector lleva su máscara (pasto · bosque · tierra · roca) y los detalles de tu biblioteca, nítidos de cerca y sin repetición visible de lejos.', 'ok');
     log(`Terreno: ${st.chunks} sectores pintados con materiales internos (${st.mats.join(', ')}). Roca en pendientes fuertes, barro y suelo húmedo cerca de ríos y arroyos, pasto más seco en lo alto; bordes irregulares, sin cortes rectos.`);
     if (PV.mats) { for (const k in PV.mats) if (k.startsWith('tc_')) { try { PV.mats[k].map.dispose(); PV.mats[k].dispose(); } catch (e) { } delete PV.mats[k]; } }
@@ -4079,7 +4086,7 @@ async function rebuild(keepCam) {
     const sideH = (i, sd, e, x, y) => { const P = res.SP && res.SP[i] && res.SP[i][sd > 0 ? 0 : 1], t = hT(x, y); if (!P) return t; const q = P.pts;
       for (let k = 1; k < q.length; k++) if (e <= q[k][0]) { const u = (e - q[k - 1][0]) / Math.max(1e-6, q[k][0] - q[k - 1][0]); const h = q[k - 1][1] + (q[k][1] - q[k - 1][1]) * u; return t == null ? h : Math.max(h, t); } return t; };
     const m = { name: 'TREES_tufts', mat: 'tuft', v: [], uv: [], f: [] }, used = new Set(); let cnt = 0;
-    for (let i = 0; i < res.n && cnt < 160000; i += 1) for (const sd of [1, -1]) {
+    for (let i = 0; i < res.n && cnt < 160000; i += 1) { for (const sd of [1, -1]) {
       const d = res.dist[i], tk = SIDECAT.typeAt(d, sd), tp = SIDECAT.TYPES[tk]; used.add(tk); const dens = tp.tuft * 2; if ((res.accessPts || []).some(a => Math.abs(a.d - d) < 8)) continue;
       for (let q = 0; q < 22; q++) { if (hashU(i, sd * 7 + q, 301) > dens * 0.7) continue;
         const e = 0.35 + Math.pow(hashU(i, sd * 7 + q, 302), 2.0) * 12, lat = sd * (res.W[i] / 2 + e), nx = -res.T[i][1], ny = res.T[i][0], x0 = res.C[i][0] + nx * lat + res.T[i][0] * hashU(i, q, 303) * 2, y0 = res.C[i][1] + ny * lat + res.T[i][1] * hashU(i, q, 303) * 2;
@@ -4094,7 +4101,8 @@ async function rebuild(keepCam) {
           m.v.push([x0 - ca, y0 - sa, h - 0.02], [x0 + ca, y0 + sa, h - 0.02], [x0 + ca + tx, y0 + sa + ty, h + sz * (ros ? 0.75 : 1)], [x0 - ca + tx, y0 - sa + ty, h + sz * (ros ? 0.75 : 1)]);
           const f0 = hashU(i, qq, 309) < 0.5; m.uv.push([(slot + (f0 ? 1 : 0)) / TUFT_N + (f0 ? -0.002 : 0.002), 0.01], [(slot + (f0 ? 0 : 1)) / TUFT_N + (f0 ? 0.002 : -0.002), 0.01], [(slot + (f0 ? 0 : 1)) / TUFT_N + (f0 ? 0.002 : -0.002), 0.99], [(slot + (f0 ? 1 : 0)) / TUFT_N + (f0 ? -0.002 : 0.002), 0.99]); m.f.push([b, b + 1, b + 2], [b, b + 2, b + 3]); }
         cnt++; }
-    }
+      if ((i & 255) === 255) await tick(); // se cede el hilo cada 256 puntos del camino: en tramos largos este bucle llegaría a minutos
+    } }
     // piedras chicas y medianas sueltas sobre la loma de la cuneta y el talud (solo visuales, el auto no choca)
     const rk = { name: 'ROCKS_side', mat: 'boulder', v: [], uv: [], f: [] }; let nr = 0;
     for (let i = 0; i < res.n; i++) for (const sd of [1, -1]) { const tp = SIDECAT.TYPES[SIDECAT.typeAt(res.dist[i], sd)]; if (hashU(i, sd, 311) > 0.3 * tp.rocks + 0.05) continue;
@@ -4139,7 +4147,7 @@ async function rebuild(keepCam) {
     const SP = { wood: 3.6, scrub: 11, wetland: 12, grass: 70, urban: 28, farmland: 150, rock: 70, none: 90 };
     const frac = (x, y) => { const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453; return s - Math.floor(s); };
     TEX.leaves = makeLeafAtlas(($('#season') && $('#season').value) || 'summer'); if (PV.mats && PV.mats.leaves && PV.mats.leaves.map) { PV.mats.leaves.map.image = TEX.leaves; PV.mats.leaves.map.needsUpdate = true; }
-    const tr = Core.buildTrees({ season: ($('#season') && $('#season').value) || 'summer',
+    const tr = await Core.buildTrees({ season: ($('#season') && $('#season').value) || 'summer',
       trunkDist: o.treeHit ? 30 : 0, wallCounter, clear: o.treeClear,
       ter, bbox: B.bbox, res: o.res, segs: res.segs, base: 3, maxTrees: o.density <= 0 ? 0 : ({ 0.5: 30000, 1: 60000, 1.8: 100000 }[o.density] || 60000),
       spacingAt: (x, y) => { if (CARVE && CARVE(x, y) > 0.3) return 0; if (res && res.accessPts && res.accessPts.some(a => Math.abs(a.x - x) < a.r && Math.abs(a.y - y) < a.r)) return 0; if (obCleared(x, y)) return 0; if (OCC.some(q => Math.abs(q.c[0] - x) < q.R && Math.abs(q.c[1] - y) < q.R)) return 0; const sp = SP[B.landAt(x, y)]; return sp && o.density > 0 ? sp / Math.sqrt(o.density) : 0; }, // densidad 0 = sin árboles (estepa)
@@ -4149,7 +4157,7 @@ async function rebuild(keepCam) {
         const pine = o.forest === 'broad' ? 0.03 : o.forest === 'pine' ? 0.9 : B.lat0 < -45 ? 0.02 /* Patagonia sur: lenga, ñire y guindo, casi sin coníferas */ : alt > 1800 ? 0.9 : alt > 900 ? 0.55 : lc === 'wood' ? 0.25 : 0.1;
         return r < pine ? 0 : ((lc === 'grass' || lc === 'none') && r > 0.75) || (lc === 'scrub' && r > 0.5) ? 2 : 1;
       },
-    });
+    }, p => { $('#prog').textContent = `Vegetación ${(p * 100).toFixed(0)}%`; });
     meshes.push(...tr.meshes);
     if (tr.trunks) log(`${tr.trunks.toLocaleString()} árboles cerca del camino con tronco sólido (se choca).`);
     { const tris = tag => tr.meshes.filter(m => m.name.startsWith('TREES_' + tag)).reduce((q, m) => q + m.f.length, 0);
@@ -4167,7 +4175,7 @@ async function rebuild(keepCam) {
   $('#prog').textContent = '';
   S.result = { o, meshes, spawnList, outline, length, P: B.P, h0: B.h0, bbox: B.bbox, ter, info, res, lat0: B.lat0, lon0: B.lon0, mode: B.mode, closed: B.closed };
   try { renderPhotoMatPanel(); } catch (e) { console.warn(e); }
-  showPreview(S.result, keepCam);
+  await showPreview(S.result, keepCam);
   $('#editor').style.display = B.mode === 'route' ? '' : 'none';
   if (B.mode === 'route') { drawProfile(); drawHeat(); renderCrit(); renderEdits(); drawSel(); renderNotes(); edRefresh(); }
   $('#zipBtn').style.display = 'block'; $('#dl').style.display = 'none'; if (PACK.items.length && !PACK.on) log('Ojo: tenés la biblioteca de texturas cargada pero apagada ("Usar el pack"): la pista sale con las texturas internas.', 'err');
@@ -4927,7 +4935,7 @@ function pvSync(m) {
   for (let i = 0; i < m.v.length; i++) { const v = m.v[i]; a[i * 3] = v[0]; a[i * 3 + 1] = v[2]; a[i * 3 + 2] = -v[1]; }
   g.attributes.position.needsUpdate = true; if (!m.n) g.computeVertexNormals(); g.computeBoundingSphere(); g.computeBoundingBox();
 }
-function showPreview(R, keepCam) {
+async function showPreview(R, keepCam) {
   $('#viewer').style.display = 'block';
   const host = $('#viewer3d');
   if (!PV.renderer) {
@@ -4955,7 +4963,9 @@ function showPreview(R, keepCam) {
   }
   while (PV.group.children.length) { const c = PV.group.children.pop(); c.geometry.dispose(); }
   PV.terrain = []; PV.byMesh = new Map();
-  for (const m of R.meshes) pvAdd(m);
+  // pasar millones de vértices a geometría THREE toma segundos en tramos largos: se hace por lotes
+  { const Y = Core.yieldIfOver; let t0pv = performance.now(), prvP = null;
+    for (const m of R.meshes) { pvAdd(m); if ((prvP = Y(t0pv, 60)) != null) { await prvP; t0pv = performance.now(); } } }
   $('#drive').style.display = R.mode === 'route' ? '' : 'none';
   if (PV.sat) loadSat().then(applySat).catch(() => {}); else applySat();
   edRefresh();
@@ -5021,8 +5031,8 @@ async function satVegMask(B) {
   const isTree = k => { const r = px[k], g = px[k + 1], bl = px[k + 2], l = 0.3 * r + 0.59 * g + 0.11 * bl; return px[k + 3] > 0 && l < 92 && bl <= g + 6 && !(bl > r + 12 && bl > g) && ((g >= r * 0.95 && g >= bl) || l < 45); }; // copa: verde u oliva oscuro (la turba y la tierra marrón no)
   const C = 8, nx = Math.ceil((b.maxx - b.minx) / C) + 1, ny = Math.ceil((b.maxy - b.miny) / C) + 1, M = new Float32Array(nx * ny);
   const mpp = 156543.03 * Math.cos(((n + s) / 2) * D2R) / 2 ** z, rad = Math.max(1, Math.round(5 / mpp));
-  let sum = 0, cnt = 0, gr = 0, gg = 0, gb = 0, gn = 0;
-  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+  let sum = 0, cnt = 0, gr = 0, gg = 0, gb = 0, gn = 0, t0v = performance.now(), prvV = null;
+  for (let j = 0; j < ny; j++) { for (let i = 0; i < nx; i++) {
     const [la, lo] = P.inv(b.minx + i * C, b.miny + j * C), [fx, fy] = tp(la, lo, z);
     const X = Math.floor((fx - tx0) * 256), Y = Math.floor((fy - ty0) * 256), ti = Math.floor(X / 256), tj = Math.floor(Y / 256);
     if (X < 0 || Y < 0 || X >= PW || Y >= PH || !got[tj * TW + ti]) { M[j * nx + i] = -1; continue; }
@@ -5036,14 +5046,14 @@ async function satVegMask(B) {
     // una copa de árbol tiene textura (luces y sombras); el agua y el pasto parejo no
     const sd = c ? Math.sqrt(Math.max(0, sl2 / c - (sl / c) ** 2)) : 0;
     const f = c ? (sd < 10 ? 0 : t / c) : -1; M[j * nx + i] = f; if (f >= 0) { sum += f > 0.42 ? 1 : 0; cnt++; }
-  }
+  } if ((prvV = Core.yieldIfOver(t0v)) != null) { await prvV; t0v = performance.now(); } }
   const fn = (x, y) => { const i = Math.round((x - b.minx) / C), j = Math.round((y - b.miny) / C); if (i < 0 || j < 0 || i >= nx || j >= ny) return -1; return M[j * nx + i]; };
   // techos de chapa (rojos/azules) en la foto: casas, galpones y estancias que no estén en el mapa
   try {
     const roofCol = k => { const r = px[k], g = px[k + 1], bl = px[k + 2];
       if (r > 105 && r > g * 1.35 && r > bl * 1.35) return 1; if (bl > 105 && bl > r * 1.3 && bl > g * 1.08) return 2; if (g > 115 && g > r * 1.35 && g > bl * 1.4 && r < 120) return 3; return 0; };
-    const lab = new Int32Array(PW * PH), roofs = []; let nl = 0;
-    for (let y0 = 0; y0 < PH; y0++) for (let x0 = 0; x0 < PW; x0++) {
+    const lab = new Int32Array(PW * PH), roofs = []; let nl = 0, t0r = performance.now(), prvR = null;
+    for (let y0 = 0; y0 < PH; y0++) { for (let x0 = 0; x0 < PW; x0++) {
       const k0 = y0 * PW + x0; if (lab[k0]) continue; const col = roofCol(k0 * 4); if (!col) continue;
       nl++; const st = [k0]; lab[k0] = nl; const P2 = [];
       while (st.length && P2.length < 6000) { const k = st.pop(); P2.push(k); const x = k % PW, y = (k / PW) | 0;
@@ -5059,7 +5069,7 @@ async function satVegMask(B) {
       const ll = p => { const X = tx0 + p[0] / 256, Y = ty0 + p[1] / 256, lon = X / 2 ** z * 360 - 180, lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * Y / 2 ** z))) * 180 / Math.PI; return P.fwd(lat, lon); };
       const c0 = ll([cxp, cyp]), c1 = ll([cxp + ca * 10, cyp + sa * 10]), dir = Math.atan2(c1[1] - c0[1], c1[0] - c0[0]);
       roofs.push({ c: c0, dir, L, W: Wd, col });
-    }
+    } if ((prvR = Core.yieldIfOver(t0r)) != null) { await prvR; t0r = performance.now(); } }
     fn.roofs = roofs;
     fn.lines = [];
   } catch (e) { fn.roofs = []; }
@@ -5317,6 +5327,7 @@ function chunkMesh(m, size = 100) {
 const MAT_SHADER = { leaves: { shader: 'ksPerPixelAT', alpha: true }, lenga: { shader: 'ksPerPixelAT', alpha: true }, tuft: { shader: 'ksPerPixelAT', alpha: true }, people: { shader: 'ksPerPixelAT', alpha: true }, tree: { shader: 'ksPerPixelAT', alpha: true }, fwire: { shader: 'ksPerPixelAT', alpha: true }, fgate: { shader: 'ksPerPixelAT', alpha: true } };
 async function buildKN5(R, slug, invert) {
   SPLIT_N = 0; const w = new BinW();
+  let t0k = performance.now(), prk = null; // ceder el hilo seguido: un tramo largo tarda minutos en exportar
   w.ascii('sc6969'); w.i32(5);
   // texturas (PNG embebidos)
   const meshes = R.meshes.flatMap(m => chunkMesh(m)).flatMap(m => splitMesh(m));
@@ -5331,14 +5342,15 @@ async function buildKN5(R, slug, invert) {
     for (const m of stripMasks) extra.push([`mk_${m}.dds`, TEX['mk_' + m], !(ML[m].chan || TEX['mk_' + m].__rgA)]); } // con huella en A: sin compresión DXT1 (perdería el canal) // la máscara del terreno usa los 4 canales: sin compresión DXT1
   if (Object.values(ML).some(D => D.chan)) { const T = DETAIL.terrain(); extra.push(['ml_t_R.dds', T.R, true], ['ml_t_G.dds', T.G, true], ['ml_t_B.dds', T.B, true], ['ml_t_A.dds', T.A, true], ['ml_t_nm.dds', T.nm, false]); if (!mlKeys.length) extra.push(['ml_black.dds', maskCanvas('#000000'), true]); }
   w.i32(mats.length + nmats.length + extra.length);
-  for (const [nm, cv, dxt] of extra) { const data = canvasToDDS(cv, null, dxt); w.i32(1); w.str(nm); w.i32(data.length); w.bytes(data); }
-  for (const m of nmats) { const nm = normalOf(m), data = canvasToDDS(nm, null, m.startsWith('rs_')); w.i32(1); w.str(m + '_nm.dds'); w.i32(data.length); w.bytes(data); }
+  for (const [nm, cv, dxt] of extra) { const data = canvasToDDS(cv, null, dxt); w.i32(1); w.str(nm); w.i32(data.length); w.bytes(data); if ((prk = Core.yieldIfOver(t0k)) != null) { await prk; t0k = performance.now(); } }
+  for (const m of nmats) { const nm = normalOf(m), data = canvasToDDS(nm, null, m.startsWith('rs_')); w.i32(1); w.str(m + '_nm.dds'); w.i32(data.length); w.bytes(data); if ((prk = Core.yieldIfOver(t0k)) != null) { await prk; t0k = performance.now(); } }
   for (const m of mats) {
     // en Assetto Corsa el sol pega más fuerte que en la vista previa y la luz ambiente es azulada:
     // oscurecemos y entibiamos las texturas de suelo para que el ripio no quede blanco y las banquinas no se vean azules
     const G = m === 'tree' || m === 'tuft' || m === 'lenga' || m === 'leaves' || m === 'line' ? null : ['gravel', 'loose', 'asphalt', 'wet', 'ice', 'snow', 'powder'].includes(m) ? [0.7, 0.68, 0.62] : [0.8, 0.79, 0.72];
     const data = TEX[m].__dxt ? canvasToDDS(TEX[m], m.startsWith('rs_') ? [0.72, 0.7, 0.64] : [0.86, 0.85, 0.8], true) : canvasToDDS(TEX[m], G);
     w.i32(1); w.str(m + '.dds'); w.i32(data.length); w.bytes(data);
+    if ((prk = Core.yieldIfOver(t0k)) != null) { await prk; t0k = performance.now(); }
   }
   // materiales
   w.i32(mats.length);
@@ -5385,6 +5397,7 @@ async function buildKN5(R, slug, invert) {
     let rad = 0; for (const v of m.v) rad = Math.max(rad, Math.hypot(v[0] - cx, v[2] - cy, -v[1] - cz));
     w.f32(cx); w.f32(cy); w.f32(cz); w.f32(rad);
     w.u8(1);
+    if ((prk = Core.yieldIfOver(t0k)) != null) { await prk; t0k = performance.now(); }
   }
   for (const [name, p, f] of empties) {
     let fx = f[0], fz = -f[1]; const L = Math.hypot(fx, fz) || 1; fx /= L; fz /= L;
