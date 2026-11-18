@@ -3497,7 +3497,7 @@ const PACK = {
     this.changed();
   },
   changed() { this.stamp++; DETAIL.reset(); this.save(); this.apply(); this.render(); RGLIB.show(); refreshPreviewTextures(); },
-  save() { LOCAL.put('pack', 'texpack', { on: this.on, optin: true, rg: RGLIB.cfg, items: this.items.map(({ name, role, blob }) => ({ name, role, blob })) }); },
+  save() { LOCAL.put('pack', 'texpack', { on: this.pre ? !!this._prevOn : this.on, optin: true, rg: RGLIB.cfg, items: this.items.filter(i => !i.pre).map(({ name, role, blob }) => ({ name, role, blob })) }); }, // las del preset no se guardan acá (están en la caché de descargas)
   async load() {
     const v = await LOCAL.get('pack', 'texpack'); if (v && v.rg) Object.assign(RGLIB.cfg, v.rg); RGLIB.ui(); if (!v || !v.items || !v.items.length) { this.render(); return; }
     this.on = v.optin ? v.on === true : false; // por defecto, las texturas internas
@@ -3523,7 +3523,7 @@ const PACK = {
   render() {
     const host = $('#packList'); if (!host) return;
     $('#packOn').checked = this.on;
-    host.innerHTML = this.items.length ? this.items.map((it, k) => `<div class="ctex" style="display:flex;gap:6px;align-items:center;margin:3px 0"><canvas data-th="${k}" width="40" height="40" style="width:40px;height:40px;border-radius:3px"></canvas><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${it.name}">${it.name}<br><span class="mut">${it.cv.width}×${it.cv.height}</span></span><select data-role="${k}">${this.ROLES.map(([r, t]) => `<option value="${r}"${r === it.role ? ' selected' : ''}>${t}</option>`).join('')}</select><button class="b" data-del="${k}">×</button></div>`).join('')
+    host.innerHTML = this.items.length ? this.items.map((it, k) => `<div class="ctex" style="display:flex;gap:6px;align-items:center;margin:3px 0"><canvas data-th="${k}" width="40" height="40" style="width:40px;height:40px;border-radius:3px"></canvas><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${it.name}">${it.name}${it.pre ? ' <span class="mut">(preset)</span>' : ''}<br><span class="mut">${it.cv.width}×${it.cv.height}</span></span><select data-role="${k}">${this.ROLES.map(([r, t]) => `<option value="${r}"${r === it.role ? ' selected' : ''}>${t}</option>`).join('')}</select><button class="b" data-del="${k}">×</button></div>`).join('')
       : '<div class="mut">Sin texturas cargadas: se usan los detalles generados por la app.</div>';
     host.querySelectorAll('canvas[data-th]').forEach(c => c.getContext('2d').drawImage(this.items[+c.dataset.th].cv, 0, 0, 40, 40));
     host.querySelectorAll('select[data-role]').forEach(s => s.onchange = () => { const it = this.items[+s.dataset.role], r = s.value; if (r !== 'none') this.items.forEach(i => { if (i !== it && i.role === r) i.role = 'none'; }); it.role = r; this.changed(); });
@@ -3571,12 +3571,35 @@ function dataKey(o) {
 // ---------- PRESETS DE PISO (Etapa 6 · borrador) ----------
 // "Ripio – Río Grande (Tierra del Fuego)": se elige solo cuando el centro del camino cae en su zona (PROVISIONAL, ver presets/pisos/ripio_rio_grande/preset.json).
 // En esa zona es estepa: sin árboles (salvo que el usuario elija otra densidad a mano).
-const PRESETS = { list: { ripio_rio_grande: { nombre: 'Ripio – Río Grande (Tierra del Fuego)', zona: { s: -54.10, n: -53.45, w: -68.70, e: -67.30 }, arboles: 0 } },
+const PRESETS = { list: { ripio_rio_grande: { nombre: 'Ripio – Río Grande (Tierra del Fuego)', zona: { s: -54.10, n: -53.45, w: -68.70, e: -67.30 }, arboles: 0,
+    texturas: ['rg_bank_soil', 'rg_ditch_cracked', 'rg_east_dry', 'rg_east_dry_ao_rough_h', 'rg_east_dry_nm', 'rg_edge_vegetation', 'rg_edge_vegetation_v2', 'rg_gravel_loose', 'rg_gravel_loose_ao_rough_h',
+      'rg_rut_deep', 'rg_shoulder_berm', 'rg_stones_east', 'rg_tire_loose_soil', 'rg_track_compacted', 'rg_track_compacted_ao_rough_h', 'rg_west_dry', 'rg_west_dry_ao_rough_h', 'rg_west_dry_nm'] } },
+  // Texturas del preset (PNG en presets/pisos/<id>/texturas, guardadas con Git LFS). GitHub Pages no sirve archivos LFS, así que se bajan de
+  // media.githubusercontent.com (rama main) la primera vez y quedan en la caché del navegador: después salen de la compu.
+  // Si cargaste tu propia biblioteca rg_*.dds en "Pack local", manda la tuya y el preset no carga nada.
+  REPO_MEDIA: 'https://media.githubusercontent.com/media/lucasbarria/generador-de-pistas/main/',
+  async texBlob(id, n) { const rel = `presets/pisos/${id}/texturas/${n}.png`, ok = b => b && b.size > 2000 && /^image\//.test(b.type || 'image/');
+    if (/^https?:$/.test(location.protocol) && !/github\.io$/.test(location.hostname)) { try { const r = await fetch(rel); if (r.ok) { const b = await r.blob(); if (ok(b)) return b; } } catch (e) { } } // copia local del repo (con LFS)
+    const b = await LOCAL.fetchBlob(this.REPO_MEDIA + rel); if (!ok(b)) throw new Error('no es una imagen'); return b; },
+  async loadTex(id) {
+    const P = id && this.list[id], mine = PACK.items.some(i => !i.pre && /^rg_/i.test(i.name.replace(/^.*[\\/]/, '')));
+    if (!P || !P.texturas || mine) { // sin preset, o con tu biblioteca: saco las del preset si habían quedado
+      if (PACK.items.some(i => i.pre)) { PACK.items = PACK.items.filter(i => !i.pre); PACK.on = PACK._prevOn ?? PACK.on; PACK.pre = null; PACK.changed(); }
+      if (P && mine) log(`Texturas: uso tu biblioteca rg_*.dds del Pack local (no las del preset).`); return; }
+    if (PACK.pre === id && PACK.items.some(i => i.pre)) { if (!PACK.on) { PACK.on = true; PACK.changed(); } return; }
+    log(`Texturas del preset "${P.nombre}": cargando ${P.texturas.length} (la primera vez se bajan de GitHub, ~35 MB; después salen de la caché)…`);
+    const got = []; let fail = 0;
+    await Promise.all(P.texturas.map(async n => { try { const cv = await fileToCanvas(await this.texBlob(id, n), n + '.png'); got.push({ name: n + '.dds', cv, pre: true }); } catch (e) { fail++; console.warn('preset', n, e); } }));
+    if (!got.length) { log(`No se pudieron cargar las texturas del preset (sin conexión con GitHub): se usan las generadas por la app.`, 'err'); return; }
+    if (PACK.pre == null) PACK._prevOn = PACK.on;
+    PACK.items = PACK.items.filter(i => !i.pre && !got.some(g => g.name === i.name)).concat(got.map(it => Object.assign(it, { role: PACK.classify(it) })));
+    PACK.pre = id; PACK.on = true; PACK.changed();
+    log(`Texturas del preset: ${got.length} cargadas${fail ? `, ${fail} fallaron` : ''} (${got.filter(i => i.role !== 'none').length} en uso).`, fail ? '' : 'ok'); },
   inZone(z, la, lo) { return la >= z.s && la <= z.n && lo >= z.w && lo <= z.e; },
   pick() { const sel = $('#pisoPreset') ? $('#pisoPreset').value : 'auto'; if (sel !== 'auto') return sel === 'generico' ? null : sel;
     const G = S.routeGeom || []; if (G.length < 2) return null; const la = G.reduce((a, p) => a + p[0], 0) / G.length, lo = G.reduce((a, p) => a + p[1], 0) / G.length;
     for (const [id, P] of Object.entries(this.list)) if (this.inZone(P.zona, la, lo)) return id; return null; },
-  apply() { const id = this.pick(); this.cur = id; if (!id) { log('Preset de piso: genérico.'); return; } const P = this.list[id], d = $('#density');
+  async apply() { const id = this.pick(); this.cur = id; try { await this.loadTex(id); } catch (e) { log('Texturas del preset: ' + e.message, 'err'); } if (!id) { log('Preset de piso: genérico.'); return; } const P = this.list[id], d = $('#density');
     if (d && !d.dataset.manual && P.arboles === 0) { d.value = '0'; } log(`Preset de piso: ${P.nombre}${$('#pisoPreset') && $('#pisoPreset').value === 'auto' ? ' (elegido solo por la zona)' : ''}. Estepa: ${d && d.value === '0' ? 'sin árboles' : 'árboles según lo elegido a mano'}.`); } };
 async function generate() {
   logEl().innerHTML = ''; busy(true);
@@ -3585,7 +3608,7 @@ async function generate() {
   if (S.mode === 'route' && S.routeGeom && S.routeGeom.length > 1) { const km = routeLen(); kmCheck(km);
     if (km > MAX_KM) throw new Error(`El recorrido mide ${km.toFixed(1)} km y el máximo es ${MAX_KM} km por tramo: más largo, el navegador se queda sin memoria y se tilda. Acortalo o dividilo en dos tramos.`);
     if (km > WARN_KM) log(`Tramo largo (${km.toFixed(1)} km): puede tardar unos ${Math.ceil(km * 0.25)} minutos. No cierres la pestaña.`); }
-  PRESETS.apply();
+  await PRESETS.apply();
   const o = opt(), key = dataKey(o);
   if (!S.base || S.base.key !== key) await fetchBase(o, key);
   else log('Mismo recorrido: reutilizo la elevación descargada.');
@@ -7334,7 +7357,7 @@ if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') ||
 
 
 // ---------- Versión: qué compilación es esta y si es la última publicada en GitHub ----------
-const BUILD = {"id": "611958987d61", "date": "2026-11-18T17:40:25Z", "version": "2026.11.18+6119589", "base": "82d8c18d1191c21ba8feb9d5f0c59cf46a79c9a7"};
+const BUILD = {"id": "713efc99b80d", "date": "2026-11-18T21:32:16Z", "version": "2026.11.18+713efc9", "base": "f772513d6cab16b6e6c76fde082a3ae8fcdadf2f"};
 const VER = {
   repo: 'lucasbarria/generador-de-pistas',
   set(state, txt, cls) { const el = $('#verInfo'); if (!el) return; const b = BUILD || {}; const dt = b.date ? new Date(b.date).toLocaleString() : '?';
