@@ -209,7 +209,7 @@ function liveRoute() {
   const args = { ...L.routeArgs, ...editFns(o, S.lastTotal, B.closed), cache: L.cache };
   const prof = Core.buildRoute({ ...args, profileOnly: true });
   const same = (a, b, eps) => { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > eps) return false; return true; };
-  const secSig = JSON.stringify(S.edits.filter(e => e.kind === 'section' || e.kind === 'floor')); // la sección cambia cunetas y taludes: hay que rehacer los costados
+  const secSig = JSON.stringify(S.edits.filter(e => e.kind === 'section' || e.kind === 'floor' || e.kind === 'bank')); // la sección cambia cunetas y taludes: hay que rehacer los costados
   const fast = prof.C === old.C && same(prof.W, old.W, 1e-6) && prof.SURF.every((k, i) => k === old.SURF[i]) && secSig === (L.secSig || '[]');
   L.secSig = secSig;
   let i0 = Infinity, i1 = -1;
@@ -355,7 +355,9 @@ function edSchedule() {
 }
 // Etapa 5 · tipos de piso editados: se actualiza el modelo de pisos sin regenerar; la zona tocada (unión del antes y el después,
 // más el largo de la transición) se repinta al confirmar y la física/relieve salen de la malla del camino rehecha en vivo
-function floorsSync(live) { if (!S.floorAuto || typeof RGMASK === 'undefined') return; const ed = S.edits.filter(e => e.kind === 'floor').map(e => ({ d0: e.d0, d1: e.d1, type: e.type, len: e.len, irr: e.irr })), sig = JSON.stringify(ed);
+function banksSync() { const ed = S.edits.filter(e => e.kind === 'bank'), sig = JSON.stringify(ed); if (sig === S.bankSig) return; const prev = S.bankEd || []; S.bankSig = sig; S.bankEd = JSON.parse(sig);
+  const all = prev.concat(ed); if (S.live && all.length) { const a = Math.min(...all.map(e => e.d - 120)), b = Math.max(...all.map(e => e.d + 120)); S.live.stripRange = S.live.stripRange ? [Math.min(S.live.stripRange[0], a), Math.max(S.live.stripRange[1], b)] : [a, b]; } }
+function floorsSync(live) { banksSync(); if (!S.floorAuto || typeof RGMASK === 'undefined') return; const ed = S.edits.filter(e => e.kind === 'floor').map(e => ({ d0: e.d0, d1: e.d1, type: e.type, len: e.len, irr: e.irr })), sig = JSON.stringify(ed);
   if (sig === S.floorSig) return; const prev = S.floorEd || [], all = prev.concat(ed); RGMASK.setFloors(S.floorAuto.start, S.floorAuto.pts, ed); S.floorSig = sig; S.floorEd = ed;
   if (live && S.live && all.length) { const a = Math.min(...all.map(e => e.d0 - (e.len || 0) / 2 - 10)), b = Math.max(...all.map(e => e.d1 + (e.len || 0) / 2 + 10)); S.live.stripRange = S.live.stripRange ? [Math.min(S.live.stripRange[0], a), Math.max(S.live.stripRange[1], b)] : [a, b]; }
   if (typeof floorInfo === 'function') floorInfo(false); }

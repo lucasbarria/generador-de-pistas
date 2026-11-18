@@ -395,34 +395,34 @@
  "superficies": {
   "_descripcion": "Agarre y vibración de cada piso (PROVISIONAL, sin medición). AC: FRICTION / DAMPING / SIN_HEIGHT / SIN_LENGTH. RBR: material físico del juego.",
   "STONY": {
-   "nombre": "Pedregoso (huellas)",
-   "friction": 0.8,
+   "nombre": "Pedregoso: huella",
+   "friction": 0.82,
    "damping": 0.03,
    "sin_height": 0.008,
    "sin_length": 0.35,
-   "rbr": "GRAVEL_COARSE_SHALLOW",
+   "rbr": "GRAVEL_MEDIUM_SHALLOW",
    "estado": "PROVISIONAL"
   },
   "STONYL": {
-   "nombre": "Pedregoso suelto (lomo y bordes)",
-   "friction": 0.74,
-   "damping": 0.05,
+   "nombre": "Pedregoso: lomo y bordes sueltos",
+   "friction": 0.72,
+   "damping": 0.06,
    "sin_height": 0.012,
    "sin_length": 0.3,
    "rbr": "GRAVEL_COARSE_DEEP",
    "estado": "PROVISIONAL"
   },
   "GRAVEL": {
-   "nombre": "Ripio (huellas)",
-   "friction": 0.82,
+   "nombre": "Ripio: huella limpia y firme",
+   "friction": 0.84,
    "damping": 0.02,
    "sin_height": 0.004,
    "sin_length": 0.6,
-   "rbr": "GRAVEL_MEDIUM_SHALLOW",
+   "rbr": "GRAVEL_FINE_SHALLOW",
    "estado": "PROVISIONAL"
   },
   "LOOSE": {
-   "nombre": "Ripio suelto (lomo y bordes)",
+   "nombre": "Ripio: lomo central y bordes sueltos",
    "friction": 0.72,
    "damping": 0.06,
    "sin_height": 0.006,
@@ -435,23 +435,90 @@
    "unidad": "m",
    "estado": "PROVISIONAL",
    "descripcion": "Largo de cada franja de superficie física en las transiciones (se intercalan con la proporción de cada piso)."
+  },
+  "GRAVELN": {
+   "friction": 0.79,
+   "damping": 0.035,
+   "sin_height": 0.005,
+   "sin_length": 0.5,
+   "rbr": "GRAVEL_MEDIUM_SHALLOW",
+   "nombre": "Ripio normal (entre huella y lomo)",
+   "estado": "PROVISIONAL"
+  },
+  "BANK": {
+   "friction": 0.62,
+   "damping": 0.12,
+   "sin_height": 0.01,
+   "sin_length": 0.35,
+   "rbr": "GRAVEL_MEDIUM_DEEPER",
+   "nombre": "Ripio: banco afuera de la curva",
+   "estado": "PROVISIONAL"
+  },
+  "STONYN": {
+   "friction": 0.77,
+   "damping": 0.045,
+   "sin_height": 0.01,
+   "sin_length": 0.32,
+   "rbr": "GRAVEL_COARSE_SHALLOW",
+   "nombre": "Pedregoso normal",
+   "estado": "PROVISIONAL"
+  },
+  "STONYB": {
+   "friction": 0.6,
+   "damping": 0.14,
+   "sin_height": 0.014,
+   "sin_length": 0.3,
+   "rbr": "GRAVEL_COARSE_DEEPER",
+   "nombre": "Pedregoso: banco afuera de la curva",
+   "estado": "PROVISIONAL"
+  },
+  "_orden": "huella > normal > lomo/bordes > banco (en cada piso). AC: FRICTION/DAMPING/SIN por superficie en surfaces.ini. RBR: MaterialID de grava fina→media→gruesa y shallow→deep→deeper.",
+  "DSLOPE": {
+   "friction": 0.66,
+   "damping": 0.06,
+   "sin_height": 0.008,
+   "sin_length": 0.4,
+   "rbr": "GRAVEL_FINE_DEEP",
+   "estado": "PROVISIONAL",
+   "nombre": "Cuneta: talud interior de ripio suelto"
+  },
+  "DBOT": {
+   "friction": 0.58,
+   "damping": 0.3,
+   "sin_height": 0.006,
+   "sin_length": 0.5,
+   "rbr": "DIRT_SOFT",
+   "estado": "PROVISIONAL",
+   "nombre": "Cuneta: fondo blando"
+  },
+  "DWALL": {
+   "friction": 0.7,
+   "damping": 0.02,
+   "sin_height": 0.004,
+   "sin_length": 0.6,
+   "rbr": "DIRT_HARD",
+   "estado": "PROVISIONAL",
+   "nombre": "Cuneta: talud exterior firme"
   }
  },
  "costados": {
   "_descripcion": "Etapa 5: costados del camino y terreno (cuneta de las fotos, taludes, modelo de elevación). Cada bloque se apaga con activo=false o desde la interfaz.",
   "cunetas_v5": {
    "activo": true,
+   "intensidad": 1.0,
    "estado": "ESTIMADO_DE_FOTOS",
-   "descripcion": "Perfil de cuneta desde las fotos 6887, 6893, 6894, 6897, 6906: borde → banda de grava casi plana → caída continua suave → fondo poco marcado → bordo de tierra o pasto. Escala: ancho de calzada (6–9 m), postes de alambrado (~1,2 m), delineador de curva (~1 m), canto rodado 2–8 cm (fotos cenitales con celular). Error estimado ±50 % en alturas, ±30 % en anchos.",
-   "banda_grava_m": 0.6,
-   "pendiente_caida_hv": 4.0,
-   "profundidad_min_m": 0.12,
+   "descripcion": "Cuneta asimétrica de la foto IMG_6896 (celular apoyado en el fondo, mirando a lo largo): talud interior largo y suave de ripio → fondo angosto de tierra fina → talud exterior empinado de tierra hasta el pasto.",
+   "redondeo_borde_m": 0.35,
+   "talud_interior_hv": 5.0,
+   "profundidad_min_m": 0.22,
    "profundidad_extra_m": 0.25,
-   "fondo_m": 0.5,
-   "pendiente_subida_hv": 3.0,
-   "bordo_m": 0.18,
-   "prob_bordo": 0.6,
-   "variacion_m": 60
+   "fondo_m": 0.4,
+   "talud_exterior_hv": 0.8,
+   "voladizo_pasto_m": 0.06,
+   "variacion_m": 60,
+   "error": "±50 % en alturas, ±30 % en anchos",
+   "metodo": "Escala: el celular apoyado en el fondo deja la lente a ~6–8 cm del piso, así que la línea del horizonte marca esa altura en toda la foto. El borde del ripio lejano coincide con el horizonte y la cresta de la pared de tierra queda unos 2–4 diámetros de piedra por encima: con piedras redondeadas del fondo de 6–12 cm y ripio de 1–3 cm (D50 15–17 mm), la pared mide ~0,3–0,5 m y el campo queda ~0,1–0,3 m sobre el borde del camino. El talud del lado del camino ocupa en la foto ~4–6 veces su altura (H:V ~5); el fondo plano tiene ~3–5 piedras grandes de ancho (~0,3–0,5 m); la pared de afuera sube casi de golpe (H:V ~0,5–1,2, más vertical donde es más honda).",
+   "cambio_respecto_v5_anterior": "Antes: banda de grava 0,6 m + bajada 1:4 + fondo 0,5 + SUBIDA SUAVE 1:3 + bordo de 18 cm (simétrica). Ahora: sin banda separada (el talud interior empieza redondeado en el borde y es más largo, 1:5), fondo más angosto (0,4), pared de afuera EMPINADA (~1:0,8, de 1:0,45 a 1:1,4 según lo honda) hasta el nivel del campo, sin bordo; tres superficies físicas (talud interior, fondo, pared)."
   },
   "taludes": {
    "activo": true,
@@ -471,6 +538,80 @@
    "microrrelieve_m": 0.05,
    "microrrelieve_tamano_m": 6,
    "descripcion": "El modelo de elevación (30 m) se suaviza para quitar los escalones del remuestreo; el desfase con el GPS se corrige en el terreno."
+  },
+  "cunetas_v5_anterior": {
+   "activo": false,
+   "estado": "ESTIMADO_DE_FOTOS",
+   "descripcion": "Primera versión de la Etapa 5 (simétrica, con bordo), reemplazada por la forma de la foto IMG_6896. Queda como referencia; no se usa.",
+   "banda_grava_m": 0.6,
+   "pendiente_caida_hv": 4.0,
+   "profundidad_min_m": 0.12,
+   "profundidad_extra_m": 0.25,
+   "fondo_m": 0.5,
+   "pendiente_subida_hv": 3.0,
+   "bordo_m": 0.18,
+   "prob_bordo": 0.6,
+   "variacion_m": 60
   }
+ },
+ "curvas": {
+  "_descripcion": "Etapa 5 · complemento 2: curvas detectadas desde la curvatura del eje (GPX). Banco de ripio suelto afuera de las curvas cerradas (foto IMG_6885) y huellas que se corren hacia adentro y quedan más limpias (foto IMG_6887). Se apaga con activo=false o desde la interfaz; cada curva se ajusta en el editor.",
+  "activo": true,
+  "intensidad": 1.0,
+  "umbral_radio_m": {
+   "valor": 150,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Con radio mínimo por debajo de este valor la curva lleva banco de ripio afuera. 150 m: la curva de la foto IMG_6885 (km 2,57 del recorrido, radio ~108 m) tiene banco."
+  },
+  "radio_banco_maximo_m": {
+   "valor": 40,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Con este radio (o menos) el banco es máximo; entre éste y el umbral crece de a poco."
+  },
+  "banco_altura_m": {
+   "valor": 0.08,
+   "unidad": "m",
+   "estado": "ESTIMADO_DE_FOTOS",
+   "error": "±50 %",
+   "descripcion": "Altura del lomo de ripio del banco (máxima, en la salida de la curva)."
+  },
+  "banco_ancho_m": {
+   "valor": 1.6,
+   "unidad": "m",
+   "estado": "ESTIMADO_DE_FOTOS",
+   "error": "±30 %",
+   "descripcion": "Ancho del banco medido desde el borde de afuera hacia el centro."
+  },
+  "banco_antes_vertice": {
+   "valor": 0.5,
+   "unidad": "fracción",
+   "estado": "ESTIMADO_DE_FOTOS",
+   "descripcion": "El banco empieza esta fracción de la entrada antes del vértice (0 = en el vértice)."
+  },
+  "banco_largo_salida_m": {
+   "valor": 30,
+   "unidad": "m",
+   "estado": "ESTIMADO_DE_FOTOS",
+   "descripcion": "Largo en que el banco se va perdiendo después de la salida de la curva."
+  },
+  "corrimiento_huellas_m": {
+   "valor": 0.35,
+   "unidad": "m",
+   "estado": "ESTIMADO_DE_FOTOS",
+   "descripcion": "Cuánto se corren las huellas hacia adentro en una curva cerrada (los autos cortan la curva)."
+  },
+  "radio_corte_completo_m": {
+   "valor": 40,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Con este radio las huellas se corren del todo y el lomo queda más marcado."
+  },
+  "semilla": {
+   "valor": 5,
+   "estado": "fijo"
+  },
+  "metodo": "Fotos IMG_6885 (desde afuera de la curva, cámara al ras del piso) e IMG_6887 (desde adentro). Escala: piedras del banco 1–6 cm (D50 15–17 mm del análisis granulométrico de las fotos de ripio), poste del delineador (chapa ~0,25 m de ancho, ESTIMADA) y ancho del camino (~7–9 m). El banco ocupa ~1/5 del ancho de la calzada (~1,6 m) y su cresta se ve ~3–5 diámetros de piedra por encima de la huella (~8 cm). Son estimaciones, no mediciones."
  }
 }

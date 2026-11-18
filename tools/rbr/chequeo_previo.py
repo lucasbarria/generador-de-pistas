@@ -78,7 +78,7 @@ def main(carpeta):
     ln = np.linalg.norm(nrm, axis=1) + 1e-12
     nz = nrm[:, 2] / ln
     def es_calzada(n):  # tiras del camino (no las piedras 3D con colisión: llevan el material 'stone')
-        return bool(re.match(r"^\d+(STONYL|STONY|GRAVEL|LOOSE|CLAY|MUD|ROAD|WET|SNOW|ICE)$", n)) and not str(mats.get(n, "")).startswith(("stone", "boulder"))
+        return bool(re.match(r"^\d+(STONYL|STONYN|STONYB|STONY|GRAVELN|GRAVEL|BANK|LOOSE|CLAY|MUD|ROAD|WET|SNOW|ICE)$", n)) and not str(mats.get(n, "")).startswith(("stone", "boulder"))
     camino = np.array([es_calzada(nombres[o]) for o in OBJ]) if len(OBJ) else np.zeros(0, bool)
     res["triangulos_con_fisica"] = int(len(T))
     res["triangulos_calzada"] = int(camino.sum())

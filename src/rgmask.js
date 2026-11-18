@@ -45,8 +45,15 @@ const RGMASK = (() => {
     for (const c of FL.pts) { const L = Math.max(1, c.len ?? FL.len), t = ramp(d, c.d - L / 2, c.d + L / 2); if (t > 0) { w = wOf(c.from) + (wOf(c.to) - wOf(c.from)) * t; if (t < 1) irr = c.irr ?? FL.irr; } }
     for (const e of FL.ed) { const L = Math.max(1, e.len ?? FL.len), t = Math.min(ramp(d, e.d0 - L / 2, e.d0 + L / 2), 1 - ramp(d, e.d1 - L / 2, e.d1 + L / 2)); if (t > 0) { w = w + (wOf(e.type) - w) * t; if (t < 1) irr = e.irr ?? FL.irr; } }
     return { w, irr }; };
+  // curvas (Etapa 5): arrays cada 1 m que arma la app desde la curvatura del eje. b = banco de ripio afuera (0..1), bs = lado de
+  // afuera (+1 izquierda, -1 derecha), cut = cuánto se corren las huellas hacia adentro y se marca el lomo (0..1), cs = lado de adentro
+  const CV = { B: null, BS: null, CUT: null, CS: null, n: 0, shift: 0.35, ancho: 1.6 };
+  const cvAt = d => { if (!CV.n) return null; const f = Math.max(0, Math.min(CV.n - 1.001, d)), i = Math.floor(f), u = f - i;
+    return { b: CV.B[i] * (1 - u) + CV.B[i + 1] * u, bs: CV.BS[u < 0.5 ? i : i + 1], cut: CV.CUT[i] * (1 - u) + CV.CUT[i + 1] * u, cs: CV.CS[u < 0.5 ? i : i + 1] }; };
   const M = {
-    P: { ...DEF },
+    P: { ...DEF }, CV,
+    setCurves(o) { if (!o) { CV.n = 0; return; } Object.assign(CV, o); CV.n = o.B ? o.B.length : 0; },
+    cvAt,
     // carga los valores del archivo de parámetros (cada entrada { valor, unidad, estado, ... } o un número)
     load(cfg) { if (!cfg) return this; for (const k in DEF) { const v = cfg[k]; const x = v && typeof v === 'object' ? v.valor : v; if (x != null && isFinite(+x)) this.P[k] = +x; } NORM.clear(); NY.clear(); return this; },
     FL,
@@ -73,39 +80,44 @@ const RGMASK = (() => {
       const meander = vY(Y, 18, sd + 1) * 0.5 * P.serpenteo_borde;
       const rag = c0(vnoise2(X, Y, 0.45, 6, 0.55, 0.8, sd + 2)) * P.irregularidad_borde;
       const ax = Math.abs(X) + meander + rag, inroad = ss(ax, hw0 + 0.15, hw0 - 0.25);
+      const cv = cvAt(d), cut = cv ? cv.cut : 0, sh = cv ? cv.cut * CV.shift * cv.cs : 0, XT = X - sh; // en curva las huellas se corren hacia adentro
       let trkMax = 0, haloMax = 0; const wd = [];
       for (const [side, sg] of [[1, 1], [2, -1]]) {
         const wander = vY(Y, 11, sd + 10 + side) * 0.5 * P.corrimiento_huella, c = sep / 2 + wander;
-        const jit = c0(vnoise2(X, Y, 0.22, 4, 0.55, 1.2, sd + 12 + side)) * 0.12, dd = Math.abs(X * sg + jit - c);
+        const jit = c0(vnoise2(X, Y, 0.22, 4, 0.55, 1.2, sd + 12 + side)) * 0.12, dd = Math.abs(XT * sg + jit - c);
         const hwT = P.ancho_huella / 2 * (1 + vY(Y, 21, sd + 14 + side) * 0.5 * P.variacion_ancho);
         const core = geo ? ss(dd, hwT + 0.3, Math.max(0, hwT - 0.1)) : ss(dd, hwT + 0.16, hwT), inten = Math.max(0.55, Math.min(1, 0.8 + vY(Y, 27, sd + 16 + side) * 0.12));
         haloMax = Math.max(haloMax, ss(dd, hwT + 0.16 + P.halo_tierra_m, hwT + 0.05)); trkMax = Math.max(trkMax, core * inten); wd.push({ wander, c });
       }
       const holes = geo ? ss(vnoise2(X, Y, 1.1, 5, 0.55, 1.6, sd + 20), 0.45 - 0.08 * P.grava_cruza_huella, 0.95) : ss(vnoise2(X, Y, 1.1, 5, 0.55, 1.6, sd + 20), 0.62 - 0.08 * P.grava_cruza_huella, 0.67);
-      const trk = Math.max(0, Math.min(1, trkMax * (1 - 0.9 * holes) * P.intensidad_huellas * inroad));
-      const mid = (wd[0].wander - wd[1].wander) * 0.5, dr = Math.abs(X + c0(vnoise2(X, Y, 0.3, 4, 0.55, 1.0, sd + 21)) * 0.12 - mid);
-      const rw = P.lomo_medio_ancho * (1 + vY(Y, 14, sd + 22) * 0.25), ridge = Math.max(0, Math.min(1, ss(dr, geo ? rw + 0.1 : rw, geo ? Math.max(0, rw - 0.3) : rw * 0.25) * (0.35 + 0.9 * vnoise2(X, Y, 1.6, 4, 0.55, 0.8, sd + 23))));
+      let trk = Math.max(0, Math.min(1, trkMax * (1 - 0.9 * holes * (1 - 0.6 * cut)) * P.intensidad_huellas * (1 + 0.15 * cut) * inroad)); // en curva: huellas más limpias
+      const mid = (wd[0].wander - wd[1].wander) * 0.5, dr = Math.abs(XT + c0(vnoise2(X, Y, 0.3, 4, 0.55, 1.0, sd + 21)) * 0.12 - mid);
+      const rw = P.lomo_medio_ancho * (1 + vY(Y, 14, sd + 22) * 0.25) * (0.8 + 0.45 * cut), ridge = Math.max(0, Math.min(1, ss(dr, geo ? rw + 0.1 : rw, geo ? Math.max(0, rw - 0.3) : rw * 0.25) * (0.35 + 0.9 * vnoise2(X, Y, 1.6, 4, 0.55, 0.8, sd + 23)) * (0.85 + 0.3 * cut))); // lomo más angosto en recta, más marcado en curva
       const wc = hw0 - (P.cordon_dist_borde + vY(Y, 9, sd + 24) * 0.12), ww = P.cordon_medio_ancho * (1 + vY(Y, 13, sd + 25) * 0.3);
       const windrow = Math.max(0, Math.min(1, ss(Math.abs(ax - wc), geo ? ww + 0.1 : ww, geo ? Math.max(0, ww - 0.3) : ww * 0.2) * (0.25 + 1.1 * vnoise2(X, Y, 1.3, 5, 0.55, 1.0, sd + 26))));
+      // banco de ripio suelto afuera de la curva (foto 6885): pegado al borde de afuera, se pierde hacia el centro con borde irregular
+      let bank = 0, bankH = 0; if (cv && cv.b > 0.02) { const e = hw0 - X * cv.bs, BW = CV.ancho * (0.85 + 0.3 * vY(Y, 17, sd + 41)) * (0.35 + 0.65 * Math.min(1, cv.b * 1.5));
+        bank = Math.max(0, Math.min(1, Math.min(1, 0.45 + 0.8 * cv.b) * ss(e + c0(vnoise2(X, Y, 0.8, 4, 0.55, 1.0, sd + 42)) * 0.35 * BW, BW, BW * 0.2) * (0.8 + 0.4 * vnoise2(X, Y, 1.4, 3, 0.55, 0.6, sd + 43)) * inroad)); }
+      if (bank > 0) { trk *= 1 - 0.9 * bank; bankH = bank * Math.min(1, cv.b * 1.3); } // en curvas abiertas el banco es angosto y bajo
       const halo = Math.max(0, Math.min(1, haloMax * (0.35 + 0.9 * vnoise2(X, Y, 0.7, 4, 0.55, 0.5, sd + 33)) * inroad)), notrk = Math.max(0, 1 - Math.max(trk, 0.7 * halo));
       const fp = this.floorP(d, s, { trk, ridge, windrow }), fq = k => this.floorParam(k, fp); // peso del piso pedregoso y parámetros mezclados
       const gpatch = geo ? ss(vnoise2(X, Y, 2.6, 5, 0.55, 1.2, sd + 27), 0.5 - 0.2 * P.grava_manchones, 0.85) : ss(vnoise2(X, Y, 2.6, 5, 0.55, 1.2, sd + 27), 0.66 - 0.2 * P.grava_manchones, 0.68);
       const cpatch = geo ? ss(vnoise2(X, Y, 0.9, 5, 0.55, 1.5, sd + 28), 0.55 - 0.08 * P.canto_grueso, 0.95) : ss(vnoise2(X, Y, 0.9, 5, 0.55, 1.5, sd + 28), 0.70 - 0.08 * P.canto_grueso, 0.76);
-      const loose = Math.max(0, Math.min(1, Math.max(gpatch, 0.9 * ridge, 0.9 * windrow) * notrk * inroad * fq('grava_suelta')));
+      const loose = Math.max(0, Math.min(1, Math.max(Math.max(gpatch, 0.9 * ridge, 0.9 * windrow) * notrk * inroad * fq('grava_suelta'), 0.95 * bank)));
       const coreC = Math.max(ss(windrow, 0.2, 0.6) * P.canto_grueso, ss(ridge, 0.35, 0.75) * P.canto_grueso * 0.8);
-      const coarse = Math.max(0, Math.min(1, Math.max(coreC, cpatch * P.canto_grueso * 0.9) * notrk * inroad * fq('canto_grueso')));
+      const coarse = Math.max(0, Math.min(1, Math.max(Math.max(coreC, cpatch * P.canto_grueso * 0.9) * notrk * inroad * fq('canto_grueso'), bank * 0.55 * fq('canto_grueso'))));
       // cantos grandes y rocas claras sueltas (piso pedregoso, foto 6902): manchas de 10–20 cm repartidas, menos en las huellas
-      const rk = fq('piedras_grandes'), rocks = rk > 0.01 ? Math.max(0, Math.min(1, ss(vnoise2(X, Y, 0.32, 3, 0.5, 0.5, sd + 40), 0.80 - 0.14 * rk - (geo ? 0.1 : 0), 0.84 - 0.14 * rk + (geo ? 0.1 : 0)) * (1 - 0.7 * trk) * inroad * Math.min(1, rk / 0.5))) : 0;
+      const rk = fq('piedras_grandes'), rocks = rk > 0.01 ? Math.max(0, Math.min(1, ss(vnoise2(X, Y, 0.32, 3, 0.5, 0.5, sd + 40), 0.80 - 0.14 * rk - (geo ? 0.1 : 0), 0.84 - 0.14 * rk + (geo ? 0.1 : 0)) * (1 - 0.7 * trk) * inroad * Math.min(1, rk / 0.5) * (1 + 0.8 * bank))) : 0; // en el pedregoso el banco tiene más piedras grandes
       const sb = P.banquina_ancho * (1 + vY(Y, 7, sd + 29) * 0.35), outside = 1 - inroad;
       const grass0 = ss(ax + c0(vnoise2(X, Y, 0.9, 5, 0.55, 1.4, sd + 30)) * 0.3, hw0 + sb, hw0 + sb + 0.35);
       const tufts = ss(vnoise2(X, Y, 0.18, 3, 0.5, 0.6, sd + 31), 0.62 - 0.08 * P.matas, 0.66) * outside;
       const bald = ss(vnoise2(X, Y, 1.2, 5, 0.55, 1.0, sd + 32), 0.76, 0.80);
       const veg = Math.max(0, Math.min(1, Math.max(grass0 * (1 - 0.85 * bald), 0.95 * tufts) * outside));
-      return { trk, loose, coarse, rocks, fp, ridge: ridge * inroad, windrow: windrow * inroad, soil: outside, veg, inroad, tc: sep / 2 };
+      return { trk, loose, coarse, rocks, fp, bank, bankH, cut, ridge: ridge * inroad, windrow: windrow * inroad, soil: outside, veg, inroad, tc: sep / 2 };
     },
     // grilla precalculada (para pintar millones de píxeles): canales a `res` m, lectura bilineal
     grid(d0, len, HW, hwAt, res = 0.08) {
-      const nx = Math.ceil(2 * HW / res) + 2, ny = Math.ceil(len / res) + 2, K = ['trk', 'loose', 'coarse', 'rocks', 'fp', 'ridge', 'windrow', 'soil', 'veg', 'inroad'], G = K.map(() => new Float32Array(nx * ny));
+      const nx = Math.ceil(2 * HW / res) + 2, ny = Math.ceil(len / res) + 2, K = ['trk', 'loose', 'coarse', 'rocks', 'fp', 'bank', 'ridge', 'windrow', 'soil', 'veg', 'inroad'], G = K.map(() => new Float32Array(nx * ny));
       for (let j = 0; j < ny; j++) { const d = d0 + j * res, hw = hwAt(d); for (let i = 0; i < nx; i++) { const s = -HW + i * res, m = this.at(d, s, hw); for (let k = 0; k < K.length; k++) G[k][j * nx + i] = m[K[k]]; } }
       return (d, s) => { const fx = Math.max(0, Math.min(nx - 1.001, (s + HW) / res)), fy = Math.max(0, Math.min(ny - 1.001, (d - d0) / res)), i = Math.floor(fx), j = Math.floor(fy), u = fx - i, v = fy - j, o = {};
         for (let k = 0; k < K.length; k++) { const g = G[k], a = j * nx + i; o[K[k]] = (g[a] * (1 - u) + g[a + 1] * u) * (1 - v) + (g[a + nx] * (1 - u) + g[a + nx + 1] * u) * v; } return o; };

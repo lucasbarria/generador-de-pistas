@@ -735,6 +735,13 @@ const SURF = {
   STONY:  { name: 'Pedregoso (huellas)', mu: 0.80, col: [150, 120, 90], amp: 34, sin: [0.008, 0.35], damp: 0.03, ui: '#a0704a' },
   STONYL: { name: 'Pedregoso suelto (lomo y bordes)', mu: 0.74, col: [160, 128, 96], amp: 44, sin: [0.012, 0.3], damp: 0.05, ui: '#c08a5a' },
   GRAVEL: { name: 'Ripio (huellas firmes)', mu: 0.82, col: [140, 118, 86],  amp: 30, sin: [0.004, 0.6],  damp: 0.02, ui: '#b08d5f' },
+  DSLOPE: { name: 'Cuneta: talud interior de ripio suelto', mu: 0.66, col: [150, 128, 96], amp: 40, sin: [0.008, 0.4], damp: 0.06, ui: '#9c8a6a', dirt: true },
+  DBOT:   { name: 'Cuneta: fondo de tierra blanda', mu: 0.58, col: [150, 136, 112], amp: 22, sin: [0.006, 0.5], damp: 0.30, ui: '#8a7a60', dirt: true },
+  DWALL:  { name: 'Cuneta: talud exterior de tierra firme', mu: 0.70, col: [74, 62, 48], amp: 26, sin: [0.004, 0.6], damp: 0.02, ui: '#5a4a38', dirt: true },
+  GRAVELN: { name: 'Ripio normal', mu: 0.79, col: [146, 124, 92], amp: 34, sin: [0.005, 0.5], damp: 0.035, ui: '#bf9a68' },
+  BANK:   { name: 'Banco de ripio (afuera de la curva)', mu: 0.62, col: [168, 146, 112], amp: 46, sin: [0.010, 0.35], damp: 0.12, ui: '#e3c07a' },
+  STONYN: { name: 'Pedregoso normal', mu: 0.77, col: [154, 124, 94], amp: 38, sin: [0.010, 0.32], damp: 0.045, ui: '#b07c52' },
+  STONYB: { name: 'Banco pedregoso (afuera de la curva)', mu: 0.60, col: [170, 138, 104], amp: 50, sin: [0.014, 0.3], damp: 0.14, ui: '#d0955e' },
   WET:    { name: 'Mojado',         mu: 0.78, col: [34, 36, 40],    amp: 7,  sin: [0, 0],        damp: 0,    ui: '#3d6fa8' },
   CLAY:   { name: 'Tierra arcillosa', mu: 0.79, col: [132, 108, 80],  amp: 26, sin: [0.005, 0.65], damp: 0.024, ui: '#8a6446' },
   LOOSE:  { name: 'Ripio suelto y piedras (centro y bordes)', mu: 0.72, col: [162, 140, 106], amp: 42, sin: [0.009, 0.4],   damp: 0.05, ui: '#d9b26f' },
@@ -764,6 +771,13 @@ const MATDEF = Object.fromEntries(Object.entries({
   GRAVEL: { cat: 'calzada', desc: 'Ripio compactado: huellas firmes, lomo central, serrucho en frenadas, baches y pozos ocasionales.', geo: {}, lib: { det: 'det_road' } },
   STONY:  { cat: 'calzada', desc: 'Piso pedregoso: cantos grandes y medianos sobre tierra compactada; huellas firmes, piso irregular.', geo: { mound: 1.4 }, lib: { det: 'det_road_e' } },
   STONYL: { cat: 'calzada', desc: 'Piso pedregoso suelto (lomo y bordes): piedras sueltas.', geo: { rut: 0.6, berm: 1.2, corrug: 1.1, hole: 0.9, mound: 2.0, ondul: 1.2 }, lib: { det: 'det_road_e' } },
+  DSLOPE: { cat: 'cuneta', desc: 'Talud interior de la cuneta: ripio suelto que viene del camino, poco agarre (te chupa hacia la cuneta).', lib: { det: 'det_loose' } },
+  DBOT:   { cat: 'cuneta', desc: 'Fondo de la cuneta: tierra fina asentada, blanda, frena mucho (DAMPING alto).', lib: { det: 'det_ditch' } },
+  DWALL:  { cat: 'cuneta', desc: 'Talud exterior de la cuneta: tierra firme y empinada; con velocidad se golpea y cuesta subir.', lib: { det: 'det_dirt' } },
+  GRAVELN: { cat: 'calzada', desc: 'Ripio normal: entre la huella y el lomo, algo de grava suelta.', geo: {}, lib: { det: 'det_road' } },
+  BANK:   { cat: 'calzada', desc: 'Banco de ripio suelto afuera de la curva: pesado, frena y con poco agarre lateral.', geo: { rut: 0.5, berm: 1.5, corrug: 1.2, hole: 0.7, mound: 2.0, ondul: 1.2 }, lib: { det: 'det_road' } },
+  STONYN: { cat: 'calzada', desc: 'Pedregoso normal: entre la huella y el lomo.', geo: { mound: 1.4 }, lib: { det: 'det_road_e' } },
+  STONYB: { cat: 'calzada', desc: 'Banco pedregoso afuera de la curva: piedras grandes sueltas.', geo: { rut: 0.5, berm: 1.4, corrug: 1.2, hole: 0.8, mound: 2.2, ondul: 1.2 }, lib: { det: 'det_road_e' } },
   LOOSE:  { cat: 'calzada', desc: 'Ripio suelto y grueso: más piedras y montoncitos, bordos de grava, serrucho marcado; huellas menos hundidas.', geo: { rut: 0.6, berm: 1.5, corrug: 1.3, hole: 0.8, mound: 1.8, ondul: 1.2 }, lib: { det: 'det_road' } },
   CLAY:   { cat: 'calzada', desc: 'Tierra compactada (algo húmeda): huellas más hondas, más baches, charcos y surcos de agua; menos piedras.', geo: { rut: 1.35, hole: 1.25, corrug: 0.6, mound: 0.6, erosion: 1.3, water: 1.3 }, lib: { det: 'det_dirt' } },
   MUD:    { cat: 'calzada', desc: 'Barro: huellas muy hondas, pozos y ondulación fuerte; casi sin piedras.', geo: { rut: 1.8, hole: 1.5, deep: 1.3, ondul: 1.5, corrug: 0.3, mound: 0.3, erosion: 1.2, water: 1.6 }, lib: { det: 'det_dirt' } },
@@ -1659,6 +1673,7 @@ const RGLIB = {
       c = mix(c, [q2[0] * kk[0] * mm[0], q2[1] * kk[1] * mm[1], q2[2] * kk[2] * mm[2]], Math.min(1, t)); };
     lay(L.L, m.loose * 0.9, 0.6, 1.3, 2.1, 0.9, 585, true, 2.0, [0.9, 0.9, 0.92]);           // grava media: manchones, lomo y cordón (GRAVEL_LOOSE)
     lay(L.B, m.coarse * 0.9, 0.25, 0.7, 3.1, 0.9, 590, true);
+    if (m.bank > 0.02) lay(L.L, m.bank * 0.95, 0.45, 2.3, 1.1, 0.7, 597, true, 2.4, [0.88, 0.88, 0.9]);              // banco de ripio suelto, más denso y profundo (foto 6885)
     if (m.rocks > 0.02) lay(L.B, m.rocks * 0.85, 0.15, 2.9, 0.4, 0.45, 595, true, 1.7, [1.08, 1.07, 1.05]);         // piedras grandes del piso pedregoso (foto 6902: D50 ~21 mm, ~35 % ≥ 40 mm)                                    // canto rodado grueso gris azulado (SHOULDER_BERM)
     if (m.soil > 0.02) { const kt = tint(L.T, 0.8), qt = this.stoch(L.T, s + 5.1, d + 0.3, 1.1, 610, true); let qs = [qt[0] * kt[0] * 0.8, qt[1] * kt[1] * 0.8, qt[2] * kt[2] * 0.8];
       if (L.S) { const ks = tint(L.S, 0.5), q3 = this.stoch(L.S, s, d, 0.9, 540, false); qs = mix(qs, [q3[0] * ks[0], q3[1] * ks[1], q3[2] * ks[2]], 0.35); }
@@ -1811,7 +1826,7 @@ const PACK = {
   LIBNAMES: [
     // biblioteca RIO_GRANDE_GROUND (suelo seco de Río Grande, sacado de fotos propias): un archivo por rol
     [/^rg_west_dry\.dds$/, 'det_road'], [/^rg_west_dry_nm\.dds$/, 'nm_road'], [/^rg_east_dry\.dds$/, 'det_road_e'], [/^rg_east_dry_nm\.dds$/, 'nm_road_e'],
-    [/^rg_tire_loose_soil\.dds$/, 'det_dirt'], [/^rg_track_compacted\.dds$/, 'det_track'], [/^rg_gravel_loose\.dds$/, 'det_loose'], [/^rg_shoulder_berm\.dds$/, 'det_berm'], [/^rg_stones_east\.dds$/, 'stones_e'],
+    [/^rg_tire_loose_soil\.dds$/, 'det_dirt'], [/^rg_track_compacted\.dds$/, 'det_track'], [/^rg_gravel_loose\.dds$/, 'det_loose'], [/^rg_shoulder_berm\.dds$/, 'det_berm'], [/^rg_stones_east\.dds$/, 'stones_e'], [/^rg_ditch_cracked\.dds$/, 'det_ditch'],
     [/^rg_bank_soil\.dds$/, 'bank'], [/^rg_edge_vegetation(_v\d+)?\.dds$/, 'det_grass'], [/^rg_(rut_deep|ditch_cracked)\.dds$/, 'none', 'NO aprobado en la Etapa 2 (foto fuente insuficiente): no se usa en producción'],
     [/^rg_[a-z0-9_]+\.dds$/, 'none', 'material de la biblioteca de Río Grande sin rol directo en el generador'],
     [/^(ground|penkka|risteys|road_plate)_?\d*_?(diff|mask|nm)?\./, 'none', 'pintada para el mapa de otro tramo'], [/^(otpo|otpt|ttpo|postilaatikot|sahkopla|katos|kanniranni|merkit|lidi3d|nauha|fence|punto|blank|collision|jarvi|nm\.|penkka_diff)/, 'none', 'objeto o atlas (no es suelo)'],
@@ -1854,6 +1869,7 @@ const PACK = {
     { const bk = this.on ? this.get('bank') : null; if (bk) { if (!TEX.bank || TEX.bank.__src !== bk) { const W0 = bk.width, H0 = bk.height, src = bk.getContext('2d').getImageData(0, 0, W0, H0).data, c = document.createElement('canvas'); c.width = H0; c.height = W0;
           const x = c.getContext('2d'), im = x.createImageData(H0, W0); for (let ny = 0; ny < W0; ny++) for (let nx = 0; nx < H0; nx++) { const si = ((H0 - 1 - nx) * W0 + ny) * 4, di = (ny * H0 + nx) * 4; im.data[di] = src[si]; im.data[di + 1] = src[si + 1]; im.data[di + 2] = src[si + 2]; im.data[di + 3] = 255; }
           x.putImageData(im, 0, 0); c.__src = bk; TEX.bank = c; } } else delete TEX.bank; } // abajo de la imagen (tierra) junto a la cuneta, arriba (pasto) lejos
+    { const dc = this.on ? this.get('det_ditch') : null; if (dc) TEX.ditchcrack = dc; else delete TEX.ditchcrack; } // fondo de la cuneta: barro seco agrietado (foto 6896)
     const want = {}; if (this.on) { const g = this.get('grass'), a = this.get('side_a'), f = this.get('forest'), c = this.get('side_c');
       if (g) want.grass = g; if (a) want.side_a = a; if (f) { want.forest = f; want.side_b = f; } if (c) want.side_c = c; if (!a && g) want.side_a = g; }
     let grassCh = false;
@@ -3119,7 +3135,8 @@ if (PHYS && PHYS.pisos) RGMASK.loadFloors(PHYS.pisos);
 if (PHYS && PHYS.superficies) for (const [k, v] of Object.entries(PHYS.superficies)) if (SURF[k] && v && typeof v === 'object' && 'friction' in v) {
   SURF[k].mu = +v.friction; SURF[k].damp = +v.damping; SURF[k].sin = [+v.sin_height, +v.sin_length]; if (MATDEF[k]) MATDEF[k].phys = SURF[k]; }
 const PHYSG = {
-  ent(k) { return (PHYS && ((PHYS.geometria && PHYS.geometria[k]) || (PHYS.costados && PHYS.costados[k]))) || {}; },
+  ent(k) { return (PHYS && ((PHYS.geometria && PHYS.geometria[k]) || (PHYS.costados && PHYS.costados[k]) || (k === 'curvas' && PHYS.curvas))) || {}; },
+  val(k, f, def) { const o = this.ent(k)[f]; const v = o && typeof o === 'object' ? +o.valor : +o; return isFinite(v) ? v : def; },
   // interruptor de la interfaz (#geo_<clave>) o 'activo' del archivo
   on(k) { const el = typeof document !== 'undefined' ? document.getElementById('geo_' + k) : null; if (el && el.type === 'checkbox') return el.checked; return this.ent(k).activo !== false; },
   k(k) { if (!this.on(k)) return 0; const v = +this.ent(k).intensidad; return isFinite(v) ? v : 1; },
@@ -3139,6 +3156,49 @@ function floorInfo(show) { const el = typeof document !== 'undefined' && documen
   const km = t => sp.filter(x => x.t === t).reduce((a, x) => a + x.d1 - x.d0, 0) / 1000;
   el.innerHTML = sp.map(x => `<b>${x.t}</b> ${(x.d0 / 1000).toFixed(2)}–${(x.d1 / 1000).toFixed(2)} km`).join(' · ') + ` <span class="mut">(pedregoso ${km('pedregoso').toFixed(2)} km · ripio ${km('ripio').toFixed(2)} km · transiciones ${km('transición').toFixed(2)} km)</span>`;
   if (show) { const x = sp.find(q => q.t === 'transición') || sp[0]; S.sel = { d0: x.d0, d1: x.d1 }; if (typeof drawProfile === 'function') drawProfile(); if (typeof drawSel === 'function') drawSel(); } }
+// ---------- CURVAS (Etapa 5 · complemento 2) ----------
+// Desde la curvatura del eje (GPX): banco de ripio suelto afuera de las curvas cerradas (foto IMG_6885) y huellas que se
+// corren hacia adentro y quedan más limpias (foto IMG_6887). Universal: sólo usa la traza. Medidas en config → curvas.
+const CURVAS = {
+  list: [],
+  build(K, dist, step, closed, total) {
+    const V = (f, d) => PHYSG.val('curvas', f, d), I = PHYSG.k('curvas'), Rth = V('umbral_radio_m', 90), Rmax = V('radio_banco_maximo_m', 30), Rcut = V('radio_corte_completo_m', 40);
+    const pre = V('banco_antes_vertice', 0.5), post = V('banco_largo_salida_m', 30), n = K.length, list = [], kDet = 1 / (1.6 * Rth);
+    for (let i = 0; i < n;) { if (Math.abs(K[i]) < kDet) { i++; continue; } const sg = Math.sign(K[i]); let j = i, km = 0, im = i;
+      while (j < n && Math.abs(K[j]) >= kDet && Math.sign(K[j]) === sg) { if (Math.abs(K[j]) > km) { km = Math.abs(K[j]); im = j; } j++; }
+      if (dist[j - 1] - dist[i] >= 6) list.push({ d0: dist[i], d1: dist[j - 1], dA: dist[im], R: 1 / km, sg }); i = j; }
+    const N = Math.ceil(total) + 2, B = new Float32Array(N), BS = new Int8Array(N), CUT = new Float32Array(N), CS = new Int8Array(N), ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / ((b - a) || 1e-9))); return t * t * (3 - 2 * t); };
+    const EDs = S.edits.filter(e => e.kind === 'bank'), hsh = k => { const v = Math.sin(k * 91.37 + 17.1) * 43758.5453; return v - Math.floor(v); };
+    for (const c of list) {
+      c.id = Math.round(c.dA); c.auto = Math.pow(Math.max(0, Math.min(1, (1 / c.R - 1 / Rth) / (1 / Rmax - 1 / Rth))), 0.6); // cuanto más cerrada, más ripio
+      const e = EDs.find(q => Math.abs(q.d - c.dA) < 15); c.edit = e || null; c.int = e ? +e.int : 1; c.sideOut = e && e.side === 'L' ? 1 : e && e.side === 'R' ? -1 : -c.sg;
+      c.b0 = c.auto * c.int * I * (0.8 + 0.4 * hsh(c.id)); if (!(c.b0 > 0.001)) continue;
+      const st = c.dA - pre * (c.dA - c.d0), ex = Math.max(c.d1, c.dA + 4), L = post * (0.5 + 0.5 * Math.min(1, c.b0));
+      for (let d = Math.max(0, Math.floor(st - 6)); d < Math.min(N, Math.ceil(ex + L)); d++) {
+        const w = d < st ? 0.25 * ss(st - 6, st, d) : d <= ex ? 0.25 + 0.75 * ss(st, ex, d) : 1 - ss(ex, ex + L, d);
+        const v = c.b0 * w * (0.8 + 0.4 * vn2(d / 12, c.id * 0.37, 731)); if (v > B[d]) { B[d] = Math.min(1, v); BS[d] = c.sideOut; } } }
+    // corrimiento de las huellas y lomo marcado: según la curvatura en cada metro (todas las curvas, no sólo las del banco)
+    for (let d = 0, i = 0; d < N; d++) { while (i < n - 2 && dist[i + 1] < d) i++; const u = Math.max(0, Math.min(1, (d - dist[i]) / ((dist[i + 1] - dist[i]) || 1))), k = K[i] * (1 - u) + K[i + 1] * u;
+      CUT[d] = I * ss(1 / (2.5 * Rcut), 1 / Rcut, Math.abs(k)); CS[d] = k >= 0 ? 1 : -1; }
+    RGMASK.setCurves(I > 0 ? { B, BS, CUT, CS, shift: V('corrimiento_huellas_m', 0.35), ancho: V('banco_ancho_m', 1.6) } : null);
+    this.list = list; this.total = total; this.H = V('banco_altura_m', 0.08);
+    if (typeof document !== 'undefined') setTimeout(() => curvasPanel(), 0);
+    return list; },
+  // clase de superficie física a lo ancho (huella / normal / lomo-bordes / banco), de la máscara de la MALLA: huella pintada = hundida = firme
+  // celda de la malla (0,5 m × ~0,35 m): mayoría de 5 muestras de la máscara pintada, así la franja física sigue lo que se ve
+  cls(m) { return m.bank > 0.4 ? 'B' : m.trk > 0.4 ? 'T' : Math.max(m.ridge, m.windrow) > 0.45 || m.loose > 0.6 ? 'L' : 'N'; },
+  bandClass(d, s, hw) { const c = {}, dw = 0.12 * hw / 10 * 1.5; for (const [a, b] of [[0, 0], [-0.15, -dw], [0.15, dw], [-0.15, dw], [0.15, -dw]]) { const k = this.cls(RGMASK.at(d + a, s + b, hw)); c[k] = (c[k] || 0) + 1; }
+    let best = 'N', bn = -1; for (const k of ['B', 'T', 'L', 'N']) if ((c[k] || 0) > bn) { bn = c[k] || 0; best = k; } return best; },
+};
+function curvasPanel() { const el = document.getElementById('curvasList'); if (!el) return; const L = CURVAS.list.filter(c => c.auto > 0 || c.edit);
+  el.innerHTML = L.length ? L.map(c => `<div class="edit" style="gap:6px" data-cd="${c.dA}"><span style="flex:1">km ${(c.dA / 1000).toFixed(2)} · R ${c.R.toFixed(0)} m · gira ${c.sg > 0 ? 'izq.' : 'der.'} · banco ${(c.b0 || 0).toFixed(2)}</span>
+    <select data-ci="${c.dA}" title="intensidad del banco">${[[0, 'apagado'], [0.5, '×0,5'], [1, 'auto'], [1.5, '×1,5'], [2, '×2']].map(([v, t]) => `<option value="${v}"${+c.int === v ? ' selected' : ''}>${t}</option>`).join('')}</select>
+    <select data-cs="${c.dA}" title="lado del banco"><option value="auto"${!c.edit || c.edit.side === 'auto' ? ' selected' : ''}>afuera (auto)</option><option value="L"${c.edit && c.edit.side === 'L' ? ' selected' : ''}>izquierda</option><option value="R"${c.edit && c.edit.side === 'R' ? ' selected' : ''}>derecha</option></select>
+    <button class="b" data-cg="${c.dA}" title="ver la curva">ver</button></div>`).join('') : '<div class="mut">No hay curvas cerradas (o el banco está apagado).</div>';
+  const set = (dA, ch) => { edPushUndo(); let e = S.edits.find(q => q.kind === 'bank' && Math.abs(q.d - dA) < 15); if (!e) { e = { kind: 'bank', d: +dA, int: 1, side: 'auto' }; S.edits.push(e); } Object.assign(e, ch); editsChanged(); };
+  el.querySelectorAll('[data-ci]').forEach(q => q.onchange = () => set(+q.dataset.ci, { int: +q.value }));
+  el.querySelectorAll('[data-cs]').forEach(q => q.onchange = () => set(+q.dataset.cs, { side: q.value }));
+  el.querySelectorAll('[data-cg]').forEach(q => q.onclick = () => { const d = +q.dataset.cg; S.sel = { d0: Math.max(0, d - 40), d1: d + 40 }; if (typeof selInfo === 'function') selInfo(); if (typeof drawSel === 'function') drawSel(); if (typeof drawProfile === 'function') drawProfile(); }); }
 function floorKey(d, base) { if (base !== 'GRAVEL' && base !== 'LOOSE') return base; const p = RGMASK.floorP(d, 0, null); if (p <= 0.001) return base; if (p >= 0.999) return 'STONY';
   const L = (PHYS && PHYS.superficies && PHYS.superficies.mancha_m && +PHYS.superficies.mancha_m.valor) || 3, k = Math.floor(d / L), h = Math.abs(Math.sin(k * 127.1 + 311.7) * 43758.5453) % 1;
   return h < p ? 'STONY' : base; }
@@ -3188,10 +3248,11 @@ const RELIEF = {
     if ((k = K_('lomo_central'))) z += rutD * v('lomo_central', 'fraccion_de_rodera', 0.45) * m.ridge * FQ('cordones') * k;
     // cordón de ripio suelto cerca de los bordes (lo que tiran las ruedas), más del lado de afuera de las curvas
     const out = K !== 0 && Math.sign(s) === -Math.sign(K) ? Math.min(1, Math.abs(K) * 60) : 0;
-    if ((k = K_('cordones'))) z += (v('cordones', 'altura_m', 0.012) + v('cordones', 'altura_extra_curva_m', 0.025) * out) * wear * g.berm * (0.6 + 0.8 * N(d / 9, s > 0 ? 5 : 6, 124)) * m.windrow * FQ('cordones') * k;
+    if ((k = K_('cordones'))) z += (v('cordones', 'altura_m', 0.012) + v('cordones', 'altura_extra_curva_m', 0.025) * out) * wear * g.berm * (0.6 + 0.8 * N(d / 9, s > 0 ? 5 : 6, 124)) * m.windrow * FQ('cordones') * (1 - 0.8 * (m.bank || 0)) * k; // donde está el banco, el cordón ya es el banco
     // piso irregular de baja amplitud donde hay grava suelta o canto grueso (nuevo en V4)
     if ((k = K_('deformaciones_locales'))) { const t = v('deformaciones_locales', 'tamano_m', 0.9); z += (N(d / t, s / t, 150) - 0.5) * 2 * v('deformaciones_locales', 'amplitud_m', 0.008) * Math.max(m.loose, m.coarse) * FQ('relieve_irregular') * k; }
     if (m.rocks > 0.01 && (k = K_('deformaciones_locales'))) z += m.rocks * ((PHYS && PHYS.pisos && PHYS.pisos.piedras_altura_m && +PHYS.pisos.piedras_altura_m.valor) || 0.018) * (0.6 + 0.8 * N(d / 0.7, s / 0.7, 151)) * k;                       // piedras grandes (pedregoso): bultos suaves
+    if (m.bankH > 0.005 && (k = PHYSG.k('curvas'))) z += m.bankH * (CURVAS.H || 0.08) * (0.85 + 0.3 * N(d / 6, s / 2, 160));                    // banco de ripio afuera de la curva: lomo real en la malla
     { const zs = this.serr(d); if (zs > 0) z += Math.sin(2 * Math.PI * d / zs.onda + 2 * N(d / 20, 4.4, 152) + 0.6 * s) * zs.amp * zs.w * (0.75 + 0.25 * g.corrug); } // serrucho en zonas al azar (Etapa 5)
     // serrucho (calaminas) en frenadas y aceleraciones: ondas transversales
     if (BZ > 0.05 && (k = K_('serrucho'))) { const lam = v('serrucho', 'onda_min_m', 1.6) + v('serrucho', 'onda_extra_m', 0.4) * N(d / 50, 7.7, 125); z += Math.sin(2 * Math.PI * d / lam + 3 * N(d / 30, 8.8, 126)) * v('serrucho', 'amplitud_m', 0.011) * BZ * wear * Tr * g.corrug * k; }
@@ -3202,7 +3263,7 @@ const RELIEF = {
     if ((k = K_('baches_sueltos'))) { const CL = v('baches_sueltos', 'cada_m', 7), ci = Math.floor(d / CL), p0 = v('baches_sueltos', 'profundidad_chico_m', 0.015), p1 = v('baches_sueltos', 'profundidad_mediano_m', 0.04), p2 = v('baches_sueltos', 'profundidad_extra_m', 0.03);
       for (let kk = ci - 1; kk <= ci + 1; kk++) for (let j = 0; j < 2; j++) { if (H(kk, j, 101) > (0.18 + 0.3 * w) * Math.min(1.6, wear * Tr) * g.hole) continue;
         const pd = kk * CL + H(kk, j, 102) * CL, ps = H(kk, j, 103) < 0.65 ? (H(kk, j, 104) < 0.5 ? -1 : 1) * tw * (1 + 0.25 * (H(kk, j, 105) - 0.5)) : (H(kk, j, 105) * 2 - 1) * hw * 0.8;
-        const med = H(kk, j, 109) < 0.25, r = (med ? 0.7 : 0.4) + (med ? 0.6 : 0.4) * H(kk, j, 106), ra = r * (1.1 + 0.6 * H(kk, j, 107)), dep = ((med ? p1 : p0) + p2 * H(kk, j, 108)) * (1 + 0.7 * w), x2 = ((d - pd) / ra) ** 2 + ((s - ps) / r) ** 2;
+        const med = H(kk, j, 109) < 0.25, dep = ((med ? p1 : p0) + p2 * H(kk, j, 108)) * (1 + 0.7 * w), r = Math.max((med ? 0.7 : 0.4) + (med ? 0.6 : 0.4) * H(kk, j, 106), dep * 14), ra = r * (1.1 + 0.6 * H(kk, j, 107)), x2 = ((d - pd) / ra) ** 2 + ((s - ps) / r) ** 2;
         if (x2 < 1) z -= dep * 0.5 * (1 + Math.cos(Math.PI * Math.sqrt(x2))) * k; } }
     // pozos ocasionales más hondos, uno cada varios cientos de metros
     if ((k = K_('pozos_hondos'))) { const CL = v('pozos_hondos', 'cada_m', 220), kp = Math.floor(d / CL); for (const kk of [kp - 1, kp, kp + 1]) { if (H(kk, 0, 111) > 0.55 * Math.min(1.5, wear) * g.deep) continue;
@@ -3215,7 +3276,7 @@ const RELIEF = {
     // surcos de erosión en las pendientes fuertes (el agua baja por el camino y lo labra en diagonal)
     if (G > 0.06 && (k = K_('erosion'))) { const cx = (N(d / 28, 0.5, 127) - 0.5) * hw * 1.3, g2 = Math.exp(-(((s - cx) / 0.3) ** 2)); z -= g2 * v('erosion', 'profundidad_m', 0.05) * Math.min(1, (G - 0.06) / 0.08) * wear * g.erosion * (0.4 + 0.6 * N(d / 12, 2.5, 128)) * k; }
     if (w > 0.35 && g.water > 0.02 && (k = K_('surcos_agua'))) { const cx = (N(d / 25, 0.5, 94) - 0.5) * hw * 1.4, g2w = Math.exp(-(((s - cx) / 0.18) ** 2)), mm = Math.max(0, N(d / 30, 9.5, 95) - 0.45) * 2; z -= g2w * mm * v('surcos_agua', 'profundidad_m', 0.06) * (w - 0.35) / 0.65 * g.water * k; } // surcos del agua
-    if ((k = K_('morros'))) { const L = v('morros', 'cada_m', 260), km = Math.floor(d / L), d0 = km * L + H(km, 0, 71) * (L - 40) + 20, len = 2 + H(km, 0, 72) * 2, x = Math.abs(d - d0) / (len / 2);
+    if ((k = K_('morros'))) { const L = v('morros', 'cada_m', 260), km = Math.floor(d / L), d0 = km * L + H(km, 0, 71) * (L - 40) + 20, len = 3 + H(km, 0, 72) * 2.5, x = Math.abs(d - d0) / (len / 2);
       if (x < 1 && H(km, 0, 73) < 0.7) z += (v('morros', 'altura_min_m', 0.05) + v('morros', 'altura_extra_m', 0.07) * H(km, 0, 74)) * 0.5 * (1 + Math.cos(Math.PI * x)) * (0.85 + 0.3 * N(d / 1.5, s / 1.5, 96)) * g.morro * k; } // morros suaves
     // asfalto: parches de reparación (rectángulos de 1–4 m, 3–8 mm más altos o más bajos, con borde de 10 cm) donde está gastado
     if (g.patch > 0.01) { const CL = 18, ci = Math.floor(d / CL); for (let k2 = ci - 1; k2 <= ci + 1; k2++) { if (H(k2, 9, 141) > 0.35 * Math.min(1.5, wear)) continue;
@@ -3743,7 +3804,7 @@ async function rebuild(keepCam) {
       if (AC && Array.isArray(AC.valor)) { const near = AC.valor.map(c => ({ c, d: proj(c.lat, c.lon) })).filter(q => q.d != null);
         if (near.length) { start = AC.inicio || start; for (const q of near) pts.push({ d: q.d, from: q.c.desde, to: q.c.hasta, len: q.c.transicion_m, irr: q.c.irregularidad }); } }
       const ed = S.edits.filter(e => e.kind === 'floor').map(e => ({ d0: e.d0, d1: e.d1, type: e.type, len: e.len, irr: e.irr }));
-      RGMASK.setFloors(start, pts, ed); S.floorAuto = { start, pts }; S.floorSig = JSON.stringify(ed); S.floorEd = ed; S.floorTotal = cum[cum.length - 1]; setTimeout(() => floorInfo(false), 0);
+      RGMASK.setFloors(start, pts, ed); S.floorAuto = { start, pts }; S.floorSig = JSON.stringify(ed); S.floorEd = ed; S.bankEd = S.edits.filter(e => e.kind === 'bank').map(e => ({ ...e })); S.bankSig = JSON.stringify(S.bankEd); S.floorTotal = cum[cum.length - 1]; setTimeout(() => floorInfo(false), 0);
       if (pts.length || ed.length) log(`Tipos de piso: ${start} desde el inicio${pts.map(p => `, ${p.to} desde ${(p.d / 1000).toFixed(2)} km (transición ${p.len} m)`).join('')}${ed.length ? ` · ${ed.length} tramo(s) editado(s)` : ''}.`); }
     { const tt = rPts.reduce((a, p, i) => i ? a + Math.hypot(p[0] - rPts[i - 1][0], p[1] - rPts[i - 1][1]) : 0, 0); RELIEF.env(tt); RELIEF.A = RELIEF.amp(); RELIEF.setWear(); }
     SIDECAT.on = SIDECAT.active(); if (SIDECAT.on) { SIDECAT.build(); SIDECAT.prepAlt(B, rPts); }
@@ -3767,7 +3828,7 @@ async function rebuild(keepCam) {
             const cr = tx * (q[1] - a[1]) - ty * (q[0] - a[0]), sd = cr > 0 ? 1 : -1, w = ln.cls === 'track' || ln.cls === 'path' ? 4 : 6;
             if (!ACCS.some(z => Math.abs(z.d - cum[bi]) < 12 && z.sd === sd)) ACCS.push({ d: cum[bi], sd, w, osm: true }); } }
       } }
-    const routeArgs = { cun5: PHYSG.on('cunetas_v5') ? PHYSG.ent('cunetas_v5') : null, tal: PHYSG.on('taludes') ? { ...PHYSG.ent('taludes'), k: PHYSG.k('taludes'), fp: d => RGMASK.FL.pBase(d).w } : null, bareAt: S.autoW ? S.autoW.bare : null, clearAt: S.autoW ? S.autoW.clear : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, terrRes: o.res, shoulder: Math.min(3.5, o.res * 1.5 + 1),
+    const routeArgs = { ditchBotMat: TEX.ditchcrack ? 'ditchcrack' : 'ditch', onCurv: (K, dist, step, closed, total) => CURVAS.build(K, dist, step, closed, total), bandClass: (d, s, hw) => CURVAS.bandClass(d, s, hw), cun5: PHYSG.on('cunetas_v5') ? PHYSG.ent('cunetas_v5') : null, tal: PHYSG.on('taludes') ? { ...PHYSG.ent('taludes'), k: PHYSG.k('taludes'), fp: d => RGMASK.FL.pBase(d).w } : null, bareAt: S.autoW ? S.autoW.bare : null, clearAt: S.autoW ? S.autoW.clear : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, terrRes: o.res, shoulder: Math.min(3.5, o.res * 1.5 + 1),
       humAt: RELIEF.humAt, forestAt: RELIEF.forestAt, bankMat: TEX.bank && PACK.on ? 'bank' : null, bankLen: 5, sideMatAt: SIDECAT.on ? (d, sd) => SIDECAT.typeAt(d, sd) : null, sideLumpAt: SIDECAT.on ? (d, sd, e) => SIDECAT.lumpAt(d, sd, e) : null, reliefAt: RELIEF.A ? (d, s, hw, c) => RELIEF.at(d, s, hw, c) : null, roadCols: PHYSG.cols(), ditchP: { k: PHYSG.k('cunetas'), bmin: PHYSG.v('cunetas', 'profundidad_bosque_min_m', 0.38), bext: PHYSG.v('cunetas', 'profundidad_bosque_extra_m', 0.22), cmin: PHYSG.v('cunetas', 'profundidad_campo_min_m', 0.16), cext: PHYSG.v('cunetas', 'profundidad_campo_extra_m', 0.12) }, stones: RELIEF.A && $('#stones') ? +$('#stones').value : (RELIEF.A ? 1 : 0), accesses: ACCS, procAccess: !$('#access') || $('#access').checked };
     S.live = { routeArgs, cache: { keyFn: () => JSON.stringify(S.edits.filter(e => e.kind === 'shape')) }, sideArgs: null, sideSegs: [] };
     res = Core.buildRoute({ ...routeArgs, ...editFns(o, S.lastTotal, B.closed), cache: S.live.cache });
@@ -4161,7 +4222,7 @@ const EDIT_TXT = {
   profile: e => `Perfil por puntos (${e.pts.length})`, rasante: e => `${RAS_NAME[e.type] || 'Rasante'} ${fmtH(+(+e.h).toFixed(2))} m`,
   smooth: () => 'Suavizar', flat: e => `Aplanar (${{ start: 'altura inicial', end: 'altura final', avg: 'promedio', abs: (e.h ?? 0).toFixed(1) + ' m' }[e.ref || 'start']}${(e.k ?? 1) < 1 ? ', ' + Math.round(e.k * 100) + '%' : ''})`, grade: e => `Pendiente constante ${e.pct != null ? (e.pct > 0 ? '+' : '') + e.pct.toFixed(1) + '%' : fmtH(e.dh) + ' m'}`, bump: e => `Lomada ${+e.h.toFixed(2)} m`, jump: e => `Salto ${+e.h.toFixed(2)} m`, cattle: () => 'Guardaganado',
   shape: e => `Curva movida ${Math.hypot(e.dx, e.dy).toFixed(1)} m`, pothole: e => `Bache ${+e.h.toFixed(2)} m`, width: e => `Ancho ${+e.w.toFixed(1)} m`,
-  bank: e => e.abs ? `Inclinación ${+e.deg.toFixed(1)}°` : `Peralte ${+e.deg.toFixed(1)}°`, surface: e => SURF[e.key].name, floor: e => `Piso ${e.type === 'pedregoso' ? 'pedregoso' : 'ripio suelto'} (transición ${e.len} m, irregularidad ${e.irr})`,
+  bank: e => e.abs ? `Inclinación ${+e.deg.toFixed(1)}°` : `Peralte ${+e.deg.toFixed(1)}°`, surface: e => SURF[e.key].name, bank: e => `Banco de ripio ${+e.int === 0 ? 'apagado' : '×' + e.int}${e.side && e.side !== 'auto' ? (e.side === 'L' ? ' a la izquierda' : ' a la derecha') : ''}`, floor: e => `Piso ${e.type === 'pedregoso' ? 'pedregoso' : 'ripio suelto'} (transición ${e.len} m, irregularidad ${e.irr})`,
   section: e => `Sección ${{ both: 'ambos lados', L: 'izquierda', R: 'derecha' }[e.side || 'both']}: ` + [e.ditch == null ? null : e.ditch === 0 ? 'sin cuneta' : `cuneta ${e.ditch} m`, e.wf != null && e.wf !== 1 ? `ancho ×${e.wf}` : null, e.berm != null ? `banquina ${e.berm} m` : null, e.talud != null ? `talud ${e.talud}:1` : null].filter(Boolean).join(', '),
   lock: e => `Punto fijo ${fmtH(+(e.h + (S.result ? S.result.h0 : 0)).toFixed(2))} m (${e.ref === 'dato' ? 'dato medido' : 'altura fijada'})`,
 };
@@ -4352,7 +4413,7 @@ async function addRBRPackage(R, zip, slug) {
     const tP = mk(RGLIB.item('det_road_e') || RGLIB.item('det_road'), 5101, true), tR = mk(RGLIB.item('det_road'), 5103, false);
     if (tP && tR) { $('#prog').textContent = 'RBR: detalle fino de la calzada…'; await tick();
       for (const [nm, a] of [['det_pedregoso', tP], ['det_ripio', tR]]) { f.file(`texturas/${nm}.dds`, rgbaToDDS(a, W2, W2, true)); texturas[nm] = { dds: `texturas/${nm}.dds`, alfa: true, detalle: true, w: W2, h: W2 }; }
-      detalle = { tile_m: 2, por_superficie: { STONY: 'det_pedregoso', STONYL: 'det_pedregoso', GRAVEL: 'det_ripio', LOOSE: 'det_ripio' }, nota: 'segunda textura (DOUBLE_TEXTURE) sólo en la calzada; alfa = máscara de piedras' }; } }
+      detalle = { tile_m: 2, por_superficie: { STONY: 'det_pedregoso', STONYN: 'det_pedregoso', STONYL: 'det_pedregoso', STONYB: 'det_pedregoso', GRAVEL: 'det_ripio', GRAVELN: 'det_ripio', LOOSE: 'det_ripio', BANK: 'det_ripio' }, nota: 'segunda textura (DOUBLE_TEXTURE) sólo en la calzada; alfa = máscara de piedras' }; } }
   // driveline: el eje del camino con su altimetría final, cada ~6 m
   const st = Math.max(1, Math.round(6 / ((r.dist[1] - r.dist[0]) || 2))), idx = []; for (let i = 0; i < n; i += st) idx.push(i); if (idx[idx.length - 1] !== n - 1) idx.push(n - 1);
   const pt = i => [+r.C[i][0].toFixed(3), +r.C[i][1].toFixed(3), +r.hs[i].toFixed(3)];

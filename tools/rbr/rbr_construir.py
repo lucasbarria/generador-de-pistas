@@ -71,10 +71,19 @@ def fase(nombre):
 # Clave de superficie del generador (nombre de la malla física: 12GRAVEL, 3DITCHGRAVEL...) -> material de RBR
 # (seco, húmedo, mojado). Los nombres son los del enum MaterialID del complemento (rbr_track_formats/mat.py).
 RBR_MAT = {
-    "GRAVEL": ("GRAVEL_MEDIUM_SHALLOW_DRY", "GRAVEL_MEDIUM_SHALLOW_DAMP", "GRAVEL_MEDIUM_SHALLOW_WET"),  # huellas firmes
-    "LOOSE": ("GRAVEL_MEDIUM_DEEP_DRY", "GRAVEL_MEDIUM_DEEP_DAMP", "GRAVEL_MEDIUM_DEEP_WET"),            # ripio: lomo y bordes sueltos (Etapa 5: grava media)
-    "STONY": ("GRAVEL_COARSE_SHALLOW_DRY", "GRAVEL_COARSE_SHALLOW_DAMP", "GRAVEL_COARSE_SHALLOW_WET"),   # pedregoso: huellas (Etapa 5, PROVISIONAL)
-    "STONYL": ("GRAVEL_COARSE_DEEP_DRY", "GRAVEL_COARSE_DEEP_DAMP", "GRAVEL_COARSE_DEEP_WET"),          # pedregoso: lomo y bordes con piedras sueltas
+    # Etapa 5 (PROVISIONAL): en cada piso, huella > normal > lomo/bordes > banco afuera de la curva.
+    # RBR no tiene agarres a elegir: se usa grava más fina = más firme y shallow < deep < deeper = más suelta y pesada.
+    "GRAVEL": ("GRAVEL_FINE_SHALLOW_DRY", "GRAVEL_FINE_SHALLOW_DAMP", "GRAVEL_FINE_SHALLOW_WET"),        # ripio: huella limpia
+    "GRAVELN": ("GRAVEL_MEDIUM_SHALLOW_DRY", "GRAVEL_MEDIUM_SHALLOW_DAMP", "GRAVEL_MEDIUM_SHALLOW_WET"), # ripio normal
+    "LOOSE": ("GRAVEL_MEDIUM_DEEP_DRY", "GRAVEL_MEDIUM_DEEP_DAMP", "GRAVEL_MEDIUM_DEEP_WET"),            # ripio: lomo y bordes sueltos
+    "BANK": ("GRAVEL_MEDIUM_DEEPER_DRY", "GRAVEL_MEDIUM_DEEPER_DAMP", "GRAVEL_MEDIUM_DEEPER_WET"),       # ripio: banco afuera de la curva
+    "STONY": ("GRAVEL_MEDIUM_SHALLOW_DRY", "GRAVEL_MEDIUM_SHALLOW_DAMP", "GRAVEL_MEDIUM_SHALLOW_WET"),   # pedregoso: huella
+    "STONYN": ("GRAVEL_COARSE_SHALLOW_DRY", "GRAVEL_COARSE_SHALLOW_DAMP", "GRAVEL_COARSE_SHALLOW_WET"),  # pedregoso normal
+    "STONYL": ("GRAVEL_COARSE_DEEP_DRY", "GRAVEL_COARSE_DEEP_DAMP", "GRAVEL_COARSE_DEEP_WET"),          # pedregoso: lomo y bordes
+    "DSLOPE": ("GRAVEL_FINE_DEEP_DRY", "GRAVEL_FINE_DEEP_DAMP", "GRAVEL_FINE_DEEP_WET"),             # cuneta: talud interior de ripio suelto
+    "DBOT": ("DIRT_SOFT_DRY", "DIRT_SOFT_DAMP", "DIRT_SOFT_WET"),                                      # cuneta: fondo blando
+    "DWALL": ("DIRT_HARD_DRY", "DIRT_HARD_DAMP", "DIRT_HARD_WET"),                                     # cuneta: talud exterior firme
+    "STONYB": ("GRAVEL_COARSE_DEEPER_DRY", "GRAVEL_COARSE_DEEPER_DAMP", "GRAVEL_COARSE_DEEPER_WET"),    # pedregoso: banco
     "CLAY": ("DIRT_HARD_DRY", "DIRT_HARD_DAMP", "DIRT_HARD_WET"),
     "MUD": ("DIRT_SOFT_DRY", "DIRT_SOFT_DAMP", "DIRT_SOFT_WET"),
     "ROAD": ("TARMAC_MEDIUM_CLEAN_DRY", "TARMAC_MEDIUM_CLEAN_DAMP", "TARMAC_MEDIUM_CLEAN_WET"),
@@ -94,7 +103,7 @@ RBR_MAT = {
 # RBR no tiene agarres "un poco menores": se usa el mismo material del camino (banquina) o su variante más fina (cuneta).
 SIDE_RULE = {
     "VERGE": lambda base: RBR_MAT.get(base),
-    "DITCH": lambda base: {"GRAVEL": RBR_MAT["DITCH"], "LOOSE": RBR_MAT["DITCH"], "STONY": RBR_MAT["DITCH"], "STONYL": RBR_MAT["DITCH"], "CLAY": RBR_MAT["CLAY"],
+    "DITCH": lambda base: {"GRAVEL": RBR_MAT["DITCH"], "LOOSE": RBR_MAT["DITCH"], "STONY": RBR_MAT["DITCH"], "STONYL": RBR_MAT["DITCH"], "STONYN": RBR_MAT["DITCH"], "STONYB": RBR_MAT["DITCH"], "GRAVELN": RBR_MAT["DITCH"], "BANK": RBR_MAT["DITCH"], "CLAY": RBR_MAT["CLAY"],
                            "ROAD": RBR_MAT["KERB"]}.get(base, RBR_MAT.get(base)),
     "SOFT": lambda base: RBR_MAT["SOFT"],
 }
@@ -221,7 +230,7 @@ def importar(D):
     p0 = D["driveline"][len(D["driveline"]) // 2]
     best = None
     for o in objs:
-        if not re.match(r"^\d+(STONYL|STONY|GRAVEL|LOOSE|CLAY|MUD|ROAD|SNOW|ICE|SAND|WET)$", o.name.split(".")[0]):
+        if not re.match(r"^\d+(STONYL|STONYN|STONYB|STONY|GRAVELN|GRAVEL|BANK|LOOSE|CLAY|MUD|ROAD|SNOW|ICE|SAND|WET)$", o.name.split(".")[0]):
             continue
         # el importador de OBJ deja el giro de ejes en la transformación del objeto:
         # se compara en coordenadas de mundo, que son las que exporta el complemento
