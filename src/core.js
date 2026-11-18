@@ -336,6 +336,8 @@ const Core = (() => {
         pts = []; let wsum = 0; for (const t of ['A', 'B', 'C', 'D']) wsum += prof[t] ? w[t] : 0;
         for (let k = 0; k < 10; k++) { let e = 0, h = 0; for (const t of ['A', 'B', 'C', 'D']) if (prof[t]) { e += prof[t][k][0] * w[t] / wsum; h += prof[t][k][1] * w[t] / wsum; } pts.push(k <= 5 ? [e, h, U(e)] : [e, h]); }
         for (let k = 1; k < 10; k++) if (pts[k][0] < pts[k - 1][0] + 0.05) pts[k][0] = pts[k - 1][0] + 0.05;
+        // el campo se funde con el plano del terreno hacia afuera (sin escalón entre el costado y el pasto): lomitas y 'campo más alto' bajan de a poco
+        for (const [k, wq] of [[7, 0.3], [8, 0.65], [9, 1]]) pts[k][1] = pts[k][1] * (1 - wq) + tg(pts[k][0]) * wq;
         xe = pts[9][0]; clear = pts[3][0];
       } else
       if (Dd > 0.12 && C5) {
@@ -411,10 +413,10 @@ const Core = (() => {
     // en horquillas cerradas, el borde interno no puede pasar el centro de la curva (evita que la malla se pliegue)
     const pos = (i, s) => { const nx = -T[i][1], ny = T[i][0], k = K[i]; if (s * k > 0) { const lim = 0.85 / Math.abs(k); if (Math.abs(s) > lim) s = Math.sign(s) * lim; } return [C[i][0] + nx * s, C[i][1] + ny * s]; };
     // huellones (o.rutAt): dos surcos con bordes de barro levantado, tallados en la malla del camino (física real)
-    const rutOff = (r, s) => { const x = Math.abs(Math.abs(s) - r.tw), rw = 0.23;
+    const rutOff = (r, s) => { const rw = r.rw || 0.23, x = Math.abs(Math.abs(s - (r.c || 0)) - r.tw);
       if (x <= rw) { const t = x / rw; return -r.D * (1 - t * t); }                    // canal del surco (fondo redondeado)
       if (x <= rw + 0.16) { const t = (x - rw) / 0.16; return r.D * 0.35 * Math.sin(t * Math.PI); } // labio de barro empujado
-      return Math.abs(s) < r.tw - rw - 0.16 ? r.D * 0.12 : 0; };                         // lomo central algo más alto
+      return Math.abs(s - (r.c || 0)) < r.tw - rw - 0.16 ? r.D * (r.hump ?? 0.12) : 0; };                         // lomo central algo más alto
     // columnas de la calzada con relieve (Etapa 4: parámetro columnas_calzada, por defecto 21 = cada 0,1 del medio ancho; V3: 15)
     const SCR = (() => { const nC = o.roadCols && o.roadCols >= 15 ? o.roadCols | 1 : 15; if (nC === 15) return [-1, -0.86, -0.72, -0.58, -0.44, -0.3, -0.15, 0, 0.15, 0.3, 0.44, 0.58, 0.72, 0.86, 1];
       return Array.from({ length: nC }, (_, k) => -1 + 2 * k / (nC - 1)); })();
@@ -424,9 +426,12 @@ const Core = (() => {
     const sec = (i, j, dOff, rutMode) => {
       const hw = W[i] / 2;
       if (rutMode) { // todas las secciones del tramo con la misma cantidad de columnas (la malla no se rompe)
-        let r = o.rutAt(dist[i]) || { D: 0, tw: 0.78 }; if (hw < r.tw + 0.5) r = { D: 0, tw: Math.max(0.45, hw - 0.5) };
-        const T0 = r.tw, cl = v => Math.min(hw - 0.02, v), side = [T0 + 0.39, T0 + 0.31, T0 + 0.23, T0 + 0.12, T0, T0 - 0.12, T0 - 0.23, T0 - 0.31, T0 - 0.39].map(cl);
-        const S2 = [-hw, ...side.map(v => -v), 0, ...side.slice().reverse(), hw];
+        let r = o.rutAt(dist[i]) || { D: 0, tw: 0.78 }; r = { ...r }; if (hw < r.tw + 0.5) r = { D: 0, tw: Math.max(0.45, hw - 0.5) };
+        // trayectoria de las ruedas: en curva el par de surcos se corre hacia afuera (hasta 0,3 m; R 50 m → 0,3 m) — PROVISIONAL
+        if (r.D > 0 && r.follow !== false) r.c = (r.c || 0) - Math.sign(K[i]) * Math.min(0.3, Math.abs(K[i]) * 15);
+        const rw = r.rw || 0.23, T0 = r.tw, c0 = r.c || 0, lim = Math.max(0, hw - T0 - rw - 0.2); r.c = Math.max(-lim, Math.min(lim, c0));
+        const cl = v => Math.min(hw - 0.02, Math.max(-hw + 0.02, v)), side = [T0 + rw + 0.16, T0 + rw + 0.08, T0 + rw, T0 + rw / 2, T0, T0 - rw / 2, T0 - rw, T0 - rw - 0.08, T0 - rw - 0.16];
+        const S2 = [-hw, ...side.map(v => cl(r.c - v)), cl(r.c), ...side.slice().reverse().map(v => cl(r.c + v)), hw];
         return { cols: S2.map(s => { const [x, y] = pos(i, s); return { x, y, h: surfH(i, s) + rutOff(r, s), u: (s + hw) / W[i], s, i, sc: s }; }), d: dist[i] + dOff, step };
       }
       const SC = o.reliefAt ? SCR : [-1, -0.5, 0, 0.5, 1];
@@ -455,7 +460,8 @@ const Core = (() => {
     const runs = [];
     for (let i = 0; i < segCount; i++) {
       const key = SURF[i], last = runs[runs.length - 1];
-      if (last && last.key === key) last.i1 = i; else runs.push({ key, i0: i, i1: i });
+      const rt = !!(o.rutAt && o.rutAt(dist[i])); // huellones: tramo propio (malla de 21 columnas con surcos), el resto conserva sus franjas
+      if (last && last.key === key && last.rt === rt) last.i1 = i; else runs.push({ key, i0: i, i1: i, rt });
     }
     const cnt = counters(), meshes = [];
     // ---------- Ripio físico: piedras 3D incrustadas en la calzada ----------
@@ -524,7 +530,7 @@ const Core = (() => {
     };
     for (const run of runs) {
       const secs = [];
-      let rutMode = false; if (o.rutAt && run.key === 'MUD') for (let i = run.i0; i <= run.i1 + 1 && !rutMode; i++) if (o.rutAt(dist[i % n])) rutMode = true;
+      const rutMode = !!run.rt;
       let prev = null;
       for (let i = run.i0; i <= run.i1 + 1; i++) { const cur = sec(i % n, 0, i >= n ? total : 0, rutMode);
         if (prev && o.reliefAt) for (const q of subSecs(prev, cur, 4)) secs.push(addRelief(q));
@@ -540,7 +546,9 @@ const Core = (() => {
           for (const m of ribbonMeshes(secs, false, key, MAT[run.key], 7, { next: () => cnt(key) }, 1500, (i, k) => CL[i] && CL[i][k] === X)) { m.road = true; meshes.push(m); } }
         if (STONY[run.key]) placeStones(secs, run.key);
         continue; }
-      const bands = o.reliefAt && !rutMode && (run.key === 'GRAVEL' || run.key === 'CLAY' || run.key === 'STONY') && secs.length && secs[0].cols.length === SCR.length
+      const LKr = run.key === 'MUD' ? 'MUD' : run.key === 'STONY' ? 'STONYL' : 'LOOSE';
+      const bands = rutMode && secs.length && secs[0].cols.length === 21 ? [[0, 3, LKr], [3, 7, run.key], [7, 13, LKr], [13, 17, run.key], [17, 20, LKr]] // huellones: lomo y labios con ripio suelto (menos agarre), fondo firme
+        : o.reliefAt && !rutMode && (run.key === 'GRAVEL' || run.key === 'CLAY' || run.key === 'STONY') && secs.length && secs[0].cols.length === SCR.length
         ? BANDS(run.key) : [[0, secs.length ? secs[0].cols.length - 1 : 0, run.key]];
       for (const [a, b, key] of bands) { const part = bands.length > 1 ? secs.map(q => ({ ...q, cols: q.cols.slice(a, b + 1) })) : secs;
         for (const m of ribbonMeshes(part, false, key, MAT[run.key], 7, { next: () => cnt(key) })) { m.road = true; meshes.push(m); } }
@@ -551,6 +559,36 @@ const Core = (() => {
     // dos cintas por costado: la zanja (o la berma) con su textura a lo ancho, y el talud de pasto con textura
     // a escala real (u = metros / 5), así el pasto no queda estirado en rayas
     const UD = [0, 0.06, 0.28, 0.4, 0.55, 0.64], UV = [0, 0.25, 0.6], CUT_D = 5, CUT_V = 2;
+    // Etapa 7 · banda visual de cada costado (borde → cresta del cordón): malla más fina que la física, con terrones en el cordón y
+    // UV por distancia REAL sobre la superficie (u = metros de superficie / SB_W, v = metros a lo largo / tramo de 80 m): no se estira en
+    // las pendientes. La textura (sb_L_n / sb_R_n) la pinta la app con las texturas de las fotos, sin bloques ni cortes rectos.
+    const SB_W = 6.4, SB_P = 100, SB_M = 1.2, SUBK = [2, 2, 2, 2, 5], NSR = 4, sideBands = { L: [], R: [] };
+    function sideBand(inner, side, viejo) {
+      const tag = side > 0 ? 'L' : 'R', rowsInfo = sideBands[tag], si = side > 0 ? 0 : 1, rows = [];
+      for (let q = 0; q < inner.length; q++) { const cs = side > 0 ? inner[q].cols : inner[q].cols.slice().reverse(), i = cs[0].i, w = BTW[si][i] || { A: 0, B: 1, C: 0, D: 0 };
+        const P = []; for (let k = 0; k < 5; k++) for (let t = 0; t < SUBK[k]; t++) { const a = cs[k], b = cs[k + 1], u = t / SUBK[k]; P.push({ x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u, h: a.h + (b.h - a.h) * u, z: k + u }); }
+        P.push({ x: cs[5].x, y: cs[5].y, h: cs[5].h, z: 5 });
+        rows.push({ d: inner[q].d, P, w, old: !!(viejo && viejo(q)) }); }
+      const amp = r => (r.w.A * (r.old ? 0.04 : 0.1) + r.w.B * 0.05 + r.w.C * (r.old ? 0.03 : 0.07)); // alto de los terrones (m), ESTIMADO_DE_FOTOS (6895-6899)
+      const pieces = new Map(), piece = p => { let m = pieces.get(p); if (!m) { m = newMesh(`SIDEVIS_${tag}_${p}`, `sb_${tag}_${p}`); m.sideVis = true; m.map = new Map(); pieces.set(p, m); } return m; };
+      let prev = null;
+      for (let q = 0; q < rows.length - 1; q++) { const A = rows[q], B = rows[q + 1]; if (B.d - A.d > 6) { prev = null; continue; }
+        for (let r = 0; r < NSR; r++) { const u0 = r / NSR, u1 = (r + 1) / NSR, dm = A.d + (B.d - A.d) * (u0 + u1) / 2, p = Math.floor(dm / SB_P), m = piece(p), v0 = p * SB_P - SB_M;
+          const row = uu => { const d = A.d + (B.d - A.d) * uu, ww = uu < 0.5 ? A : B, am = amp(A) * (1 - uu) + amp(B) * uu, out = []; let arc = 0, last = null;
+            for (let c = 0; c < A.P.length; c++) { const a = A.P[c], b = B.P[c], x = a.x + (b.x - a.x) * uu, y = a.y + (b.y - a.y) * uu; let h = a.h + (b.h - a.h) * uu; const z = a.z;
+              if (last) arc += Math.hypot(x - last[0], y - last[1], h - last[2]); last = [x, y, h];
+              // terrones: en la cara del cordón (franja 4) y un poco en el fondo del canal; bajan a cero en el borde de la franja
+              const zf = z >= 4 ? Math.sin(Math.min(1, (z - 4) / 0.95) * Math.PI * 0.92) : z >= 2 && z <= 4 ? 0.18 : 0;
+              if (zf > 0 && am > 0) h += am * zf * (clodN(d, arc, side) - 0.45);
+              out.push({ x, y, h, d, arc }); }
+            return out; };
+          const ra = row(u0), rb = row(u1), key = (uu, c) => Math.round((A.d + (B.d - A.d) * uu) * 1000) * 64 + c;
+          const vid = (rr, uu, c) => { const k = key(uu, c); if (m.map.has(k)) return m.map.get(k); const pt = rr[c]; m.v.push([pt.x, pt.y, pt.h]); m.uv.push([Math.min(0.999, pt.arc / SB_W), (pt.d - v0) / (SB_P + 2 * SB_M)]); m.map.set(k, m.v.length - 1); return m.v.length - 1; };
+          for (let c = 0; c < A.P.length - 1; c++) { const a = vid(ra, u0, c), b = vid(rb, u1, c), cc = vid(rb, u1, c + 1), dd = vid(ra, u0, c + 1); if (side > 0) m.f.push([a, b, cc], [a, cc, dd]); else m.f.push([a, cc, b], [a, dd, cc]); } } }
+      for (const r of rows) { const arcK = [0]; let arc = 0; for (let c = 1; c < r.P.length; c++) { const a = r.P[c - 1], b = r.P[c]; arc += Math.hypot(b.x - a.x, b.y - a.y, b.h - a.h); if (Number.isInteger(b.z) || c === r.P.length - 1) arcK.push(arc); }
+        rowsInfo.push({ d: r.d, arcK, w: r.w, old: r.old }); }
+      for (const m of pieces.values()) { delete m.map; if (m.f.length) meshes.push(m); }
+    }
     for (const side of [1, -1]) {
       const Dd = side > 0 ? DLs : DRs, SLs = side > 0 ? SLL : SLR, onBridge = i => o.bridge && o.bridge(C[i][0], C[i][1]);
       // cuneta con barro y agua donde el suelo es húmedo; con piedra donde corta la ladera en seco; normal en el resto
@@ -583,8 +621,10 @@ const Core = (() => {
             C: ['GRASS|grass', 'BANQ|verge', 'BANQ|verge', 'BANQ|verge', 'CORDON|ditchwall'], D: ['BLOOSE|loose', 'BLOOSE|loose', 'GRASS|grass', 'GRASS|grass', 'GRASS|grass'] };
           const cell = (q, k) => { const kk = side > 0 ? k : 4 - k; let c = MAP[inner[q].ty || 'B'][kk]; if (kk === 4 && c.startsWith('CORDON') && viejo(q)) c = 'CORDON|grass'; return c; };
           const combos = new Set(); for (let q = 0; q < inner.length; q++) for (let k = 0; k < 5; k++) combos.add(cell(q, k));
+          // física: las mismas franjas de siempre (nombre = superficie), pero invisibles: lo que se ve es la banda pintada de abajo
           for (const cb of combos) { const [k2, m2] = cb.split('|');
-            for (const m of ribbonMeshes(inner, false, k2, m2, 1.5, { next: () => cnt(k2) }, 1500, (q, k) => cell(q, k) === cb)) meshes.push(m); }
+            for (const m of ribbonMeshes(inner, false, k2, m2, 1.5, { next: () => cnt(k2) }, 1500, (q, k) => cell(q, k) === cb)) { if (o.sideVis) m.physOnly = true; meshes.push(m); } }
+          if (o.sideVis) sideBand(inner, side, viejo);
         } else
         if (C5 && isD && inner.length > 1 && inner[0].cols.length === 6) {
           // tres superficies a lo ancho (foto IMG_6896): talud interior de ripio suelto (DSLOPE), fondo blando (DBOT), talud exterior de
@@ -632,7 +672,7 @@ const Core = (() => {
     }
     const segs = routeSegs();
     for (const m of meshes) m.route = true;
-    return { meshes, segs, C, T, hs, raw, dist, total, n, K, W, SL, SURF, PAT, SCR, closed, CS, DL: DLs, DR: DRs, EX, SP, HUM, HO, FOR, accessPts, ctxAt, stones: stats };
+    return { meshes, segs, C, T, hs, raw, dist, total, n, K, W, SL, SURF, PAT, SCR, closed, CS, DL: DLs, DR: DRs, EX, SP, HUM, HO, FOR, accessPts, ctxAt, stones: stats, sideBands: o.sideVis ? sideBands : null, SB: { W: SB_W, P: SB_P, M: SB_M } };
   }
 
   // ---------- Modo ZONA (mundo abierto) ----------
@@ -774,7 +814,7 @@ const Core = (() => {
         const t = tg(best);
         if (o.edgeFix) {
           // el detalle natural del terreno se suma de a poco (sin el sesgo de las copas), y desde 30 m vuelve al natural
-          const allow = 0.15 + 0.1 * (best - xe), hc2 = t + Math.max(-allow, Math.min(allow, h - off - t));
+          const allow = 0.03 + 0.1 * Math.max(0, best - xe), hc2 = t + Math.max(-allow, Math.min(allow, h - off - t));
           if (best <= 30) h = hc2; else { let w = Math.min(1, (best - 30) / 25); w = w * w * (3 - 2 * w); h = hc2 * (1 - w) + h * w; }
         } else { let w = Math.min(1, (best - xe) / Math.max(6, B)); w = w * w * (3 - 2 * w); h = t * (1 - w) + h * w; }
       }
@@ -904,6 +944,8 @@ const Core = (() => {
     };
   }
   // número pseudoaleatorio estable según la posición (los árboles no cambian al regenerar)
+  // ruido de terrones (0..1) en coordenadas (metros a lo largo, metros de superficie a lo ancho): lo usan la malla y la pintura
+  function clodN(d, a, side) { const s = side > 0 ? 7 : 13; return 0.55 * vn2c(d / 0.45 + 3.1, a / 0.38, s) + 0.3 * vn2c(d / 0.21, a / 0.19 + 5.7, s + 1) + 0.15 * vn2c(d / 1.3, a / 1.1, s + 2); }
   function hash2(x, y, s) { let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 2147483647); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
 
   // ---------- Árboles: dos planos cruzados con textura recortada (como en los simuladores) ----------
@@ -1127,6 +1169,6 @@ const Core = (() => {
     return mats.map(([name, tex, kd]) => `newmtl ${name}\nKa 1 1 1\nKd ${kd}\nKs 0 0 0\nd 1\nillum 1\nmap_Kd ${tex}\n`).join('\n');
   }
 
-  return { MAT, profileInterp, blocksOf, buildTrees, buildRocks, roadDistFn, patchTerrain, terrainHeightFn, makeProj, resample, smooth1D, buildRoute, buildArea, buildSideRoads, buildTerrain, toOBJ, toMTL, computeNormals };
+  return { MAT, profileInterp, blocksOf, buildTrees, buildRocks, roadDistFn, patchTerrain, terrainHeightFn, makeProj, resample, smooth1D, buildRoute, buildArea, buildSideRoads, buildTerrain, toOBJ, toMTL, computeNormals, clodN };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

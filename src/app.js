@@ -805,6 +805,7 @@ const TEXDEF = {
 };
 const ROAD_KEYS = ['ROAD', 'STONY', 'GRAVEL', 'CLAY', 'WET', 'LOOSE', 'MUD', 'SNOW', 'ICE'];
 $('#surfKey').innerHTML = ROAD_KEYS.map(k => `<option value="${k}">${SURF[k].name} (agarre ${Math.round(SURF[k].mu * 100)}%)</option>`).join('');
+$('#surfKey').value = ROAD_KEYS.includes('GRAVEL') ? 'GRAVEL' : ROAD_KEYS[0]; $('#surfKey').addEventListener('change', () => { $('#surfKey').dataset.manual = '1'; });
 
 // ---------- Texturas procedurales ----------
 function makeTex(mat) {
@@ -1141,8 +1142,46 @@ function makeOvercastTex() {
     for (let k = 0; k < 14; k++) { const ex = cx + rnd(-s * 2.2, s * 2.2); for (const ox of [0, W, -W]) { x.fillStyle = `rgba(${v},${v + 3},${v + 6},${rnd(0.05, 0.16)})`; x.beginPath();
         x.ellipse(ex + ox, cy + rnd(-s * 0.2, s * 0.2), s * rnd(0.5, 1.3), s * rnd(0.12, 0.3) * (1 - p * 0.5), 0, 0, 6.3); x.fill(); } } }
   return c; }
+// ---------- Etapa 7 · cielo HDRI (Poly Haven, CC0) y bruma ----------
+// El cielo es un panorama equirectangular de Poly Haven (versión "pure sky", CC0), reducido a 2048×1024 y con los últimos 14° fundidos
+// al color de horizonte medido en las fotos de Lucas (ESTIMADO_DE_FOTOS). Está en presets/cielos (Git LFS). La luz sale del mismo panorama:
+// color del cielo = promedio del hemisferio de arriba pesado por coseno, sol = la zona más brillante (en nublado, débil y difuso).
+// Ojo: es la versión de 8 bits (tonemapped), no el HDR: la luz es aproximada (color y dirección, no la intensidad absoluta).
+const ASSETS = { MEDIA: 'https://media.githubusercontent.com/media/lucasbarria/generador-de-pistas/main/',
+  async blob(rel) { const ok = b => b && b.size > 2000 && /^image\//.test(b.type || 'image/');
+    if (/^https?:$/.test(location.protocol) && !/github\.io$/.test(location.hostname)) { try { const r = await fetch(rel); if (r.ok) { const b = await r.blob(); if (ok(b)) return b; } } catch (e) { } }
+    const rama = (() => { try { return new URLSearchParams(location.search).get('rama'); } catch (e) { return null; } })(); // ?rama=xxx: probar una rama antes de publicarla
+    for (const base of rama ? [this.MEDIA.replace('/main/', '/' + rama + '/'), this.MEDIA] : [this.MEDIA]) { try { const b = await LOCAL.fetchBlob(base + rel); if (ok(b)) return b; } catch (e) { } }
+    throw new Error('no se pudo bajar ' + rel); } };
+const HDRI = { cache: {},
+  async get(id) { if (this.cache[id]) return this.cache[id]; const bmp = await createImageBitmap(await ASSETS.blob(`presets/cielos/${id}.jpg`)), c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height; c.getContext('2d').drawImage(bmp, 0, 0);
+    return (this.cache[id] = { cv: c, light: this.light(c) }); },
+  // luz del panorama: cielo (coseno), horizonte, y la dirección más brillante suavizada
+  light(c) { const W = 128, H = 64, s = scaleCanvas(c, W, H), d = s.getContext('2d').getImageData(0, 0, W, H).data, lin = v => Math.pow(v / 255, 2.2);
+    let sky = [0, 0, 0], ws = 0, hz = [0, 0, 0], wh = 0, best = -1, bd = null, sum = 0, n = 0;
+    for (let y = 0; y < H / 2; y++) { const el = (0.5 - (y + 0.5) / H) * Math.PI, cw = Math.sin(el), cl = Math.cos(el);
+      for (let x = 0; x < W; x++) { const q = (y * W + x) * 4, L = [lin(d[q]), lin(d[q + 1]), lin(d[q + 2])], Y = 0.2126 * L[0] + 0.7152 * L[1] + 0.0722 * L[2];
+        for (let k = 0; k < 3; k++) sky[k] += L[k] * cw * cl; ws += cw * cl; if (el < 0.2) { for (let k = 0; k < 3; k++) hz[k] += L[k]; wh++; } sum += Y; n++;
+        const az = (x + 0.5) / W * 2 * Math.PI; if (el > 0.15) { let b = 0; for (let dy = -3; dy <= 3; dy++) for (let dx = -4; dx <= 4; dx++) { const yy = Math.max(0, Math.min(H / 2 - 1, y + dy)), xx = (x + dx + W) % W, qq = (yy * W + xx) * 4; b += d[qq] + d[qq + 1] + d[qq + 2]; }
+          if (b > best) { best = b; bd = [Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)]; } } } }
+    const g = v => Math.round(Math.pow(Math.min(1, v), 1 / 2.2) * 255), col = a => (g(a[0]) << 16) | (g(a[1]) << 8) | g(a[2]);
+    const sk = sky.map(v => v / ws), hh = hz.map(v => v / wh), mean = sum / n, peak = best / 63 / 3 / 255;
+    return { sky: col(sk), horizon: col(hh), sunDir: bd, contrast: Math.max(0, peak - Math.pow(mean, 1 / 2.2)) }; } };
+// bruma: exponencial (no lineal) — 1 − e^(−k·d). k ESTIMADO_DE_FOTOS: a 10 km queda ~85 % de bruma (las lomas del fondo apenas se ven en 6872/6891)
+const BRUMA = { k: 1.9e-4, color: 0xcdd2d8 };
+(function patchFog() { try { if (THREE && THREE.ShaderChunk && THREE.ShaderChunk.fog_fragment && !THREE.ShaderChunk.__brumaExp) {
+  THREE.ShaderChunk.fog_fragment = THREE.ShaderChunk.fog_fragment.replace('1.0 - exp( - fogDensity * fogDensity * fogDepth * fogDepth )', '1.0 - exp( - fogDensity * fogDepth )'); THREE.ShaderChunk.__brumaExp = true; } } catch (e) { } })();
+async function pvCieloHDRI(id) {
+  try { const H = await HDRI.get(id); if (PV.cielo !== id) return; const t = new THREE.CanvasTexture(H.cv); t.mapping = THREE.EquirectangularReflectionMapping;
+    if (PV.scene.background && PV.scene.background.dispose) PV.scene.background.dispose(); PV.scene.background = t; const L = H.light;
+    PV.hemi.color.setHex(L.sky); PV.hemi.groundColor.set(0x5f5c4e); PV.hemi.intensity = 1.0;
+    if (L.sunDir) PV.sunDir.set(L.sunDir[0], Math.max(0.35, L.sunDir[1]), L.sunDir[2]).normalize(); PV.sun.color.set(0xf2f2f0); PV.sun.intensity = Math.min(0.55, 0.22 + L.contrast * 1.5); PV.sun.shadow.radius = 8;
+    PV.scene.fog = new THREE.FogExp2(BRUMA.color, BRUMA.k); PV.group && PV.group.traverse(o => { if (o.material) o.material.needsUpdate = true; });
+    PV.hdriLight = L; log(`Cielo: panorama HDRI de Poly Haven (${id.replace(/_/g, ' ')}, CC0); luz del cielo y dirección del sol sacadas del panorama; bruma exponencial.`);
+  } catch (e) { log('Cielo HDRI: no se pudo cargar (' + e.message + '); uso el cielo dibujado.', 'err'); PV.cielo = 'nublado'; pvCielo('nublado'); } }
 function pvCielo(kind) {
-  if (!PV.scene || !PV.sun) return; PV.cielo = kind; const N = kind !== 'sol';
+  if (!PV.scene || !PV.sun) return; if (/^hdri_/.test(kind)) { PV.cielo = kind.slice(5); pvCieloHDRI(kind.slice(5)); return; }
+  PV.cielo = kind; const N = kind !== 'sol'; if (!(PV.scene.fog instanceof THREE.Fog)) { PV.scene.fog = new THREE.Fog(0xc6cdd3, 220, 2600); PV.group && PV.group.traverse(o => { if (o.material) o.material.needsUpdate = true; }); }
   try { const t = new THREE.CanvasTexture(N ? makeOvercastTex() : makeSkyTex()); if (PV.scene.background && PV.scene.background.dispose) PV.scene.background.dispose(); PV.scene.background = t; } catch (e) { }
   PV.hemi.color.set(N ? 0xd9dcdf : 0xdfe7f0); PV.hemi.groundColor.set(N ? 0x6a665a : 0x4a473c); PV.hemi.intensity = N ? 0.95 : 0.5;
   PV.sun.color.set(N ? 0xeef0f2 : 0xfff3e2); PV.sun.intensity = N ? 0.38 : 0.95; PV.sun.shadow.radius = N ? 8 : 1;
@@ -1798,12 +1837,14 @@ const DETAIL = {
   // Los tramos del camino (rs_) mezclan tres detalles con una máscara propia: firme (R), suelto/piedras (G) y húmedo (B).
   of(mat) {
     if (!this.enabled() || !mat) return null;
-    if (mat.startsWith('tc_') && TEX['mk_' + mat] && TEX[mat] && TEX[mat].__ml) return { key: 'terrain', mult: TEX[mat].__ml.mult, chan: true, magic: 1.08 };
+    if (mat.startsWith('tc_') && TEX['mk_' + mat] && TEX[mat] && TEX[mat].__ml) return { key: 'terrain', mult: TEX[mat].__ml.mult, multV: TEX[mat].__ml.multV || null, chan: true, magic: 1.08 };
+    if (mat.startsWith('sb_') && TEX['mk_' + mat]) return { key: 'side', mult: 8, strip: true, magic: 2 }; // banda de los costados: u = 6,4 m, v = 102,4 m → detalle de 0,8 m
     if (mat.startsWith('rs_')) return { key: TEX[mat] && TEX[mat].__east > 0.5 && RGLIB.item('det_road_e') ? 'strip_e' : 'strip', mult: 8, strip: true }; // u = ancho (~8–11 m), v = 80 m → texturas de 1 tira × 8 (1,25 m cada una); tiras del sector este: su propio detalle
     if (['gravel', 'clay'].includes(mat)) return { key: 'road', mult: 3.5 }; // 1024 px = 2 × 2 baldosas de ~1 m
     if (mat === 'loose') return { key: 'loose', mult: 3.5 };
     if (['ditchwall', 'ditchbot', 'mud', 'ditchside', 'ditchmud', 'ditchrock', 'side_b', 'side_d', 'forest'].includes(mat)) return { key: 'dirt', mult: mat.startsWith('ditch') ? 2.5 : 2 };
     if (mat === 'verge' && RGLIB.on() && RGLIB.item('det_berm')) return { key: 'berm', mult: 2.5 }; // banquina de Río Grande: cordón de grava, no pasto
+    if (mat === 'farland' && TEX.farland && TEX.farland.__ext) return { key: 'grass', mult: 2 * TEX.farland.__ext / 6 }; // campo lejano: detalle del pasto cada 6 m
     if (['grass', 'verge', 'side_a', 'side_c'].includes(mat)) return { key: 'grass', mult: mat === 'verge' ? 2.5 : 1.75 };
     return null;
   },
@@ -1831,13 +1872,20 @@ const DETAIL = {
     return (this.cache[id] = cv);
   },
   // detalles del terreno (biblioteca): R pasto · G bosque · B tierra · A roca; si falta uno, se usa el más parecido
-  terrain() { if (this.cache.terrain && this.cache.terrain.stamp === PACK.stamp) return this.cache.terrain;
-    const g = PACK.get('det_grass'), f = PACK.get('det_forest') || g, d = PACK.get('det_dirt') || PACK.get('det_ditch') || f, r = PACK.get('det_rock') || PACK.get('det_berm') || d, sc = c => scaleCanvas(c, Math.min(1024, c.width));
+  // modo "mezcla" (estepa sin bosque): R pasto · G el mismo pasto girado 90° y espejado (otra escala) · B tierra · A pasto seco (otra escala);
+  // las escalas de cada canal no son múltiplos entre sí (TERR_MULT) y la máscara las reparte con ruido: el mosaico no se ve ni de cerca ni de lejos
+  terrain() { const mix = !!this.tmix; if (this.cache.terrain && this.cache.terrain.stamp === PACK.stamp && this.cache.terrain.mix === mix) return this.cache.terrain;
+    const g = PACK.get('det_grass'), f = PACK.get('det_forest') || g, d = PACK.get('det_dirt') || PACK.get('det_ditch') || f, r = PACK.get('det_rock') || PACK.get('det_berm') || d, sc = c => hipassDetail(scaleCanvas(c, Math.min(1024, c.width))); // Etapa 7: sin manchas grandes (mosaico)
     const flat = document.createElement('canvas'); flat.width = flat.height = 4; const fx = flat.getContext('2d'); fx.fillStyle = 'rgb(128,128,255)'; fx.fillRect(0, 0, 4, 4);
-    return (this.cache.terrain = { stamp: PACK.stamp, R: sc(g), G: sc(f), B: sc(d), A: sc(r), nm: flat }); },
+    if (mix) { const R = sc(g), n = R.width, rot = document.createElement('canvas'); rot.width = rot.height = n; const rx = rot.getContext('2d'); rx.translate(n / 2, n / 2); rx.rotate(Math.PI / 2); rx.scale(-1, 1); rx.drawImage(R, -n / 2, -n / 2);
+      const dry = document.createElement('canvas'); dry.width = dry.height = n; const dx = dry.getContext('2d'); dx.drawImage(R, 0, 0); const im = dx.getImageData(0, 0, n, n), q = im.data;
+      for (let i = 0; i < q.length; i += 4) { const L = 0.3 * q[i] + 0.59 * q[i + 1] + 0.11 * q[i + 2]; q[i] = Math.min(255, L * 1.12 + 6); q[i + 1] = Math.min(255, L * 1.03); q[i + 2] = L * 0.78; } dx.putImageData(im, 0, 0); // pajizo (manchas secas)
+      return (this.cache.terrain = { stamp: PACK.stamp, mix, R, G: rot, B: sc(d), A: dry, nm: flat }); }
+    return (this.cache.terrain = { stamp: PACK.stamp, mix, R: sc(g), G: sc(f), B: sc(d), A: sc(r), nm: flat }); },
   tex(key) {
     const id = 'T:' + key + ':' + ['road', 'loose', 'wet', 'dirt', 'grass'].map(k => this.src(k).id).join('') + ':' + RGLIB.cfg.stones; if (this.cache[id]) return this.cache[id];
     let T;
+    if (key === 'side') return sbDetails().T;
     if (key === 'strip' || key === 'strip_e') {
       const rk = key === 'strip_e' ? 'road_e' : 'road', R = this.one(rk, true), G = this.one('loose', true), B = this.one('wet', true), nmP = PACK.get(key === 'strip_e' ? 'nm_road_e' : 'nm_road') || PACK.get('nm_road');
       const s = this.src(rk), nmS = this.cache[rk + ':s:' + s.id + (rk === 'road_e' ? ':' + RGLIB.cfg.stones : '') + ':nm'];
@@ -2120,7 +2168,7 @@ function editFns(o, total, closed) {
       }
       return s;
     },
-    rutAt: d => PHOTOMAT.rutAt(d),
+    rutAt: d => (typeof RUTS !== 'undefined' ? RUTS.at(d) : PHOTOMAT.rutAt(d)),
     widthAt: d => { let w = S.autoW ? S.autoW(d) : o.width; for (const e of S.edits) if (e.kind === 'width' && inSec(d, e)) w = e.w; return w; },
     bankAt: (d, k) => { for (let i = S.edits.length - 1; i >= 0; i--) { const e = S.edits[i]; if (e.kind === 'bank' && inSec(d, e)) return e.abs ? { abs: e.deg } : e.deg; } return o.autoBank * Math.min(1, Math.abs(k) * 30); },
     surfaceAt: (d, h) => {
@@ -2889,9 +2937,87 @@ function imageryAt(lat, lon, S2) { for (const R of ORTHO) { const v = R.rgb(lat,
 // Cada sector del terreno se pinta mezclando las texturas internas (pasto, bosque, campo, humedal, roca, barro, nieve):
 // cuánto de cada una sale del tipo de suelo del mapa, la pendiente (roca), la cercanía al agua (barro, suelo húmedo) y la
 // altura (pasto más seco arriba). Los límites se corren con ruido: manchas naturales, nunca líneas rectas.
+// pasto de los costados (cintas del camino) con el MISMO material y la misma proyección que el terreno de su sector:
+// la unión cinta/terreno queda invisible (sin borde en serrucho ni cambio de textura). La malla física (nombre) no cambia.
+function sideToTerrain(list) {
+  const T = S.terrMap; if (!T) return list; const out = []; let k = 0;
+  for (const m of list) {
+    if (m.terrain || !m.route || !(m.mat === 'grass' || /^side_[a-d]$/.test(m.mat)) || !/^\d+[A-Z_]+$/.test(m.name)) { out.push(m); continue; }
+    const key = m.name.replace(/^\d+/, ''), by = new Map();
+    for (const f of m.f) { const a = m.v[f[0]], b = m.v[f[1]], c = m.v[f[2]], cx = (a[0] + b[0] + c[0]) / 3, cy = (a[1] + b[1] + c[1]) / 3;
+      const ci = Math.floor((cx - T.x0) / T.size) * T.CH, cj = Math.floor((cy - T.y0) / T.size) * T.CH, nm = 'tc_' + ci + '_' + cj, g = TEX[nm] ? nm : null;
+      let G = by.get(g); if (!G) by.set(g, G = { ci, cj, f: [] }); G.f.push(f); }
+    for (const [nm, G] of by) {
+      if (!nm) { out.push(Object.assign({}, m, { f: G.f })); continue; }
+      const x0 = T.x0 + G.ci * T.res, y0 = T.y0 + G.cj * T.res, map = new Map(), nmH = { ...m, name: `${8000 + k++}${key}`, mat: nm, v: [], uv: [], f: [], n: m.n ? [] : undefined, sideTerr: true };
+      const vid = i => { if (map.has(i)) return map.get(i); const v = m.v[i]; nmH.v.push(v); nmH.uv.push([(v[0] - x0) / T.size, (v[1] - y0) / T.size]); if (nmH.n) nmH.n.push(m.n[i]); map.set(i, nmH.v.length - 1); return nmH.v.length - 1; };
+      for (const f of G.f) nmH.f.push([vid(f[0]), vid(f[1]), vid(f[2])]); if (!nmH.n) delete nmH.n; out.push(nmH); }
+  }
+  return out;
+}
+// ---------- Etapa 7 · bandas de los costados (sb_L_n / sb_R_n): multicapa como el camino ----------
+// Por costado y por tramo de 100 m: color base pintado (tono de cada franja, humedad del canal, sombra de los terrones), máscara de 4 canales
+// (R ripio suelto/piedras · G tierra del canal y del cordón · B pasto · A banquina de tierra compactada con piedras, fotos 6891/6893) y encima los
+// detalles de las fotos del preset a escala real (DETAIL 'side': 0,8 m por repetición). Límites entre franjas irregulares (ruido de 5 cm a 1,7 m),
+// el tipo de borde se mezcla por manchas donde cambia y los terrones se sombrean con el MISMO ruido que levanta la malla (Core.clodN).
+const SBP = { NU: 128, NV: 2048, MU: 64, MV: 1024 };
+function sbMeans() { if (SBP.mean && SBP.mean.stamp === PACK.stamp) return SBP.mean;
+  const rg = typeof RGLIB !== 'undefined' && RGLIB.on && RGLIB.on(), it = r => rg ? RGLIB.item(r) : null, cvOf = (role, tex) => (it(role) && it(role).cv) || TEX[tex] || TEX.grass;
+  const mean = cv => { const c = scaleCanvas(cv, 32), d = c.getContext('2d').getImageData(0, 0, 32, 32).data, m = [0, 0, 0]; for (let i = 0; i < d.length; i += 4) { m[0] += d[i]; m[1] += d[i + 1]; m[2] += d[i + 2]; } return m.map(v => v / 1024); };
+  return (SBP.mean = { stamp: PACK.stamp, src: { loose: cvOf('det_loose', 'loose'), dirt: cvOf('det_dirt', 'ditchbot'), grass: cvOf('det_grass', 'grass'), shoulder: cvOf('det_berm', 'verge'), stones: cvOf('stones_e', 'loose') },
+    loose: mean(cvOf('det_loose', 'loose')), dirt: mean(cvOf('det_dirt', 'ditchbot')), grass: mean(cvOf('det_grass', 'grass')), shoulder: mean(cvOf('det_berm', 'verge')), stones: mean(cvOf('stones_e', 'loose')) }); }
+// detalles de la banda: 256 × 4096 (0,8 m × 12,8 m por repetición, misma proporción que la banda 6,4 × 102,4 m con mult 8), sin patrón repetido
+function sbDetails() { const S0 = sbMeans(); if (SBP.det && SBP.det.stamp === S0.stamp) return SBP.det;
+  const mk = (cv, seed) => bombDetail(normDetail(cv, 512), 256, 4096, 256, seed), T = { cv: mk(S0.src.loose, 71), g: mk(S0.src.dirt, 73), b: mk(S0.src.grass, 79), a: mk(S0.src.shoulder, 83) };
+  T.nm = normalFromCanvas(T.g, 2.2, 0.5); return (SBP.det = { stamp: S0.stamp, T }); }
+function paintSideBands(res, only) {
+  const SB = res.sideBands; if (!SB) return 0; const S0 = sbMeans(), Wb = res.SB.W, PL = res.SB.P, MG = res.SB.M || 0, NU = SBP.NU, NV = SBP.NV, MU = SBP.MU, MV = SBP.MV; let np = 0;
+  const vn = (x, y, s) => vn2(x, y, s), sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const MAT = { A: ['loose', 'loose', 'canal', 'canal', 'cordon'], B: ['loose', 'loose', 'canal', 'canal', 'wall'], C: ['weed', 'shoulder', 'shoulder', 'shoulder', 'cordon'], D: ['stones', 'stones', 'grass', 'grass', 'grass'] };
+  // canal de la máscara de cada material: [R ripio, G tierra, B pasto, A banquina]
+  const CHN = { loose: [1, 0, 0, 0], stones: [1, 0, 0, 0], canal: [0, 1, 0, 0], cordon: [0.12, 0.88, 0, 0], wall: [0, 1, 0, 0], shoulder: [0.15, 0, 0, 0.85], weed: [0.45, 0, 0.55, 0], grass: [0, 0, 1, 0] };
+  const col = new Float32Array(4), msk = new Float32Array(4);
+  const sample = (d, arc, ak, W, old, side) => { // color base + máscara en (d, arc)
+    const a2 = arc + 0.22 * (vn(d / 1.7, arc / 0.9, 501 + side) - 0.5) + 0.1 * (vn(d / 0.45, arc / 0.35, 503 + side) - 0.5);
+    let k = 0; while (k < 4 && a2 >= ak[k + 1]) k++; const beyond = a2 >= ak[5];
+    const nt = vn(d / 6, arc / 2.5, 509 + side); let acc = 0, ty = 'B'; const tot = W.A + W.B + W.C + W.D || 1; for (const tt of ['A', 'B', 'C', 'D']) { acc += W[tt] / tot; if (nt <= acc + 1e-6) { ty = tt; break; } }
+    let mt = beyond ? 'grass' : MAT[ty][k]; if (mt === 'cordon' && old) mt = 'grass';
+    const macro = 0.93 + 0.14 * vn(d / 9, arc / 3, 511 + side); let c;
+    if (mt === 'grass') c = S0.grass.map(v => v * (0.96 + 0.1 * vn(d / 3.3, arc / 1.7, 513)));
+    else if (mt === 'weed') { const f = 0.55; c = S0.grass.map((v, i) => v * f + S0.loose[i] * (1 - f)); }
+    else if (mt === 'loose') c = S0.loose.slice(); else if (mt === 'stones') c = S0.stones.slice();
+    else if (mt === 'shoulder') c = S0.shoulder.map(v => v * 1.05); // tierra compactada clara (6891 / 6893)
+    else { const e = S0.dirt, cl = Core.clodN(d, arc, side), z = k + Math.max(0, Math.min(1, (a2 - ak[k]) / Math.max(0.05, ak[k + 1] - ak[k])));
+      if (mt === 'canal') { const wet = 0.64 + 0.1 * vn(d / 3, arc, 521); c = [e[0] * wet, e[1] * wet * 0.98, e[2] * wet * 0.95]; } // fondo húmedo, más oscuro
+      else { const zf = Math.sin(Math.min(1, Math.max(0, z - 4) / 0.95) * Math.PI * 0.92), sh = 0.84 + 0.6 * (cl - 0.45) * (0.35 + zf); // terrones: luz arriba, sombra en las grietas
+        const tone = mt === 'wall' ? [0.82, 0.78, 0.74] : [0.98, 0.93, 0.86]; c = [e[0] * tone[0] * sh, e[1] * tone[1] * sh, e[2] * tone[2] * sh]; } }
+    const ch = CHN[mt]; for (let q = 0; q < 4; q++) msk[q] = ch[q]; col[0] = c[0] * macro; col[1] = c[1] * macro; col[2] = c[2] * macro; };
+  for (const tag of ['L', 'R']) { const rows = SB[tag], side = tag === 'L' ? 1 : -1; if (!rows || rows.length < 2) continue;
+    const pieces = new Set(); for (const r of rows) pieces.add(Math.floor(r.d / PL));
+    for (const p of pieces) { const name = `sb_${tag}_${p}`; if (only && !only.has(name)) continue;
+      const cv = TEX[name] && TEX[name].width === NU ? TEX[name] : document.createElement('canvas'); cv.width = NU; cv.height = NV; const cx = cv.getContext('2d'), im = cx.createImageData(NU, NV), o = im.data;
+      const mk = TEX['mk_' + name] && TEX['mk_' + name].width === MU ? TEX['mk_' + name] : document.createElement('canvas'); mk.width = MU; mk.height = MV; const mraw = new Uint8ClampedArray(MU * MV * 4);
+      let ri = 0; const at = d => { while (ri < rows.length - 2 && rows[ri + 1].d < d) ri++; while (ri > 0 && rows[ri].d > d) ri--;
+        const A = rows[ri], B = rows[Math.min(rows.length - 1, ri + 1)], t = Math.max(0, Math.min(1, (d - A.d) / ((B.d - A.d) || 1))), W = {};
+        for (const k of ['A', 'B', 'C', 'D']) W[k] = (A.w[k] || 0) * (1 - t) + (B.w[k] || 0) * t; return { ak: A.arcK.map((v, k) => v + ((B.arcK[k] ?? v) - v) * t), W, old: t < 0.5 ? A.old : B.old }; };
+      for (let py = 0; py < NV; py++) { const d = p * PL - MG + (NV - 1 - py + 0.5) / NV * (PL + 2 * MG), R = at(d); // v = 0 abajo (three.js / AC)
+        for (let px = 0; px < NU; px++) { const arc = (px + 0.5) / NU * Wb, q = (py * NU + px) * 4; let r = 0, g = 0, b = 0;
+          for (const da of [-0.03, 0.03]) { sample(d, arc + da, R.ak, R.W, R.old, side); r += col[0]; g += col[1]; b += col[2]; } // borde suave (±3 cm)
+          o[q] = Math.min(255, r / 2); o[q + 1] = Math.min(255, g / 2); o[q + 2] = Math.min(255, b / 2); o[q + 3] = 255; } }
+      for (let py = 0; py < MV; py++) { const d = p * PL - MG + (MV - 1 - py + 0.5) / MV * (PL + 2 * MG); ri = 0; const R = at(d);
+        for (let px = 0; px < MU; px++) { const arc = (px + 0.5) / MU * Wb, q = (py * MU + px) * 4, acc = [0, 0, 0, 0];
+          for (const da of [-0.05, 0, 0.05]) { sample(d, arc + da, R.ak, R.W, R.old, side); for (let c = 0; c < 4; c++) acc[c] += msk[c] / 3; }
+          for (let c = 0; c < 4; c++) mraw[q + c] = Math.round(acc[c] * 255); } }
+      cx.putImageData(im, 0, 0); cv.__dxt = true; cv.__sb = true; TEX[name] = cv;
+      mk.__raw = mraw; mk.__rgA = true; { const mi = mk.getContext('2d').createImageData(MU, MV); mi.data.set(mraw); for (let i = 3; i < mi.data.length; i += 4) mi.data[i] = 255; mk.getContext('2d').putImageData(mi, 0, 0); } TEX['mk_' + name] = mk; np++;
+      if (PV.mats && PV.mats[name]) { try { PV.mats[name].map.dispose(); PV.mats[name].dispose(); } catch (e) { } delete PV.mats[name]; if (PV.byMesh) for (const [m, mesh] of PV.byMesh) if (m.mat === name) mesh.material = pvMat(name); } } }
+  return np;
+}
 function terrainLibOn() { return DETAIL.enabled() && PACK.on && !!PACK.get('det_grass') && !!(PACK.get('det_forest') || PACK.get('det_dirt') || PACK.get('det_rock')); }
+const TERR_MULT = [1, 0.43, 1.31, 0.61]; // escalas relativas de los 4 detalles del terreno en modo mezcla (4,5 m · 10,5 m · 3,4 m · 7,4 m)
 function bakeInternalTerrain(B, ter, meshes, res, rd, env = {}) {
-  const TML = terrainLibOn();
+  const TML = terrainLibOn(), TMIX = TML && !meshes.some(m => m.terrain && m.mat === 'forest'); DETAIL.tmix = TMIX;
+  const smt = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   const groups = new Map();
   for (const m of meshes) if (m.terrain && m.chunk) { const k = m.chunk.join('_'); (groups.get(k) || groups.set(k, []).get(k)).push(m); }
   const hF = Core.terrainHeightFn(ter, B.bbox, res), H = (x, y) => { const h = hF(x, y); return h == null ? 0 : h; };
@@ -2955,7 +3081,12 @@ function bakeInternalTerrain(B, ter, meshes, res, rd, env = {}) {
         if (q === own) v += 0.45; if (v <= 0.004) { w[q] = 0; continue; }
         const Z = NZ[q]; v *= (Z[b00] * (1 - ba) + Z[b00 + 1] * ba) * (1 - bb2) + (Z[b00 + NB] * (1 - ba) + Z[b00 + NB + 1] * ba) * bb2; v = v * v * v; w[q] = v; sum += v; }
       let r = 0, g = 0, b = 0; if (sum <= 0) { w[own ?? 0] = 1; sum = 1; }
-      if (mkd && !(px & 3) && !(py & 3)) { const mo = ((py >> 2) * MN + (px >> 2)) * 4, cc = [0, 0, 0, 0]; for (let q = 0; q < M.length; q++) cc[CH[q]] += w[q] / sum; for (let c = 0; c < 4; c++) mkd.data[mo + c] = Math.round(cc[c] * 255); }
+      if (mkd && !(px & 3) && !(py & 3)) { const mo = ((py >> 2) * MN + (px >> 2)) * 4, cc = [0, 0, 0, 0]; for (let q = 0; q < M.length; q++) cc[CH[q]] += w[q] / sum;
+        if (TMIX) { // pasto en dos escalas repartido con ruido + manchas de tierra + manchas secas
+          const tG = smt(0.36, 0.64, vn(wx / 5.3, wy / 5.3, 71) * 0.65 + vn(wx / 1.7, wy / 1.7, 73) * 0.35), dr0 = Math.max(0, Math.min(1, DRY[c00] * k00 + DRY[c10] * k10 + DRY[c01] * k01 + DRY[c11] * k11));
+          const dB = Math.min(0.9, cc[1] + cc[2] + cc[3] + 0.7 * smt(0.8, 0.93, vn(wx / 6.5, wy / 6.5, 83))), dA = Math.min(0.85, 0.75 * smt(0.52, 0.78, vn(wx / 21, wy / 21, 89)) + 0.3 * dr0) * (1 - dB), gr = Math.max(0, 1 - dB - dA);
+          cc[0] = gr * (1 - tG); cc[1] = gr * tG; cc[2] = dB; cc[3] = dA; }
+        for (let c = 0; c < 4; c++) mkd.data[mo + c] = Math.round(cc[c] * 255); }
       for (let q = 0; q < M.length; q++) { if (w[q] / sum < 0.02) continue; const c = samp(D[q], wx, wy, M[q] === 'rock' ? 6 : 5), t = w[q] / sum; r += c[0] * t; g += c[1] * t; b += c[2] * t; }
       // variación grande de tono (que no se vea una alfombra pareja) y pasto más seco/amarillento arriba
       const dry = Math.max(0, Math.min(1, DRY[c00] * k00 + DRY[c10] * k10 + DRY[c01] * k01 + DRY[c11] * k11)), lv = 0.92 + 0.16 * LV[c00] * k00 + 0.16 * LV[c10] * k10 + 0.16 * LV[c01] * k01 + 0.16 * LV[c11] * k11;
@@ -2966,7 +3097,7 @@ function bakeInternalTerrain(B, ter, meshes, res, rd, env = {}) {
     }
     ox.putImageData(img, 0, 0);
     const name = 'tc_' + k; TEX[name] = out; TEX[name].__dxt = true;
-    if (mk) { mk.__raw = mkd.data; mk.getContext('2d').putImageData(mkd, 0, 0); TEX['mk_' + name] = mk; /* __raw: el canvas premultiplica alfa y perdería los canales donde no hay roca */ out.__ml = { mult: size / 4.5 }; } else delete TEX['mk_' + name];
+    if (mk) { mk.__raw = mkd.data; mk.getContext('2d').putImageData(mkd, 0, 0); TEX['mk_' + name] = mk; /* __raw: el canvas premultiplica alfa y perdería los canales donde no hay roca */ out.__ml = { mult: size / 4.5, multV: TMIX ? TERR_MULT : null }; } else delete TEX['mk_' + name];
     for (const m of list) { m.mat = name; m.uv = m.v.map(v => [(v[0] - x0) / size, (v[1] - y0) / size]); }
     n++;
   }
@@ -3214,6 +3345,7 @@ function makeTuftTex() {
   slot(5, o => { for (let i = 0; i < 380; i++) { const g0 = (rng() + rng() - 1), h = 30 + 60 * (1 - Math.abs(g0)) * rng(); blade(o + g0 * 110, h, g0 * 30, 1.2 + rng(), col(0.2 + rng() * 0.7, 18)); } });
   slot(6, o => { for (let i = 0; i < 18; i++) { const a = (rng() - 0.5) * 2.2, h = 70 + rng() * 110; leaf(o + (rng() - 0.5) * 30, h, Math.sin(a) * 80, 10 + rng() * 8, col(0.1 + rng() * 0.4, 14)); } });
   slot(7, o => { for (let i = 0; i < 220; i++) { const g0 = (rng() + rng() - 1), h = 60 + 120 * (1 - Math.abs(g0)) * rng(); const t = rng(); blade(o + g0 * 80, h, g0 * 55, 1 + rng() * 1.3, t < 0.5 ? DRY.map(v => Math.round(v * 0.85)) : col(0.5 + rng() * 0.3, 20)); } });
+  { const x = c.getContext('2d'), im = x.getImageData(0, 0, c.width, c.height); c.__raw = bleedRGB(im.data, c.width, c.height, 8); } // color de la mata hacia los píxeles transparentes: sin bordes negros al alejarse (mipmaps)
   return c;
 }
 // ---------- Relieve del piso y humedad del camino ----------
@@ -3800,6 +3932,8 @@ function buildRoadStrips(B, res, o = {}, opt = {}) {
           if (hashU(cx, cy, 31) < st * (0.6 + 0.8 * Math.min(1, Math.abs(s) / P.hw))) { const b = 1.25 + 0.25 * hashU(cx, cy, 32); rr = Math.min(255, rr * b); gg = Math.min(255, gg * b); bb = Math.min(255, bb * b * 1.02); } }
         // fuera del ancho real del camino (en tramos más angostos) se ve la banquina
         if (Math.abs(s) > P.hw) { rr *= 0.9; gg *= 0.92; bb *= 0.85; }
+        { const ru = typeof RUTS !== 'undefined' ? RUTS.paint(d, s, (r.K && r.K[fixIdxR(r, d)]) || 0) : null; // huellones: fondo compactado y húmedo, labios y lomo de ripio suelto
+          if (ru) { const dk = 1 - 0.32 * ru.bot, lt = 1 + 0.1 * ru.lip; rr *= dk * lt; gg *= dk * lt; bb *= dk * 0.97 * lt; } }
         [rr, gg, bb] = shade(rr, gg, bb, px, py, s, d, dirtP);
         od[o] = rr; od[o + 1] = gg; od[o + 2] = bb; od[o + 3] = 255;
       }
@@ -3811,7 +3945,9 @@ function buildRoadStrips(B, res, o = {}, opt = {}) {
         for (let xx = 0; xx < MW; xx++) { const s = ((xx + 0.5) / MW * 2 - 1) * HW, m = Math.abs(s) < P.hw ? RELIEF.mat(d, s, P.hw, c) : [0, 1, 0], o = (y * MW + xx) * 4;
           // canal A: huella compactada (sale del firme), con la misma forma que la pintada en la tira
           const a = RGL && RGL.T && Math.abs(s) < P.hw ? MG(d, s).trk * (+RGLIB.cfg.tracks || 0) * m[0] : null;
-          md[o] = (m[0] - (a || 0)) * 255; md[o + 1] = m[1] * 255; md[o + 2] = m[2] * 255; md[o + 3] = a == null ? (RGL && RGL.T ? 0 : 255) : a * 255; } }
+          let m0 = m[0] - (a || 0), m1 = m[1], m2 = m[2]; { const ru = typeof RUTS !== 'undefined' && Math.abs(s) < P.hw ? RUTS.paint(d, s, (r.K && r.K[fixIdxR(r, d)]) || 0) : null;
+            if (ru) { const wb = Math.min(1, ru.bot * 1.2), wl = Math.min(1, ru.lip) * (1 - wb); m2 = m2 * (1 - wb) + wb; m1 = m1 * (1 - wb) * (1 - wl) + wl; m0 = m0 * (1 - wb) * (1 - wl); } } // canal B (húmedo) en el fondo, G (suelto) en el lomo
+          md[o] = m0 * 255; md[o + 1] = m1 * 255; md[o + 2] = m2 * 255; md[o + 3] = a == null ? (RGL && RGL.T ? 0 : 255) : a * 255; } }
       if (RGL && RGL.T) { mc.__raw = new Uint8ClampedArray(md); mc.__rgA = true; } // el canvas premultiplica alfa: se guarda la máscara cruda
       mx.putImageData(mi, 0, 0); TEX['mk_rs_' + k] = mc; }
   };
@@ -3952,15 +4088,18 @@ async function rebuild(keepCam) {
             const cr = tx * (q[1] - a[1]) - ty * (q[0] - a[0]), sd = cr > 0 ? 1 : -1, w = ln.cls === 'track' || ln.cls === 'path' ? 4 : 6;
             if (!ACCS.some(z => Math.abs(z.d - cum[bi]) < 12 && z.sd === sd)) ACCS.push({ d: cum[bi], sd, w, osm: true }); } }
       } }
-    const routeArgs = { bankAt: (d, s, hw) => { const m = RGMASK.at(d, s, hw); return m.bank || 0; }, ditchBotMat: 'ditchbot', ditchWallMat: 'ditchwall', onCurv: (K, dist, step, closed, total) => CURVAS.build(K, dist, step, closed, total), bandClass: (d, s, hw) => CURVAS.bandClass(d, s, hw), cun5: PHYSG.on('cunetas_v5') ? PHYSG.ent('cunetas_v5') : null, bordes: PHYSG.on('bordes_rio_grande') && (typeof PRESETS === 'undefined' || PRESETS.cur === 'ripio_rio_grande') ? { ...PHYSG.ent('bordes_rio_grande'), seed: (typeof RELIEF !== 'undefined' && RELIEF.SD) || 1 } : null, tal: PHYSG.on('taludes') ? { ...PHYSG.ent('taludes'), k: PHYSG.k('taludes'), fp: d => RGMASK.FL.pBase(d).w } : null, bareAt: S.autoW ? S.autoW.bare : null, clearAt: S.autoW ? S.autoW.clear : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, terrRes: o.res, shoulder: Math.min(3.5, o.res * 1.5 + 1),
+    const routeArgs = { bankAt: (d, s, hw) => { const m = RGMASK.at(d, s, hw); return m.bank || 0; }, ditchBotMat: 'ditchbot', ditchWallMat: 'ditchwall', onCurv: (K, dist, step, closed, total) => CURVAS.build(K, dist, step, closed, total), bandClass: (d, s, hw) => CURVAS.bandClass(d, s, hw), cun5: PHYSG.on('cunetas_v5') ? PHYSG.ent('cunetas_v5') : null, sideVis: PHYSG.on('bordes_rio_grande') && (typeof PRESETS === 'undefined' || PRESETS.cur === 'ripio_rio_grande'), bordes: PHYSG.on('bordes_rio_grande') && (typeof PRESETS === 'undefined' || PRESETS.cur === 'ripio_rio_grande') ? { ...PHYSG.ent('bordes_rio_grande'), seed: (typeof RELIEF !== 'undefined' && RELIEF.SD) || 1 } : null, tal: PHYSG.on('taludes') ? { ...PHYSG.ent('taludes'), k: PHYSG.k('taludes'), fp: d => RGMASK.FL.pBase(d).w } : null, bareAt: S.autoW ? S.autoW.bare : null, clearAt: S.autoW ? S.autoW.clear : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, terrRes: o.res, shoulder: Math.min(3.5, o.res * 1.5 + 1),
       humAt: RELIEF.humAt, forestAt: RELIEF.forestAt, bankMat: TEX.bank && PACK.on ? 'bank' : null, bankLen: 5, sideMatAt: SIDECAT.on ? (d, sd) => SIDECAT.typeAt(d, sd) : null, sideLumpAt: SIDECAT.on ? (d, sd, e) => SIDECAT.lumpAt(d, sd, e) : null, reliefAt: RELIEF.A ? (d, s, hw, c) => RELIEF.at(d, s, hw, c) : null, roadCols: PHYSG.cols(), ditchP: { k: PHYSG.k('cunetas'), bmin: PHYSG.v('cunetas', 'profundidad_bosque_min_m', 0.38), bext: PHYSG.v('cunetas', 'profundidad_bosque_extra_m', 0.22), cmin: PHYSG.v('cunetas', 'profundidad_campo_min_m', 0.16), cext: PHYSG.v('cunetas', 'profundidad_campo_extra_m', 0.12) }, stones: RELIEF.A && $('#stones') ? +$('#stones').value : (RELIEF.A ? 1 : 0), accesses: ACCS, procAccess: !$('#access') || $('#access').checked };
     S.live = { routeArgs, cache: { keyFn: () => JSON.stringify(S.edits.filter(e => e.kind === 'shape')) }, sideArgs: null, sideSegs: [] };
-    { const ra = { ...routeArgs, ...editFns(o, S.lastTotal, B.closed), cache: S.live.cache }; res = Core.buildRoute(ra);
+    { const ra = { ...routeArgs, ...editFns(o, S.lastTotal, B.closed), cache: S.live.cache }; res = Core.buildRoute(ra); if (res.sideBands) { const t0 = performance.now(), np = paintSideBands(res); log(`Costados: ${np} bandas de 100 m con las texturas de las fotos a escala real (ripio suelto, canal, cordón con terrones, banquina de tierra con piedras, pasto), límites irregulares en ${((performance.now() - t0) / 1000).toFixed(1)} s.`); }
       // Etapa 6: tipo de borde (A/B/C/D) de cada lado cada 2 m, para el mapa del tramo y las capturas
       if (ra.__bordesTipos) { res.bordes = { izq: ra.__bordesTipos[0], der: ra.__bordesTipos[1], dist: res.dist.slice() }; const cnt = { izq: {}, der: {} };
         for (const sd of ['izq', 'der']) for (const t of res.bordes[sd]) cnt[sd][t] = (cnt[sd][t] || 0) + 1;
         log(`Bordes de Río Grande (fotos 6870-6899): izquierda ${Object.entries(cnt.izq).map(([t, c]) => t + ' ' + Math.round(100 * c / res.n) + ' %').join(', ')} · derecha ${Object.entries(cnt.der).map(([t, c]) => t + ' ' + Math.round(100 * c / res.n) + ' %').join(', ')}.`); } }
     S.lastTotal = res.total;
+    { const sk = $('#surfKey'); if (sk && !sk.dataset.manual && res.SURF) { const c = {}; for (const k of res.SURF) if (ROAD_KEYS.includes(k)) c[k] = (c[k] || 0) + 1; // por defecto, la superficie que manda en el camino (la del preset)
+      const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0]; if (top) sk.value = top[0]; } }
+    if (S.edits.length && typeof edClampLog === 'function') edClampLog(res.total, !!(S.base && S.base.closed)); // cambios fuera del tramo (de un recorrido anterior): se recortan o se borran
     if ($('#biome') && $('#biome').value === 'auto') { const bd = detectBiome(res.total); if (bd) log(`Bioma detectado en el satélite: ${bd}. Vegetación, suelo, piedras, cunetas y relieve se ajustan solos por tramo.`); }
     { const H = res.HUM || [], wet = H.filter(v => v > 0.55).length / (H.length || 1), dry = H.filter(v => v < 0.3).length / (H.length || 1), hol = (res.HO || []).filter(v => v > 0.3).length * 2;
       if (RELIEF.A) log(`Relieve del piso: ${Math.round(dry * 100)}% firme (pocos baches), ${Math.round(wet * 100)}% húmedo (baches, surcos de agua y piso blando)${hol ? `, ${(hol / 1000).toFixed(2)} km en hondonadas` : ''}${RELIEF.ok ? ' — humedad según el satélite y la altura' : ' — sin satélite: humedad por ruido'}. Morros suaves cada ~260 m. Todo en la malla del camino: la suspensión lo absorbe, sin golpes secos.`);
@@ -4048,6 +4187,8 @@ async function rebuild(keepCam) {
     if (st.ml) log('Terreno multicapa: cada sector lleva su máscara (pasto · bosque · tierra · roca) y los detalles de tu biblioteca, nítidos de cerca y sin repetición visible de lejos.', 'ok');
     log(`Terreno: ${st.chunks} sectores pintados con materiales internos (${st.mats.join(', ')}). Roca en pendientes fuertes, barro y suelo húmedo cerca de ríos y arroyos, pasto más seco en lo alto; bordes irregulares, sin cortes rectos.`);
     if (PV.mats) { for (const k in PV.mats) if (k.startsWith('tc_')) { try { PV.mats[k].map.dispose(); PV.mats[k].dispose(); } catch (e) { } delete PV.mats[k]; } }
+    S.terrMap = st.ml ? { x0: B.bbox.minx, y0: B.bbox.miny, res: o.res, CH: ter.CH, size: ter.CH * o.res } : null;
+    if (S.terrMap) { const re = sideToTerrain(meshes); meshes.length = 0; meshes.push(...re); }
   } catch (e) { log('Texturas del terreno: ' + e.message, 'err'); }
   let wallN = 0; const wallCounter = () => ++wallN;
   if (CARVE) { meshes.push(...waterMeshes(S.water, ter, B.bbox, o.res)); }
@@ -4078,7 +4219,7 @@ async function rebuild(keepCam) {
     // altura de la superficie del costado (loma, talud) a e metros del borde: la del perfil del núcleo, o el terreno si está más alto
     const sideH = (i, sd, e, x, y) => { const P = res.SP && res.SP[i] && res.SP[i][sd > 0 ? 0 : 1], t = hT(x, y); if (!P) return t; const q = P.pts;
       for (let k = 1; k < q.length; k++) if (e <= q[k][0]) { const u = (e - q[k - 1][0]) / Math.max(1e-6, q[k][0] - q[k - 1][0]); const h = q[k - 1][1] + (q[k][1] - q[k - 1][1]) * u; return t == null ? h : Math.max(h, t); } return t; };
-    const m = { name: 'TREES_tufts', mat: 'tuft', v: [], uv: [], f: [] }, used = new Set(); let cnt = 0;
+    const m = { name: 'TREES_tufts', mat: 'tuft', v: [], uv: [], f: [], n: [] }, used = new Set(); let cnt = 0;
     for (let i = 0; i < res.n && cnt < 160000; i += 1) for (const sd of [1, -1]) {
       const d = res.dist[i], tk = SIDECAT.typeAt(d, sd), tp = SIDECAT.TYPES[tk]; used.add(tk); const dens = tp.tuft * 2; if ((res.accessPts || []).some(a => Math.abs(a.d - d) < 8)) continue;
       for (let q = 0; q < 22; q++) { if (hashU(i, sd * 7 + q, 301) > dens * 0.7) continue;
@@ -4091,6 +4232,7 @@ async function rebuild(keepCam) {
         const a0 = hashU(i, q, 307) * Math.PI, ros = slot === 1 || slot === 6, nq = ros ? 4 : 3;
         for (let qq = 0; qq < nq; qq++) { const a = a0 + qq * Math.PI / nq + (hashU(i * 5 + qq, q, 308) - 0.5) * 0.4, ca = Math.cos(a) * wid * 0.6, sa = Math.sin(a) * wid * 0.6, b = m.v.length, tl = ros ? 0.55 : 0.12;
           const tx = -Math.sin(a) * sz * tl * (qq % 2 ? 1 : -1), ty = Math.cos(a) * sz * tl * (qq % 2 ? 1 : -1);
+          m.n.push([0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1]); // normales hacia arriba: la mata se ilumina como el pasto de alrededor, no como una lámina oscura
           m.v.push([x0 - ca, y0 - sa, h - 0.02], [x0 + ca, y0 + sa, h - 0.02], [x0 + ca + tx, y0 + sa + ty, h + sz * (ros ? 0.75 : 1)], [x0 - ca + tx, y0 - sa + ty, h + sz * (ros ? 0.75 : 1)]);
           const f0 = hashU(i, qq, 309) < 0.5; m.uv.push([(slot + (f0 ? 1 : 0)) / TUFT_N + (f0 ? -0.002 : 0.002), 0.01], [(slot + (f0 ? 0 : 1)) / TUFT_N + (f0 ? 0.002 : -0.002), 0.01], [(slot + (f0 ? 0 : 1)) / TUFT_N + (f0 ? 0.002 : -0.002), 0.99], [(slot + (f0 ? 1 : 0)) / TUFT_N + (f0 ? -0.002 : 0.002), 0.99]); m.f.push([b, b + 1, b + 2], [b, b + 2, b + 3]); }
         cnt++; }
@@ -4134,6 +4276,7 @@ async function rebuild(keepCam) {
   if (B.mode === 'route' && o.objects) {
     try { const ob = await buildObjects(B, Object.assign({}, o, { CARVE }), res, ter, wallCounter); meshes.push(...ob.meshes); OCC = ob.occupied; } catch (e) { log('No se pudieron generar los objetos: ' + e.message, 'err'); }
   }
+  if (B.mode === 'route' && $('#horizonte') ? $('#horizonte').checked : B.mode === 'route') { try { await buildHorizon(B, o, res, ter, meshes); } catch (e) { log('Horizonte: ' + e.message, 'err'); console.error(e); } }
   if (o.veg) {
     log('Plantando vegetación…'); await tick();
     const SP = { wood: 3.6, scrub: 11, wetland: 12, grass: 70, urban: 28, farmland: 150, rock: 70, none: 90 };
@@ -4172,6 +4315,7 @@ async function rebuild(keepCam) {
   if (B.mode === 'route') { drawProfile(); drawHeat(); renderCrit(); renderEdits(); drawSel(); renderNotes(); edRefresh(); }
   $('#zipBtn').style.display = 'block'; $('#dl').style.display = 'none'; if (PACK.items.length && !PACK.on) log('Ojo: tenés la biblioteca de texturas cargada pero apagada ("Usar el pack"): la pista sale con las texturas internas.', 'err');
   log(`Listo en ${((performance.now() - t0) / 1000).toFixed(1)} s · ${(length / 1000).toFixed(2)} km · ${vcount.toLocaleString()} vértices, ${fcount.toLocaleString()} triángulos.`, 'ok');
+  try { if (typeof CHEQ !== 'undefined') S.lastCheck = CHEQ.report({ meshes, res }); } catch (e) { console.warn('chequeo', e); }
 }
 
 // ---------- Validación del tramo contra los datos de elevación (antes de exportar) ----------
@@ -4367,6 +4511,7 @@ function renderCrit() {
 
 // ---------- Herramientas de edición ----------
 const EDIT_TXT = {
+  ruts: e => `Huellones ${Math.round((e.D ?? 0.14) * 100)} cm de hondo`,
   raise: e => e.h1 != null && e.d1 - e.d0 >= 1 && Math.abs(e.h1 - e.h) > 0.005 ? `Pendiente ${fmtH(e.h)} → ${fmtH(e.h1)} m` : `${e.h > 0 ? 'Subir' : 'Bajar'} ${Math.abs(+e.h.toFixed(2))} m`,
   profile: e => `Perfil por puntos (${e.pts.length})`, rasante: e => `${RAS_NAME[e.type] || 'Rasante'} ${fmtH(+(+e.h).toFixed(2))} m`,
   smooth: () => 'Suavizar', flat: e => `Aplanar (${{ start: 'altura inicial', end: 'altura final', avg: 'promedio', abs: (e.h ?? 0).toFixed(1) + ' m' }[e.ref || 'start']}${(e.k ?? 1) < 1 ? ', ' + Math.round(e.k * 100) + '%' : ''})`, grade: e => `Pendiente constante ${e.pct != null ? (e.pct > 0 ? '+' : '') + e.pct.toFixed(1) + '%' : fmtH(e.dh) + ' m'}`, bump: e => `Lomada ${+e.h.toFixed(2)} m`, jump: e => `Salto ${+e.h.toFixed(2)} m`, cattle: () => 'Guardaganado',
@@ -4390,7 +4535,7 @@ async function applyEdits() {
   busy(false);
 }
 function needSel() { if (!S.sel) { $('#selInfo').textContent = '⚠ Primero elegí un punto o un tramo en el perfil.'; return false; } return true; }
-function secSel() { const s = S.sel; return s.d1 - s.d0 < 10 ? { d0: Math.max(0, s.d0 - 25), d1: s.d0 + 25 } : { d0: s.d0, d1: s.d1 }; }
+function secSel() { const s = S.sel, T = S.result && S.result.res ? S.result.res.total : Infinity; return s.d1 - s.d0 < 10 ? { d0: Math.max(0, s.d0 - 25), d1: Math.min(T, s.d0 + 25) } : { d0: Math.max(0, s.d0), d1: Math.min(T, s.d1) }; }
 function ptSel() { return (S.sel.d0 + S.sel.d1) / 2; }
 const num = (id, def) => { const v = parseFloat($(id).value); return isFinite(v) ? v : def; };
 function addEdit(e) { edPushUndo(); S.edits.push(e); ED.active = e; editsChanged(); }
@@ -4531,6 +4676,7 @@ async function addRBRPackage(R, zip, slug) {
     if (L && L[0] > 0 && L[1] >= 20000) cat = 'omitir';                       // lámina lejana que duplica un árbol 3D
     else if (/^TREES_A0/.test(m.name) && L && L[1] === 110) cat = 'omitir';    // árbol completo de cerca: queda su versión simple
     else if (L && L[0] === 0 && L[1] >= 20000) cat = 'lejos';                  // árboles lejanos (láminas)
+    else if (m.far || /^far_/.test(m.name)) cat = 'lejos';                     // Etapa 7: horizonte y referencias lejanas
     objetos[m.name] = { fis, rbr: cat };
     if (cat === 'omitir') omit++; else used.add(m.mat);
   }
@@ -4770,6 +4916,7 @@ async function buildZip(R) {
   try { tr.file(slug + '.kn5', await buildKN5(R, slug, $('#invertSpawn').checked)); } finally { for (const [m, n] of ren) m.name = n; }
   const data = tr.folder('data');
   data.file('surfaces.ini', surfacesIni(keys, AK));
+  try { if (typeof cspExtConfig === 'function') tr.folder('extension').file('ext_config.ini', cspExtConfig(R)); } catch (e) { console.warn('ext_config', e); }
   const mp = drawOutline(R, 1600, 20, 6);
   tr.file('map.png', await canvasBlob(mp.c));
   // el camino se dibuja corrido MARGIN píxeles: el origen del map.ini tiene que incluir ese margen (antes faltaba → minimapa corrido ~20 px)
@@ -4877,9 +5024,10 @@ function pvDetail(mat, k) {
   if (D.chan) { const T = DETAIL.terrain(), tx = c => { const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; return t; }, mk = new THREE.CanvasTexture(TEX['mk_' + k]); mk.wrapS = mk.wrapT = THREE.ClampToEdgeWrapping;
     const U = { dR: tx(T.R), dG: tx(T.G), dB: tx(T.B), dA: tx(T.A) }, M0 = TEX['mk_' + k];
     if (M0.__raw && THREE.DataTexture) { const w = M0.width, h = M0.height, fl = new Uint8Array(w * h * 4); for (let y = 0; y < h; y++) fl.set(M0.__raw.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4); const dt = new THREE.DataTexture(fl, w, h, THREE.RGBAFormat); dt.magFilter = dt.minFilter = THREE.LinearFilter; dt.needsUpdate = true; mk.dispose && mk.dispose(); Object.assign(U, { mk: dt }); }
-    mat.onBeforeCompile = sh => { Object.assign(sh.uniforms, { detR: { value: U.dR }, detG: { value: U.dG }, detB: { value: U.dB }, detA: { value: U.dA }, detMask: { value: U.mk || mk }, detMult: { value: D.mult }, detMagic: { value: D.magic } });
-      sh.fragmentShader = 'uniform sampler2D detR; uniform sampler2D detG; uniform sampler2D detB; uniform sampler2D detA; uniform sampler2D detMask; uniform float detMult; uniform float detMagic;\n' + sh.fragmentShader.replace('#include <map_fragment>',
-        '#include <map_fragment>\n vec4 dm = texture2D(detMask, vUv); vec2 du = vUv * detMult;\n diffuseColor.rgb *= (texture2D(detR, du).rgb * dm.r + texture2D(detG, du).rgb * dm.g + texture2D(detB, du).rgb * dm.b + texture2D(detA, du).rgb * dm.a) * detMagic;'); };
+    const MV = D.multV || [1, 1, 1, 1];
+    mat.onBeforeCompile = sh => { Object.assign(sh.uniforms, { detR: { value: U.dR }, detG: { value: U.dG }, detB: { value: U.dB }, detA: { value: U.dA }, detMask: { value: U.mk || mk }, detMult: { value: D.mult }, detMV: { value: new THREE.Vector4(MV[0], MV[1], MV[2], MV[3]) }, detMagic: { value: D.magic } });
+      sh.fragmentShader = 'uniform sampler2D detR; uniform sampler2D detG; uniform sampler2D detB; uniform sampler2D detA; uniform sampler2D detMask; uniform float detMult; uniform vec4 detMV; uniform float detMagic;\n' + sh.fragmentShader.replace('#include <map_fragment>',
+        '#include <map_fragment>\n vec4 dm = texture2D(detMask, vUv); vec2 du = vUv * detMult;\n diffuseColor.rgb *= (texture2D(detR, du * detMV.x).rgb * dm.r + texture2D(detG, du * detMV.y).rgb * dm.g + texture2D(detB, du * detMV.z).rgb * dm.b + texture2D(detA, du * detMV.w).rgb * dm.a) * detMagic;'); };
     mat.customProgramCacheKey = () => 'det4'; return mat; }
   const T = DETAIL.tex(D.key), tx = c => { const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; return t; };
   const dR = tx(T.cv), dG = tx(T.g || T.cv), dB = tx(T.b || T.cv), M1 = D.strip && TEX['mk_' + k];
@@ -4896,9 +5044,17 @@ function pvDetail(mat, k) {
 function pvMat(k) {
   return PV.mats[k] || (PV.mats[k] = pvDetail((() => {
     const t = new THREE.CanvasTexture(TEX[k]); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
-    if (k === 'tree' || k === 'people' || k === 'tuft' || k === 'lenga' || k === 'leaves') { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide }); }
-    if (k === 'fwire' || k === 'fgate') return new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.5 });
-    if (k.startsWith('rs_')) { t.wrapS = THREE.ClampToEdgeWrapping; t.wrapT = THREE.ClampToEdgeWrapping; }
+    if (k === 'tree' || k === 'people' || k === 'tuft' || k === 'lenga' || k === 'leaves') { let mt = t; const cv = TEX[k];
+      if (cv && cv.__raw && THREE.DataTexture) { const w = cv.width, h = cv.height, fl = new Uint8Array(w * h * 4); for (let y = 0; y < h; y++) fl.set(cv.__raw.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4); // sin premultiplicar: el borde conserva el color
+        mt = new THREE.DataTexture(fl, w, h, THREE.RGBAFormat); mt.generateMipmaps = true; mt.minFilter = THREE.LinearMipmapLinearFilter; mt.magFilter = THREE.LinearFilter; mt.anisotropy = 4; mt.needsUpdate = true; }
+      mt.wrapS = mt.wrapT = THREE.ClampToEdgeWrapping; return new THREE.MeshLambertMaterial({ map: mt, alphaTest: 0.5, side: THREE.DoubleSide }); }
+    if (k === 'fwire' || k === 'fgate') { let mt = t; const cv = TEX[k]; // Etapa 7: color sangrado bajo lo transparente (sin bordes negros al alejarse)
+      if (cv && THREE.DataTexture) { if (!cv.__raw) { const w0 = cv.width, h0 = cv.height; cv.__raw = bleedRGB(cv.getContext('2d').getImageData(0, 0, w0, h0).data, w0, h0, 8); }
+        const w = cv.width, h = cv.height, fl = new Uint8Array(w * h * 4); for (let y = 0; y < h; y++) fl.set(cv.__raw.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4);
+        mt = new THREE.DataTexture(fl, w, h, THREE.RGBAFormat); mt.generateMipmaps = true; mt.minFilter = THREE.LinearMipmapLinearFilter; mt.magFilter = THREE.LinearFilter; mt.wrapS = mt.wrapT = THREE.RepeatWrapping; mt.needsUpdate = true; }
+      return new THREE.MeshLambertMaterial({ map: mt, alphaTest: 0.5, side: THREE.DoubleSide }); }
+    if (k.startsWith('rs_') || k.startsWith('sb_')) { t.wrapS = THREE.ClampToEdgeWrapping; t.wrapT = THREE.ClampToEdgeWrapping; }
+    if (k.startsWith('sb_')) { t.anisotropy = 8; return new THREE.MeshLambertMaterial({ map: t }); } // el detalle multicapa lo agrega pvDetail
     if (hasNormal(k) && THREE.MeshPhongMaterial) { const nt = new THREE.CanvasTexture(normalOf(k)); nt.wrapS = t.wrapS; nt.wrapT = t.wrapT;
       return new THREE.MeshPhongMaterial({ map: t, normalMap: nt, shininess: 4, specular: 0x0a0a0a }); }
     return new THREE.MeshLambertMaterial({ map: t, polygonOffset: k === 'line', polygonOffsetFactor: -2 });
@@ -4912,7 +5068,7 @@ function pvAdd(m) {
   m.f.forEach((f, i) => idx.set(f, i * 3));
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(new THREE.BufferAttribute(idx, 1));
   if (m.n && m.n.length === m.v.length) { const nr = new Float32Array(m.n.length * 3); m.n.forEach((q, i) => { nr[i * 3] = q[0]; nr[i * 3 + 1] = q[2]; nr[i * 3 + 2] = -q[1]; }); g.setAttribute('normal', new THREE.BufferAttribute(nr, 3)); } else g.computeVertexNormals();
-  const mesh = new THREE.Mesh(g, pvMat(m.mat)); mesh.userData.src = m; if (m.pvHide) mesh.visible = false; mesh.receiveShadow = true; mesh.castShadow = !/^(TERRAIN|terrain|WATER|SKY)/i.test(m.name || '') && m.mat !== 'line'; if (mesh.castShadow && mesh.material.alphaTest > 0 && mesh.material.map) mesh.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: mesh.material.map, alphaTest: mesh.material.alphaTest }); PV.group.add(mesh); PV.byMesh.set(m, mesh);
+  const mesh = new THREE.Mesh(g, pvMat(m.mat)); mesh.userData.src = m; if (m.pvHide || m.physOnly) mesh.visible = false; mesh.receiveShadow = true; mesh.castShadow = !/^(TERRAIN|terrain|WATER|SKY)/i.test(m.name || '') && m.mat !== 'line'; if (mesh.castShadow && mesh.material.alphaTest > 0 && mesh.material.map) mesh.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: mesh.material.map, alphaTest: mesh.material.alphaTest }); PV.group.add(mesh); PV.byMesh.set(m, mesh);
   if (m.terrain) PV.terrain.push({ mesh, src: m, mat: mesh.material });
   return mesh;
 }
@@ -4945,17 +5101,18 @@ function showPreview(R, keepCam) {
     sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03; PV.scene.add(sun); PV.scene.add(sun.target); PV.sun = sun;
     PV.sunFollow = (r) => { const t = PV.controls.target, R = r || 35; sc.left = sc.bottom = -R; sc.right = sc.top = R; sc.updateProjectionMatrix(); sun.target.position.copy(t); sun.position.copy(t).addScaledVector(PV.sunDir, 250); sun.target.updateMatrixWorld(); };
     PV.group = new THREE.Group(); PV.scene.add(PV.group);
-    { const cs = document.getElementById('cielo'); pvCielo(cs ? cs.value : 'nublado'); if (cs) cs.onchange = () => pvCielo(cs.value); }
+    { const cs = document.getElementById('cielo'); pvCielo(cs ? cs.value : 'hdri_overcast_soil_puresky'); if (cs) cs.onchange = () => pvCielo(cs.value); }
     const resize = () => { const w = host.clientWidth, h = host.clientHeight; PV.renderer.setSize(w, h, false); PV.camera.aspect = w / h; PV.camera.updateProjectionMatrix(); };
     new ResizeObserver(resize).observe(host); resize();
     PV.render = () => PV.renderer.render(PV.scene, PV.camera);
     PV.mats = {};
     setTimeout(edHookViewer, 0);
-    const loop = () => { requestAnimationFrame(loop); if (PV.drive) PV.drive(); if (PV.onFrame) PV.onFrame(); PV.controls.update(); if (PV.sunFollow && !PV.sunFixed) PV.sunFollow(); PV.render(); }; loop();
+    const loop = () => { requestAnimationFrame(loop); if (PV.drive) PV.drive(); if (PV.onFrame) PV.onFrame(); if (typeof PVGRASS !== 'undefined') { try { PVGRASS.update(); } catch (e) { PVGRASS.on = false; console.warn('pasto', e); } } PV.controls.update(); if (PV.sunFollow && !PV.sunFixed) PV.sunFollow(); PV.render(); }; loop();
   }
   while (PV.group.children.length) { const c = PV.group.children.pop(); c.geometry.dispose(); }
   PV.terrain = []; PV.byMesh = new Map();
   for (const m of R.meshes) pvAdd(m);
+  if (typeof PVGRASS !== 'undefined') { try { PVGRASS.clear(); PVGRASS.prep(R); } catch (e) { console.warn('pasto', e); } }
   $('#drive').style.display = R.mode === 'route' ? '' : 'none';
   if (PV.sat) loadSat().then(applySat).catch(() => {}); else applySat();
   edRefresh();
@@ -5291,7 +5448,7 @@ function splitMesh(m, max = 65000) {
   if (m.v.length <= max) return [m];
   const out = []; let cur = null, map = null;
   for (const f of m.f) {
-    if (!cur || cur.v.length > max - 3) { cur = { name: m.name + (out.length ? '_' + out.length : ''), mat: m.mat, v: [], uv: [], f: [], terrain: m.terrain, lod: m.lod, n: m.n ? [] : undefined }; map = new Map(); out.push(cur); }
+    if (!cur || cur.v.length > max - 3) { cur = { name: m.name + (out.length ? '_' + out.length : ''), mat: m.mat, v: [], uv: [], f: [], terrain: m.terrain, lod: m.lod, physOnly: m.physOnly, n: m.n ? [] : undefined }; map = new Map(); out.push(cur); }
     cur.f.push(f.map(i => { if (!map.has(i)) { map.set(i, cur.v.length); cur.v.push(m.v[i]); cur.uv.push(m.uv[i]); if (m.n) cur.n.push(m.n[i]); } return map.get(i); }));
   }
   // las partes extra conservan la clave física (ej. 1ROAD -> 9001ROAD) para que el juego les asigne la misma superficie
@@ -5309,7 +5466,7 @@ function chunkMesh(m, size = 100) {
   }
   if (cells.size < 2) return [m];
   return [...cells.values()].map(fs => {
-    const o = { name: `${++SPLIT_N + 10000}${mm[1]}`, mat: m.mat, v: [], uv: [], f: [], terrain: m.terrain }, map = new Map();
+    const o = { name: `${++SPLIT_N + 10000}${mm[1]}`, mat: m.mat, v: [], uv: [], f: [], terrain: m.terrain, physOnly: m.physOnly }, map = new Map();
     for (const f of fs) o.f.push(f.map(i => { if (!map.has(i)) { map.set(i, o.v.length); o.v.push(m.v[i]); o.uv.push(m.uv[i]); } return map.get(i); }));
     return o;
   });
@@ -5347,7 +5504,7 @@ async function buildKN5(R, slug, invert) {
     w.str(m); w.str(sh.shader); w.u8(0); w.u8(sh.alpha ? 1 : 0); w.i32(0);
     const props = [['ksAmbient', m === 'tree' ? 0.32 : 0.26], ['ksDiffuse', m === 'tree' ? 0.42 : 0.4], ['ksSpecular', m === 'wet' || m === 'ice' ? 0.25 : 0.04], ['ksSpecularEXP', m === 'wet' || m === 'ice' ? 40 : 12], ['ksEmissive', 0], ['ksAlphaRef', sh.alpha ? 0.5 : 0]];
     // mismas variables que los tramos de Kunos; el detalle está centrado en gris medio, magicMult ~2 deja el color base igual de lejos
-    if (D) props.push(['multR', D.mult], ['multG', D.mult], ['multB', D.mult], ['multA', D.mult], ['magicMult', D.magic || 1.8], ['fresnelC', 0], ['fresnelEXP', 8], ['fresnelMaxLevel', 0], ['tarmacSpecularMultiplier', 0], ['detailNMMult', D.mult]);
+    if (D) { const MV = D.multV || [1, 1, 1, 1]; props.push(['multR', D.mult * MV[0]], ['multG', D.mult * MV[1]], ['multB', D.mult * MV[2]], ['multA', D.mult * MV[3]]); } if (D) props.push( ['magicMult', D.magic || 1.8], ['fresnelC', 0], ['fresnelEXP', 8], ['fresnelMaxLevel', 0], ['tarmacSpecularMultiplier', 0], ['detailNMMult', D.mult]);
     w.i32(props.length);
     for (const [n, v] of props) { w.str(n); w.f32(v); for (let i = 0; i < 2 + 3 + 4; i++) w.f32(0); }
     // máscara: R firme · G suelto/piedras · B húmedo · A sin uso (detalle negro: no suma nada)
@@ -5366,7 +5523,7 @@ async function buildKN5(R, slug, invert) {
     const N = Core.computeNormals(m);
     w.i32(2); w.str(m.name); w.i32(0); w.u8(1);
     const visual = !/^(LINES|TREES|ROCKS|STONES|BANNERS|OBJECTS)_/.test(m.name);
-    w.u8(m.mat === 'line' ? 0 : 1); w.u8(1); w.u8(0); // sombras, visible, transparente
+    w.u8(m.mat === 'line' || m.physOnly ? 0 : 1); w.u8(m.physOnly ? 0 : 1); w.u8(0); // sombras, visible (las franjas físicas de los costados no se ven: se ve la banda pintada), transparente
     w.i32(m.v.length);
     let mnx = Infinity, mny = Infinity, mnz = Infinity, mxx = -Infinity, mxy = -Infinity, mxz = -Infinity;
     for (let i = 0; i < m.v.length; i++) {
@@ -5400,6 +5557,7 @@ async function buildKN5(R, slug, invert) {
 function canvasToDDS(cv, grade, dxt) {
   let w = cv.width, h = cv.height;
   let img = cv.__raw || cv.getContext('2d').getImageData(0, 0, w, h).data;
+  if (!dxt && !cv.__raw) { let tr = false; for (let i = 3; i < img.length; i += 4 * 97) if (img[i] < 250) { tr = true; break; } if (tr) img = bleedRGB(img, w, h, 8); } // con transparencia: color sin bordes negros
   if (grade) { img = new Uint8ClampedArray(img); for (let i = 0; i < img.length; i += 4) { img[i] *= grade[0]; img[i + 1] *= grade[1]; img[i + 2] *= grade[2]; } }
   const levels = [];
   for (;;) {

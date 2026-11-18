@@ -7,7 +7,7 @@ from pathlib import Path
 root = Path(__file__).parent
 s = root / 'src'
 core = (s / 'core.js').read_text(encoding='utf8').replace("if (typeof module !== 'undefined') module.exports = Core;", '')
-app = (s / 'rgmask.js').read_text(encoding='utf8').replace("if (typeof module !== 'undefined') module.exports = RGMASK;", '') + '\n' + (s / 'app.js').read_text(encoding='utf8') + '\n' + (s / 'editor3d.js').read_text(encoding='utf8') + '\n' + (s / 'objetos.js').read_text(encoding='utf8')
+app = (s / 'rgmask.js').read_text(encoding='utf8').replace("if (typeof module !== 'undefined') module.exports = RGMASK;", '') + '\n' + (s / 'app.js').read_text(encoding='utf8') + '\n' + (s / 'editor3d.js').read_text(encoding='utf8') + '\n' + (s / 'objetos.js').read_text(encoding='utf8') + '\n' + (s / 'entorno.js').read_text(encoding='utf8')
 tpl = (s / 'template.html').read_text(encoding='utf8')
 # archivos del paquete para Richard Burns Rally (tools/rbr): van dentro de la app, se agregan al ZIP si se pide
 rbr = {f.name: f.read_text(encoding='utf8') for f in sorted((root / 'tools' / 'rbr').glob('*')) if f.suffix.lower() in ('.py', '.bat', '.txt')}

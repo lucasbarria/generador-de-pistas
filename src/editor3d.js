@@ -5,7 +5,7 @@
 // únicamente alrededor de la zona editada. El perfil del panel y el de la vista 3D muestran lo mismo.
 
 const ED = { prec: 0.01, cpSel: null, cpSpacing: 10, cpInterp: 'pchip', rasType: 'cresta', tool: 'height', active: null, undo: [], redo: [], drag: null, pending: false, gz: [], hover: null, anchor: null, keys: new Set(), commitT: null };
-const ED_KIND = { place: 'place', profile: 'profile', rasante: 'rasante', height: 'raise', bank: 'bank', jump: 'jump', bump: 'bump', pothole: 'pothole', cattle: 'cattle', width: 'width', curve: 'shape', smooth: 'smooth' };
+const ED_KIND = { place: 'place', profile: 'profile', rasante: 'rasante', height: 'raise', bank: 'bank', jump: 'jump', bump: 'bump', pothole: 'pothole', cattle: 'cattle', width: 'width', curve: 'shape', smooth: 'smooth', ruts: 'ruts' };
 const ED_TOOLS = [
   ['place', '🏠 Objetos y árboles', 'Poné árboles (de a uno o con pincel), casas, personas, piedras, puentes y lagos donde quieras. La goma borra.'],
   ['profile', '📈 Puntos de control', 'Altimetría por puntos: cada punto se edita solo (altura al centímetro, pendiente de entrada y salida, bloqueo). Entre dos extremos fijos: recta, suavizar, cresta o valle.'],
@@ -19,6 +19,7 @@ const ED_TOOLS = [
   ['width', '↔ Ancho', 'Arrastrá los bordes verdes para ensanchar o angostar el tramo.'],
   ['curve', '✋ Curva', 'Arrastrá los puntos amarillos para mover el trazado; el alcance define cuánto camino se mueve.'],
   ['smooth', '≈ Suavizar', 'Suaviza las alturas del tramo elegido (quita escalones y saltos falsos).'],
+  ['ruts', '〰 Huellones', 'Huellas hundidas de las ruedas (ripio blando o barro): elegí el tramo con las manijas de inicio y final; profundidad, ancho de cada huella, separación, irregularidad y transición en las puntas. Siguen la trayectoria de las ruedas (en curva se abren hacia afuera).'],
 ];
 // parámetros editables con número (clave, nombre, unidad, paso, mín, máx)
 const ED_PARAMS = {
@@ -32,6 +33,7 @@ const ED_PARAMS = {
   width: () => [['w', 'Ancho', 'm', 0.1, 3, 25], ['d0', 'Desde', 'm', 1], ['d1', 'Hasta', 'm', 1]],
   shape: () => [['dx', 'Mover al este', 'm', 0.5], ['dy', 'Mover al norte', 'm', 0.5], ['r', 'Alcance', 'm', 5, 8, 500]],
   smooth: () => [['d0', 'Desde', 'm', 1], ['d1', 'Hasta', 'm', 1]],
+  ruts: () => [['D', 'Profundidad', 'm', 0.01, 0.02, 0.4], ['rw', 'Ancho de cada huella', 'm', 0.01, 0.12, 0.45], ['sep', 'Separación entre huellas (centro a centro)', 'm', 0.02, 1.1, 2.0], ['irr', 'Irregularidad (0 pareja · 1 muy despareja)', '', 0.05, 0, 1], ['ramp', 'Transición en las puntas', 'm', 1, 1, 60], ['d0', 'Desde', 'm', 1], ['d1', 'Hasta', 'm', 1]],
   rasante: e => e.type === 'ondulacion' ? [['h', 'Amplitud', 'm', 0.01, -3, 3], ['n', 'Cantidad de ondas', '', 1, 1, 60], ['wl', 'Largo de cada onda', 'm', 0.5, 2, 200], ['d', 'Centro en', 'm', 1]]
     : [['h', e.h >= 0 ? 'Altura' : 'Profundidad (−)', 'm', 0.01, -20, 20], ['lenIn', 'Aproximación', 'm', 1, 1, 400], ['top', 'Zona superior', 'm', 0.5, 0, 300], ['lenOut', 'Salida', 'm', 1, 1, 400],
       ['pIn', 'Forma de entrada (0,5 temprana · 3 tardía)', '', 0.1, 0.5, 3], ['pOut', 'Forma de salida', '', 0.1, 0.5, 3], ['round', 'Zona superior: 0 plana · 1 redonda', '', 0.05, 0, 1], ['d', 'Centro en', 'm', 1]],
@@ -71,14 +73,33 @@ function edExtent(e) {
   return [e.d0, e.d1];
 }
 const edCenter = e => e.d !== undefined ? e.d : (e.d0 + e.d1) / 2;
-function edSecSel() { const s = S.sel; return s.d1 - s.d0 < 10 ? { d0: Math.max(0, s.d0 - 25), d1: Math.min(edR().total, s.d0 + 25) } : { d0: s.d0, d1: s.d1 }; }
+// recorta los cambios al largo real del tramo: un cambio que queda afuera (p. ej. de un recorrido anterior más largo) se borra,
+// uno que cruza el final se recorta. Devuelve { cortados, borrados } y no hace nada en recorridos cerrados.
+function edClampToRoute(T, closed) {
+  const out = { cortados: [], borrados: [] }; if (!isFinite(T) || T <= 0 || closed) return out;
+  const fmt = e => `${EDIT_TXT[e.kind] ? EDIT_TXT[e.kind](e) : e.kind} (${(edExtent(e)[0] / 1000).toFixed(2)}–${(edExtent(e)[1] / 1000).toFixed(2)} km)`;
+  S.edits = S.edits.filter(e => {
+    if (!e) return false;
+    if (e.kind === 'profile' && e.pts) { const n0 = e.pts.length, txt = fmt(e); e.pts = e.pts.filter(p => p.d >= 0 && p.d <= T); if (e.pts.length < 2) { out.borrados.push(txt); return false; } if (e.pts.length < n0) out.cortados.push(txt); return true; }
+    if (e.d0 != null && e.d1 != null) { if (e.d1 < e.d0) [e.d0, e.d1] = [e.d1, e.d0]; const txt = fmt(e), pt = e.kind === 'raise' && e.d1 - e.d0 < 1;
+      if (e.d0 >= T || e.d1 <= 0 || (pt && (e.d0 < 0 || e.d0 > T))) { out.borrados.push(txt); return false; }
+      if (!pt && (e.d0 < 0 || e.d1 > T)) { e.d0 = Math.max(0, e.d0); e.d1 = Math.min(T, e.d1); if (e.d1 - e.d0 < 0.5) { out.borrados.push(txt); return false; } out.cortados.push(txt); } return true; }
+    if (e.d != null && (e.d < 0 || e.d > T)) { out.borrados.push(fmt(e)); return false; }
+    return true; });
+  return out;
+}
+function edClampLog(T, closed) { const c = edClampToRoute(T, closed);
+  if (c.borrados.length) log(`Se borraron ${c.borrados.length} cambio(s) que quedaban fuera del tramo (mide ${(T / 1000).toFixed(2)} km): ${c.borrados.join('; ')}.`, 'err');
+  if (c.cortados.length) log(`Se recortaron al final del tramo: ${c.cortados.join('; ')}.`);
+  return c; }
+function edSecSel() { const s = S.sel, T = edR().total; return s.d1 - s.d0 < 10 ? { d0: Math.max(0, s.d0 - 25), d1: Math.min(T, s.d0 + 25) } : { d0: Math.max(0, s.d0), d1: Math.min(T, s.d1) }; }
 // la edición que manipulan las manijas de la herramienta actual (puede no existir todavía: se crea al arrastrar)
 function edTarget() {
   const kind = ED_KIND[ED.tool]; if (kind === 'place' || !S.sel) return null;
   if (ED.active && ED.active.kind === kind && S.edits.includes(ED.active)) return ED.active;
   const s = S.sel, pt = s.d1 - s.d0 < 1;
   if (kind === 'raise') return S.edits.find(e => e.kind === 'raise' && (pt ? e.d1 - e.d0 < 1 && Math.abs(e.d0 - s.d0) < 1.5 : Math.abs(e.d0 - s.d0) < 1.5 && Math.abs(e.d1 - s.d1) < 1.5)) || null;
-  if (kind === 'bank' || kind === 'width' || kind === 'smooth') { const q = edSecSel(); return S.edits.find(e => e.kind === kind && Math.abs(e.d0 - q.d0) < 1.5 && Math.abs(e.d1 - q.d1) < 1.5) || null; }
+  if (kind === 'bank' || kind === 'width' || kind === 'smooth' || kind === 'ruts') { const q = edSecSel(); return S.edits.find(e => e.kind === kind && Math.abs(e.d0 - q.d0) < 1.5 && Math.abs(e.d1 - q.d1) < 1.5) || null; }
   if (kind === 'shape') return null;
   const c = (s.d0 + s.d1) / 2;
   if (kind === 'profile') { for (let k = S.edits.length - 1; k >= 0; k--) { const e = S.edits[k]; if (e.kind === 'profile' && c >= e.pts[0].d && c <= e.pts[e.pts.length - 1].d) return e; } return null; } return S.edits.find(e => e.kind === kind && c >= edExtent(e)[0] && c <= edExtent(e)[1]) || null;
@@ -89,6 +110,7 @@ function edMake(kind) {
   if (kind === 'bank') { const q = edSecSel(), p = edAt((q.d0 + q.d1) / 2); return { kind, ...q, abs: true, deg: +(Math.atan(p.SL) / D2R).toFixed(2) }; }
   if (kind === 'width') { const q = edSecSel(); return { kind, ...q, w: +(edAt((q.d0 + q.d1) / 2).hw * 2).toFixed(2) }; }
   if (kind === 'smooth') return { kind, ...edSecSel() };
+  if (kind === 'ruts') { const q = edSecSel(); return { kind, ...q, D: 0.14, rw: 0.23, sep: 1.56, irr: 0.4, ramp: Math.min(15, (q.d1 - q.d0) / 3) }; }
   if (kind === 'jump') return { kind, d: c, h: 1.2, len: 24, land: 8 };
   if (kind === 'bump') return { kind, d: c, h: 0.5, len: 10 };
   if (kind === 'pothole') return { kind, d: c, h: 0.3, len: 6 };
@@ -164,8 +186,8 @@ function edConfirm() {
   const fin = v => v == null || (typeof v === 'number' && isFinite(v));
   S.edits = S.edits.filter(e => { const ok = e && e.kind && Object.values(e).every(v => typeof v !== 'number' || isFinite(v)) && fin(e.d0) && fin(e.d1) && fin(e.d);
     if (!ok) { bad++; return false; }
-    if (e.d0 != null && e.d1 != null) { if (e.d1 < e.d0) [e.d0, e.d1] = [e.d1, e.d0]; e.d0 = Math.max(0, Math.min(T, e.d0)); e.d1 = Math.max(0, Math.min(T, e.d1)); }
     return true; });
+  if (r) { const c = edClampLog(T, r.closed); bad += c.borrados.length; }
   const n = ED.undo.length; ED.session = null; ED.undo = []; ED.redo = [];
   if (bad) { log(`Se descartaron ${bad} cambios con datos inválidos.`, 'err'); editsChanged(); } else if (ED.pending || (S.live && S.live.dirty)) liveCommit();
   if (typeof saveAutoNow === 'function') saveAutoNow();
@@ -232,6 +254,7 @@ function liveRoute() {
     old.segs = prof.segs.concat(L.sideSegs);
   } else {
     const nr = Core.buildRoute(args);
+    if (nr.sideBands && typeof paintSideBands === 'function') { const miss = new Set(); for (const m of nr.meshes) if (m.sideVis && !TEX[m.mat]) miss.add(m.mat); if (miss.size) paintSideBands(nr, miss); } // bandas pintadas nuevas (al soltar se repinta el tramo tocado)
     // rango que cambió (por el principio y por el final) para saber qué terreno recalcular después
     let a = 0; const m0 = Math.min(nr.n, old.n);
     while (a < m0 && Math.abs(nr.C[a][0] - old.C[a][0]) < 1e-6 && Math.abs(nr.C[a][1] - old.C[a][1]) < 1e-6 && Math.abs(nr.hs[a] - old.hs[a]) < 1e-6 && Math.abs(nr.W[a] - old.W[a]) < 1e-6 && Math.abs(nr.SL[a] - old.SL[a]) < 1e-7) a++;
@@ -249,6 +272,10 @@ function liveRoute() {
       let sa = i0, sb = i1; if (nr.SURF && old.SURF && nr.SURF.length === old.SURF.length) nr.SURF.forEach((k, i) => { if (k !== old.SURF[i]) { sa = Math.min(sa, i); sb = Math.max(sb, i + 1); } });
       if (!(sb >= sa)) { sa = 0; sb = -1; }
       const da = sb >= 0 ? (nr.dist[Math.max(0, sa)] || 0) - 20 : Infinity, db = sb >= 0 ? (nr.dist[Math.min(nr.n - 1, sb)] || nr.total) + 20 : -Infinity; if (db >= da) L.stripRange = L.stripRange ? [Math.min(L.stripRange[0], da), Math.max(L.stripRange[1], db)] : [da, db]; } catch (e) { console.warn('tiras del camino', e); } }
+    if (S.terrMap && typeof sideToTerrain === 'function') nr.meshes = sideToTerrain(nr.meshes); // pasto de los costados con el material del terreno
+    { const sig = JSON.stringify((S.edits || []).filter(e => e.kind === 'ruts').map(e => [e.d0, e.d1, e.D, e.rw, e.sep, e.irr, e.ramp])); // huellones: se repinta la tira donde cambiaron
+      if (L.rutSig !== undefined && L.rutSig !== sig) { const ex = [...JSON.parse(L.rutSig || '[]'), ...JSON.parse(sig)]; if (ex.length) { const a = Math.min(...ex.map(q => q[0])) - 20, b = Math.max(...ex.map(q => q[1])) + 20; L.stripRange = L.stripRange ? [Math.min(L.stripRange[0], a), Math.max(L.stripRange[1], b)] : [a, b]; } }
+      L.rutSig = sig; }
     R.res = nr; R.meshes = [...keep, ...nr.meshes];
     nr.meshes.forEach(pvAdd);
     if (prof.C !== old.C) { R.info.ll = nr.C.map(p => B.P.inv(p[0], p[1])); R.outline = [nr.C]; }
@@ -264,6 +291,7 @@ function liveRoute() {
 function edDirty(r, i0, i1) {
   const L = S.live; i0 = Math.max(0, i0 - 2); i1 = Math.min(r.n - 1, i1 + 2); if (i1 < i0) return;
   const q = L.dirty || (L.dirty = { minx: Infinity, miny: Infinity, maxx: -Infinity, maxy: -Infinity });
+  q.d0 = Math.min(q.d0 ?? Infinity, r.dist[i0]); q.d1 = Math.max(q.d1 ?? -Infinity, r.dist[i1]);
   for (let i = i0; i <= i1; i++) { const [x, y] = r.C[i]; if (x < q.minx) q.minx = x; if (x > q.maxx) q.maxx = x; if (y < q.miny) q.miny = y; if (y > q.maxy) q.maxy = y; }
 }
 function edMeshBB(m) {
@@ -278,6 +306,7 @@ function liveCommit() {
   if (ED.pending) { ED.pending = false; liveRoute(); }
   const r = R.res, B = S.base, routeSegs = r.segs.slice(0, r.segs.length - L.sideSegs.length);
   const q0 = L.dirty; L.dirty = null; const xy = L.dirtyXY; L.dirtyXY = false;
+  if (q0 && r.sideBands && isFinite(q0.d0) && typeof paintSideBands === 'function') { const only = new Set(); for (let p = Math.floor((q0.d0 - 10) / 80); p <= Math.floor((q0.d1 + 10) / 80); p++) { only.add('sb_L_' + p); only.add('sb_R_' + p); } paintSideBands(r, only); }
   if (q0) {
     const touched = new Set();
     // caminos laterales: se vuelven a pegar al camino
@@ -441,8 +470,9 @@ function edGizmoDefs() {
       G('along', s.d0 - f0, 0, 0.4, (e0, x, e) => { e.f0 = clampMin((e0.f0 != null ? e0.f0 : 25) - x, 0); }, 'Transición de entrada: más larga = más suave');
       G('along', s.d1 + f1, 0, 0.4, (e0, x, e) => { e.f1 = clampMin((e0.f1 != null ? e0.f1 : 25) + x, 0); }, 'Transición de salida: más larga = más suave');
     }
-  } else if (kind === 'bank' || kind === 'width' || kind === 'smooth') {
+  } else if (kind === 'bank' || kind === 'width' || kind === 'smooth' || kind === 'ruts') {
     const q = e || edSecSel(), mid = (q.d0 + q.d1) / 2, hw = edAt(mid).hw;
+    if (kind === 'ruts') G('up', mid, (e ? e.sep ?? 1.56 : 1.56) / 2, 1.0, (e0, x, e) => { e.D = Math.max(0.02, Math.min(0.4, (e0.D ?? 0.14) - x)); }, 'Profundidad de los huellones: bajala para hundirlos');
     if (kind === 'bank') {
       const tilt = (e0, x, e, sg) => { if (!e0.abs) { e0.abs = true; e0.deg = Math.atan(edAt(mid).SL) / D2R; } e.abs = true; e.deg = Math.max(-35, Math.min(35, Math.atan(Math.tan(e0.deg * D2R) + sg * x / hw) / D2R)); };
       G('up', mid, hw, 0.8, (e0, x, e) => tilt(e0, x, e, 1), 'Borde izquierdo: subilo o bajalo para peraltar');
@@ -739,6 +769,7 @@ function edPanel(light) {
       const tr = edTransInfo(e); if (tr) html += `<div class="mut">${tr}</div>`;
     } else if (['jump', 'bump', 'pothole', 'cattle', 'rasante'].includes(kind)) html += `<button class="b wide" id="vpMake">Crear ${ED_TOOLS.find(t => t[0] === ED.tool)[1].slice(2)} acá</button>`;
     else if (kind === 'smooth') html += `<button class="b wide" id="vpMake">Suavizar ${s.d1 - s.d0 < 10 ? 'alrededor del punto (±25 m)' : 'el tramo elegido'}</button>`;
+    else if (kind === 'ruts') html += `<button class="b wide" id="vpMake">Crear huellones ${s.d1 - s.d0 < 10 ? 'alrededor del punto (±25 m)' : 'en el tramo elegido'}</button>`;
     else if (kind === 'shape') html += '<div class="mut">Arrastrá un punto amarillo.</div>';
     else html += '<div class="mut">Arrastrá una manija para crear el cambio.</div>';
     html += `<div class="vp-surf"><select id="vpSurf">${$('#surfKey').innerHTML}</select><button class="b sm" id="vpSurfGo">Superficie al tramo</button></div>`;
@@ -821,9 +852,11 @@ function edProfilePanel(e) {
 function edFocusCp(e) { const pt = e.pts[ED.cpSel]; S.sel = { d0: pt.d, d1: pt.d }; ED.anchor = pt.d; selInfo(); drawSel(); edRefresh(); drawProfile(); }
 document.addEventListener('click', ev => { const b = ev.target.closest && ev.target.closest('#vpParams [data-op]'); if (b) edProfOp(b.dataset.op, parseFloat($('#cpAmp').value) || 1); });
 function edTransInfo(e) {
-  if (e.kind === 'raise') if (e.d1 - e.d0 < 1) return `transición ±${(e.r || 30).toFixed(0)} m`;
-    { const f0 = e._fa != null ? e._fa : e.f0 != null ? e.f0 : 25, f1 = e._fz != null ? e._fz : e.f1 != null ? e.f1 : 25, p = e._pct != null ? e._pct : ((e.h1 != null ? e.h1 : e.h) - e.h) / (e.d1 - e.d0) * 100;
+  if (e.kind === 'raise') { if (!(e.d1 - e.d0 >= 1)) return `transición ±${(+e.r || 30).toFixed(0)} m`;
+    const f0 = e._fa != null ? e._fa : e.f0 != null ? e.f0 : 25, f1 = e._fz != null ? e._fz : e.f1 != null ? e.f1 : 25, p0 = e._pct != null ? e._pct : ((e.h1 != null ? e.h1 : e.h) - e.h) / (e.d1 - e.d0) * 100, p = isFinite(p0) ? p0 : 0;
       return `${Math.abs(p) < 0.05 ? 'tramo horizontal (0 %)' : `pendiente ${p > 0 ? '+' : ''}${p.toFixed(1)} %`} · transiciones ${f0.toFixed(0)} / ${f1.toFixed(0)} m${(e._fa > (e.f0 ?? 25) + 0.5 || e._fz > (e.f1 ?? 25) + 0.5) ? ' (alargadas para que no queden picos)' : ''}`; }
+  if (e.kind === 'surface') return `${(Math.max(0, e.d1 - e.d0)).toFixed(0)} m`;
+  if (e.kind === 'ruts') return `${(Math.max(0, e.d1 - e.d0)).toFixed(0)} m · huellas de ${Math.round((e.rw ?? 0.23) * 100)} cm a ${(+(e.sep ?? 1.56)).toFixed(2)} m · transición ${(+(e.ramp ?? 15)).toFixed(0)} m · irregularidad ${(+(e.irr ?? 0.4)).toFixed(2)}`;
   if (e.kind === 'jump') { const land = e.land != null ? e.land : e.len * 0.3; return `entrada ${(e.h / e.len * 100).toFixed(0)}% en ${e.len.toFixed(0)} m · recepción ${(e.h / land * 100).toFixed(0)}% en ${land.toFixed(1)} m`; }
   if (e.kind === 'bump' || e.kind === 'pothole') return `largo ${(+e.len).toFixed(1)} m`;
   if (e.kind === 'rasante') return e.type === 'ondulacion' ? `${e.n} ondas de ${(+e.wl).toFixed(1)} m` : `aprox. ${(+e.lenIn).toFixed(0)} m (${fmtG(e.h / e.lenIn * 1.5)}) · arriba ${(+(e.top || 0)).toFixed(0)} m · salida ${(+e.lenOut).toFixed(0)} m`;
