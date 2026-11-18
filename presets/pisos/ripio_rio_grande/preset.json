@@ -1,0 +1,51 @@
+{
+ "id": "ripio_rio_grande",
+ "nombre": "Ripio – Río Grande (Tierra del Fuego)",
+ "version": "0.1-borrador",
+ "bioma": "estepa fueguina (sin árboles)",
+ "zona": {
+  "tipo": "rectangulo_latlon",
+  "sur": -54.1,
+  "norte": -53.45,
+  "oeste": -68.7,
+  "este": -67.3,
+  "estado": "PROVISIONAL",
+  "metodo": "Rectángulo que cubre Río Grande y las rutas de ripio del norte de la isla con las que se compararon las fotos (RP5, RN24 Compl. B, RP7, RP9, RP12). Se elige automáticamente cuando el centro del camino cae adentro y la superficie es ripio."
+ },
+ "parametros": "config/parametros_fisicos.json (bloques curvas, costados.cunetas_v5, superficies, serrucho_zonas): por ahora se leen de ahí; el paso siguiente es copiarlos a este preset",
+ "texturas": [
+  "rg_bank_soil.png",
+  "rg_ditch_cracked.png",
+  "rg_east_dry.png",
+  "rg_east_dry_ao_rough_h.png",
+  "rg_east_dry_nm.png",
+  "rg_edge_vegetation.png",
+  "rg_edge_vegetation_v2.png",
+  "rg_gravel_loose.png",
+  "rg_gravel_loose_ao_rough_h.png",
+  "rg_rut_deep.png",
+  "rg_shoulder_berm.png",
+  "rg_stones_east.png",
+  "rg_tire_loose_soil.png",
+  "rg_track_compacted.png",
+  "rg_track_compacted_ao_rough_h.png",
+  "rg_west_dry.png",
+  "rg_west_dry_ao_rough_h.png",
+  "rg_west_dry_nm.png"
+ ],
+ "fotos_referencia": "fotos_referencia/ (HEIC originales, vía Git LFS)",
+ "aleatorio": {
+  "semilla": "una por pista (#wearSeed); misma semilla = mismo camino",
+  "banco_altura_m": {
+   "min": 0.05,
+   "max": 0.18,
+   "estado": "PROVISIONAL",
+   "regla": "por curva: azar 50 % + cierre de la curva 50 %, × factor del piso (suelto 1,0 / pedregoso 0,7)"
+  }
+ },
+ "pendiente": [
+  "mover a reglas los sectores Este/Oeste fijos de RIO_GRANDE_GROUND (rgSect)",
+  "interruptor por elemento en la app",
+  "selector manual de preset"
+ ]
+}

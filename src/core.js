@@ -269,6 +269,26 @@ const Core = (() => {
     if (o.sectionAt) { const ap = (A, sd) => A.map((v, i) => { const q = secOv(i, sd); return q && q.ditch != null ? v + (q.ditch - v) * q.t : v; }); DLs = ap(DLs, 1); DRs = ap(DRs, -1); }
     // Etapa 5 · taludes: cuánto queda el terreno de cada lado por ARRIBA (encajonado / desmonte, > 0) o por DEBAJO (terraplén, < 0)
     // del plano del camino. Mezcla lo medido en el modelo de elevación (OFL/OFR, a 10 m) con lo típico de cada piso (fotos), y varía a lo largo.
+    // Etapa 6 · BORDES DE RÍO GRANDE (fotos 6870-6899, ESTIMADO_DE_FOTOS): cuatro tipos de costado que cambian a lo largo y son
+    // independientes de cada lado. A: franja de ripio suelto → canal de tierra → cordón de tierra removida → pasto. B: cuneta honda
+    // asimétrica (6896). C: yuyos en el borde → banquina ancha compactada → cordón bajo cerca del alambrado. D: piedras sueltas →
+    // pasto casi al nivel (a veces el camino pasa entre dos lomitas). Tramos de largo al azar (semilla de la pista) con transición suave.
+    const BR = o.bordes || null, BTW = [[], []], BTT = [[], []], TIPOS = ['A', 'B', 'C', 'D'];
+    if (BR) {
+      const pr = BR.probabilidad || { A: 0.35, B: 0.2, C: 0.2, D: 0.25 }, Lmin = +BR.tramo_min_m || 50, Lmax = +BR.tramo_max_m || 300, TR = +BR.transicion_m || 20, sdB = +BR.seed || 1;
+      const tot = TIPOS.reduce((a, t) => a + (+pr[t] || 0), 0) || 1;
+      [1, -1].forEach((sd, si) => { let d0 = 0, k = 0; const segs = [];
+        while (d0 < total + Lmax) { const r1 = hsh(k * 3.1 + sdB * 0.37, sd * 91 + 11), r2 = hsh(k * 5.7 + sdB * 0.53, sd * 97 + 13); const L = Lmin + (Lmax - Lmin) * r1;
+          let acc = 0, ty = 'A'; for (const t of TIPOS) { acc += (+pr[t] || 0) / tot; if (r2 <= acc) { ty = t; break; } } segs.push({ d0, d1: d0 + L, ty }); d0 += L; k++; }
+        for (let i = 0; i < n; i++) { const d = dist[i], w = { A: 0, B: 0, C: 0, D: 0 };
+          let j = segs.findIndex(g => d < g.d1); if (j < 0) j = segs.length - 1; const g = segs[j];
+          // mezcla con el tramo vecino en los últimos / primeros TR/2 metros (smoothstep)
+          const a = Math.min(1, Math.max(0, (d - g.d0) / TR + 0.5)), b = Math.min(1, Math.max(0, (g.d1 - d) / TR + 0.5)), ss = x => x * x * (3 - 2 * x);
+          w[g.ty] += 1; if (a < 1 && j > 0) { const t = 1 - ss(a); w[g.ty] -= t * 0.5; w[segs[j - 1].ty] += t * 0.5; } if (b < 1 && j < segs.length - 1) { const t = 1 - ss(b); w[g.ty] -= t * 0.5; w[segs[j + 1].ty] += t * 0.5; }
+          BTW[si].push(w); BTT[si].push(TIPOS.reduce((m, t) => w[t] > w[m] ? t : m, 'A')); } });
+      o.__bordesTipos = BTT;
+      { const ac = typeof accCut === 'function' ? accCut : () => 0; DLs = DLs.map((v, i) => Math.max(v, 0.2 * (1 - ac(i, 1)))); DRs = DRs.map((v, i) => Math.max(v, 0.2 * (1 - ac(i, -1)))); }
+    }
     const TAL = o.tal || null, encOf = (i, sd) => { if (!TAL) return 0; const fp = TAL.fp ? TAL.fp(dist[i]) : 0, ef = (+TAL.encajonado_ripio_m || 0) + ((+TAL.encajonado_pedregoso_m || 0) - (+TAL.encajonado_ripio_m || 0)) * fp;
       const md = Math.max(-1.2, Math.min(1.5, sd > 0 ? OFL[i] : OFR[i])), u = Math.max(0, Math.min(1, +TAL.uso_modelo || 0)), vv = 0.6 + 0.8 * vn1(dist[i] / Math.max(10, +TAL.variacion_m || 90), sd * 83 + 5);
       return (ef * (1 - u) + md * u) * vv * (TAL.k ?? 1); };
@@ -285,6 +305,39 @@ const Core = (() => {
       const E = sd > 0 ? ENL[i] : ENR[i], tg0 = e => hs[i] + sl * (hw + e) - 0.05, tg = e => tg0(e) + E;
       const slT = (dh, fill, cut) => TAL ? slF(dh, +TAL.pendiente_terraplen_hv || fill, +TAL.pendiente_desmonte_hv || cut) : slF(dh, fill, cut);
       let pts, xe, clear;
+      if (Dd > 0.12 && BR) {
+        // Etapa 6 · perfil de cada tipo con los MISMOS 10 puntos (así se mezclan sin saltos y la malla no cambia de forma):
+        // 0 borde · 1-2 franja (ripio suelto / yuyos / piedras) · 3-4 canal o banquina · 5 cresta (cordón / pared) · 6 lomo de atrás · 7-9 campo
+        const d = dist[i], si = sd > 0 ? 0 : 1, w = BTW[si][i], sdB = (+BR.seed || 1) * 0.1;
+        const R = (r, sc, k) => { const a = r && r.length ? r : [r || 0, r || 0]; return a[0] + (a[1] - a[0]) * vn1(d / sc + sdB, sd * 131 + k); };
+        const U = e => e / 1.5, prof = {};
+        if (w.A > 0.001) { const P = BR.A || {}, sw = R(P.franja_ripio_suelto_m || [0.8, 1.5], 37, 1), dr = R(P.caida_franja_m || [0.03, 0.08], 23, 2), cw = R(P.canal_ancho_m || [0.5, 1.0], 29, 3),
+            ch = R(P.canal_hondo_m || [0.08, 0.2], 19, 4), cb = R(P.cordon_base_m || [0.8, 1.5], 17, 5), fu = R(P.campo_sobre_camino_m || [0, 0.3], 61, 6);
+          // cordón irregular: alto que cambia cada pocos metros, con cortes (partes bajas) y montículos más altos
+          const cut = +P.cortes_cordon || 0.15, nzc = 0.55 * vn1(d / 4.3 + sdB, sd * 151 + 7) + 0.45 * vn1(d / 1.7 + sdB, sd * 157 + 8), gap = vn1(d / 9 + sdB, sd * 163 + 9) < cut ? 0.2 : 1;
+          const ckh = R(P.cordon_alto_m || [0.25, 0.55], 11, 10) * (0.6 + 0.8 * nzc) * gap, bot = edge - dr - ch, field = tg0(sw + cw + cb) + E + fu;
+          prof.A = [[0, edge], [sw * 0.5, edge - dr * 0.4], [sw, edge - dr], [sw + cw * 0.25, bot + 0.02], [sw + cw, bot], [sw + cw + cb * 0.45, Math.max(field, edge) + ckh], [sw + cw + cb, field + 0.03], [sw + cw + cb + 0.8, field], [sw + cw + cb + 1.8, tg0(sw + cw + cb + 1.8) + E + fu * 0.8], [sw + cw + cb + 3, tg0(sw + cw + cb + 3) + E + fu * 0.6]]; }
+        if (w.B > 0.001) { const P = C5 || {}, VAR = Math.max(10, +P.variacion_m || 60), nv = vn1(d / VAR, sd * 29 + 7), up = Math.max(0, Math.min(1, (sl - 0.03) / 0.2));
+          const D = ((+P.profundidad_min_m || 0.22) + (+P.profundidad_extra_m || 0.25) * nv) * (1 - 0.4 * up), wsc = 0.85 + 0.3 * vn1(d / 17, sd * 43 + 5);
+          const r0 = (+P.redondeo_borde_m || 0.35) * wsc, hvI = (+P.talud_interior_hv || 5) * wsc, fondo = (+P.fondo_m || 0.4) * (0.7 + 0.6 * vn1(d / 11, sd * 37 + 1)) * wsc;
+          let hvE = (+P.talud_exterior_hv || 0.8) * (1.6 - 1.1 * nv), bot = edge - D; const top = tg0(Math.max(r0 + 0.5, D * hvI) + fondo + 0.5) + E;
+          if (top - bot < 0.12) { bot = Math.min(bot, top - 0.06); hvE = Math.max(hvE, 2.2); }
+          const eI = Math.max(r0 + 0.5, (edge - bot) * hvI), e4 = eI + fondo, e5 = e4 + Math.max(0.12, Math.max(0.05, top - bot) * hvE), lip = (+P.voladizo_pasto_m || 0.06) * (0.4 + 0.8 * vn1(d / 5, sd * 61 + 4));
+          prof.B = [[0, edge], [r0, edge - Math.min(0.04, D * 0.15)], [eI * 0.7, edge - (edge - bot) * 0.72], [eI, bot + 0.015], [e4, bot], [e5, top], [e5 + 0.12, top + lip], [e5 + 0.6, tg0(e5 + 0.6) + E], [e5 + 1.4, tg0(e5 + 1.4) + E], [e5 + 2.4, tg0(e5 + 2.4) + E]]; }
+        if (w.C > 0.001) { const P = BR.C || {}, yw = R(P.yuyos_borde_m || [0.2, 0.4], 13, 21), bq = R(P.banquina_m || [2, 3], 41, 22), dr = R(P.caida_banquina_m || [0.02, 0.08], 31, 23),
+            cb = R(P.cordon_base_m || [1, 1.6], 19, 24), nzc = 0.6 * vn1(d / 5.1 + sdB, sd * 171 + 1) + 0.4 * vn1(d / 1.9 + sdB, sd * 173 + 2), ckh = R(P.cordon_alto_m || [0.15, 0.4], 13, 25) * (0.5 + nzc);
+          const b0 = edge - dr, field = tg0(yw + bq + cb) + E;
+          prof.C = [[0, edge], [yw * 0.5, edge + 0.01], [yw, edge - dr * 0.5], [yw + bq * 0.5, b0], [yw + bq, b0 + 0.01], [yw + bq + cb * 0.45, Math.max(field, b0) + ckh], [yw + bq + cb, field + 0.02], [yw + bq + cb + 0.8, field], [yw + bq + cb + 1.8, tg0(yw + bq + cb + 1.8) + E], [yw + bq + cb + 3, tg0(yw + bq + cb + 3) + E]]; }
+        if (w.D > 0.001) { const P = BR.D || {}, pw = R(P.franja_piedras_m || [0.3, 0.7], 11, 31), dr = R(P.caida_m || [0, 0.04], 17, 32), su = R(P.pasto_sube_m || [0, 0.25], 47, 33);
+          // lomitas a los dos lados (6871 / 6873): en algunos tramos el terreno sube a los dos costados
+          const lom = vn1(d / 140 + sdB, 191) > 1 - (+P.lomitas_a_los_dos_lados || 0.3) ? R(P.lomita_alto_m || [0.4, 1.2], 90, 34) * Math.min(1, (vn1(d / 140 + sdB, 191) - (1 - (+P.lomitas_a_los_dos_lados || 0.3))) * 6) : 0;
+          const g = e => tg0(e) + E + su * Math.min(1, e / 3) + lom * Math.min(1, Math.max(0, (e - 1) / 6));
+          prof.D = [[0, edge], [pw * 0.5, edge - dr * 0.5], [pw, edge - dr], [pw + 0.3, Math.max(edge - dr, g(pw + 0.3)) ], [pw + 0.8, g(pw + 0.8)], [pw + 1.5, g(pw + 1.5)], [pw + 2.3, g(pw + 2.3)], [pw + 3.3, g(pw + 3.3)], [pw + 4.8, g(pw + 4.8)], [pw + 6.5, g(pw + 6.5)]]; }
+        pts = []; let wsum = 0; for (const t of ['A', 'B', 'C', 'D']) wsum += prof[t] ? w[t] : 0;
+        for (let k = 0; k < 10; k++) { let e = 0, h = 0; for (const t of ['A', 'B', 'C', 'D']) if (prof[t]) { e += prof[t][k][0] * w[t] / wsum; h += prof[t][k][1] * w[t] / wsum; } pts.push(k <= 5 ? [e, h, U(e)] : [e, h]); }
+        for (let k = 1; k < 10; k++) if (pts[k][0] < pts[k - 1][0] + 0.05) pts[k][0] = pts[k - 1][0] + 0.05;
+        xe = pts[9][0]; clear = pts[3][0];
+      } else
       if (Dd > 0.12 && C5) {
         // Etapa 5 · cuneta de la foto IMG_6896 (ESTIMADO_DE_FOTOS): ASIMÉTRICA. Desde el borde, talud interior largo y suave cubierto
         // de ripio (empieza redondeado, como un peralte) → fondo angosto casi plano de tierra fina → talud exterior empinado de tierra
@@ -301,7 +354,7 @@ const Core = (() => {
         if (top - bot < 0.12) { bot = Math.min(bot, top - 0.06); hvE = Math.max(hvE, 2.2); } // campo bajo: la cuneta queda al pie, chata y redondeada
         const eI = Math.max(r0 + 0.5, (edge - bot) * hvI), e1 = r0, e2 = eI * 0.7, e3 = eI, e4 = e3 + fondo;
         const wallH = Math.max(0.05, top - bot), e5 = e4 + Math.max(0.12, wallH * hvE), lip = (+C5.voladizo_pasto_m || 0.06) * (0.4 + 0.8 * vn1(d / 5, sd * 61 + 4));
-        const U = e => e / 3.2;
+        const U = e => e / 1.5; // Etapa 5: misma escala a lo ancho y a lo largo (1,5 m por repetición): sin estirar
         pts = [[0, edge, U(0)], [e1, edge - Math.min(0.04, D * 0.15), U(e1)], [e2, edge - (edge - bot) * 0.72, U(e2)], [e3, bot + 0.015, U(e3)], [e4, bot, U(e4)], [e5, top, U(e5)],
           [e5 + 0.12, top + lip, U(e5 + 0.12)], [e5 + 0.6, tg0(e5 + 0.6) + E], [e5 + 1.4, tg0(e5 + 1.4) + E], [e5 + 2.4, tg0(e5 + 2.4) + E]];
         xe = e5 + 2.4; clear = e3;
@@ -411,25 +464,27 @@ const Core = (() => {
     // Forma de domo bajo (ancho ≥ 2,2 veces el alto), sin aristas verticales: el rayo de cada rueda sube y baja de a poco,
     // sin picos de colisión. La gravilla fina es sólo visual (sin colisión, se deja de dibujar a ~45 m).
     const STONY = { GRAVEL: 1, CLAY: 0.75, LOOSE: 1.3, STONY: 1.6, STONYL: 1.8, STONYN: 1.7, STONYB: 2.0, GRAVELN: 1.1, BANK: 1.5 }, stoneAmt = o.stones == null ? 1 : +o.stones, stoneGroups = new Map();
-    const stats = { phys: 0, vis: 0, big: 0, physByZone: { huella: 0, centro: 0, entreHuellaYBorde: 0, banquina: 0 } };
+    const stats = { phys: 0, vis: 0, big: 0, physByZone: { huella: 0, centro: 0, entreHuellaYBorde: 0, banquina: 0, banco: 0 } };
     const stoneMesh = (key, d, phys) => { const c = Math.floor(d / 100), gk = (phys ? key : 'V') + '|' + c; let m = stoneGroups.get(gk);
-      if (!m) { m = newMesh(phys ? `${cnt(key)}${key}` : `STONES_${c}`, 'stone'); m.ri = []; m.rs = []; m.stones = true; if (phys) m.physStones = true; else m.lod = [0, 30]; stoneGroups.set(gk, m); } return m; };
+      if (!m) { m = newMesh(phys ? `${cnt(key)}${key}` : `STONES_${c}`, 'stone'); m.ri = []; m.rs = []; m.stones = true; if (phys) m.physStones = true; else m.lod = [0, 25]; stoneGroups.set(gk, m); } return m; };
     // una piedra: centro + anillo medio + anillo exterior hundido (nc lados irregulares); p = cuánto sobresale, r = radio
     const putStone = (m, x, y, h, r, p, el, rot, sd, ri, rs, nc) => {
-      const b = m.v.length, cr = Math.cos(rot), sr = Math.sin(rot), uo = hash2(sd, 3, 501), vo = hash2(sd, 4, 502), tilt = (hash2(sd, 5, 503) - 0.5) * 0.35 * p;
-      const P = (lx, ly, z) => { lx *= el; const X = x + lx * cr - ly * sr, Y = y + lx * sr + ly * cr; m.v.push([X, Y, h + z + tilt * lx / r]); m.uv.push([uo + lx * 1.6, vo + ly * 1.6]); m.ri.push(ri); m.rs.push(rs); };
+      const b = m.v.length, cr = Math.cos(rot), sr = Math.sin(rot), uo = (Math.floor(hash2(sd, 3, 501) * 4) + 0.5) / 4, vo = (Math.floor(hash2(sd, 4, 502) * 4) + 0.5) / 4, tilt = (hash2(sd, 5, 503) - 0.5) * 0.35 * p;
+      const P = (lx, ly, z) => { lx *= el; const X = x + lx * cr - ly * sr, Y = y + lx * sr + ly * cr; m.v.push([X, Y, h + z + tilt * lx / r]); m.uv.push([uo + lx * 0.4, vo + ly * 0.4]); m.ri.push(ri); m.rs.push(rs); };
       const top = 0.85 + 0.3 * hash2(sd, 6, 504); P((hash2(sd, 7, 505) - 0.5) * r * 0.3, (hash2(sd, 8, 506) - 0.5) * r * 0.3, p * top);
       for (let k = 0; k < nc; k++) { const a = (k + 0.35 * (hash2(sd, k, 507) - 0.5)) / nc * 6.2832, q = 0.38 + 0.14 * hash2(sd, k, 508); P(Math.cos(a) * r * q, Math.sin(a) * r * q, p * (0.72 + 0.2 * hash2(sd, k, 509))); }
       for (let k = 0; k < nc; k++) { const a = (k + 0.5 + 0.4 * (hash2(sd, k, 510) - 0.5)) / nc * 6.2832, q = 0.9 + 0.25 * hash2(sd, k, 511); P(Math.cos(a) * r * q, Math.sin(a) * r * q, -0.006 - 0.006 * hash2(sd, k, 512)); }
       for (let k = 0; k < nc; k++) { const k1 = (k + 1) % nc; m.f.push([b, b + 1 + k, b + 1 + k1]); m.f.push([b + 1 + k, b + 1 + nc + k, b + 1 + k1]); m.f.push([b + 1 + k1, b + 1 + nc + k, b + 1 + nc + k1]); }
     };
     // gravilla visual: domo bajo de 5 lados (6 vértices), contorno irregular
-    const putPebble = (m, x, y, h, r, p, rot, sd, ri, rs) => {
-      const b = m.v.length, uo = hash2(sd, 1, 520), vo = hash2(sd, 2, 521), el = 0.7 + 0.5 * hash2(sd, 3, 526), cr = Math.cos(rot), sr = Math.sin(rot);
-      m.v.push([x, y, h + p]); m.uv.push([uo, vo]); m.ri.push(ri); m.rs.push(rs);
-      for (let k = 0; k < 5; k++) { const a = (k + 0.4 * (hash2(sd, k, 522) - 0.5)) * 1.2566, q = r * (0.75 + 0.4 * hash2(sd, k, 523)), lx = Math.cos(a) * q * el, ly = Math.sin(a) * q;
-        m.v.push([x + lx * cr - ly * sr, y + lx * sr + ly * cr, h - 0.004 + p * 0.25 * hash2(sd, k, 527)]); m.uv.push([uo + lx * 2, vo + ly * 2]); m.ri.push(ri); m.rs.push(rs); }
+    const putPebble = (m, x, y, h, r, p, rot, sd, ri, rs) => { // Etapa 5: canto rodado redondeado (domo de 2 anillos, 13 vértices)
+      const b = m.v.length, uo = (Math.floor(hash2(sd, 1, 520) * 4) + 0.5) / 4, vo = (Math.floor(hash2(sd, 2, 521) * 4) + 0.5) / 4, el = 0.7 + 0.5 * hash2(sd, 3, 526), cr = Math.cos(rot), sr = Math.sin(rot);
+      const P = (lx, ly, z) => { lx *= el; m.v.push([x + lx * cr - ly * sr, y + lx * sr + ly * cr, h + z]); m.uv.push([uo + lx * 1.0, vo + ly * 1.0]); m.ri.push(ri); m.rs.push(rs); };
+      P(0, 0, p);
+      for (let k = 0; k < 5; k++) { const a = (k + 0.3 * (hash2(sd, k, 522) - 0.5)) * 1.2566; P(Math.cos(a) * r * 0.6, Math.sin(a) * r * 0.6, p * (0.78 + 0.12 * hash2(sd, k, 527))); }
+      for (let k = 0; k < 7; k++) { const a = (k + 0.5 + 0.3 * (hash2(sd, k, 528) - 0.5)) * 0.8976, q = r * (0.9 + 0.2 * hash2(sd, k, 523)); P(Math.cos(a) * q, Math.sin(a) * q, -0.004); }
       for (let k = 0; k < 5; k++) m.f.push([b, b + 1 + k, b + 1 + (k + 1) % 5]);
+      for (let k = 0; k < 7; k++) { const j = Math.floor(k * 5 / 7), j2 = Math.floor((k + 1) * 5 / 7) % 5; m.f.push([b + 1 + j, b + 6 + k, b + 6 + (k + 1) % 7]); if (j2 !== j) m.f.push([b + 1 + j, b + 6 + (k + 1) % 7, b + 1 + j2]); }
     };
     const placeStones = (secs, key) => {
       const amt = STONY[key] * stoneAmt; if (!(amt > 0)) return;
@@ -447,20 +502,21 @@ const Core = (() => {
           const sc0 = s0 + c * 0.5;
           for (let q = 0; q < 6; q++) {
             const sd = hash2(di, c * 16 + q, 530) * 1e9 | 0, s = sc0 + 0.5 * hash2(di, c * 16 + q, 531), a = Math.abs(s), f = a / hw; if (a > hw - 0.12) continue;
-            const zone = Math.abs(a - tw) < 0.3 ? 'huella' : f > 0.8 ? 'banquina' : a < tw ? 'centro' : 'entreHuellaYBorde';
+            const bk = o.bankAt ? o.bankAt(A.d + dl * 0.5, s, hw) : 0;   // Etapa 5: banco de ripio afuera de la curva (foto 6885): piedras sueltas encima y en el borde
+            const zone = bk > 0.35 ? 'banco' : Math.abs(a - tw) < 0.3 ? 'huella' : f > 0.8 ? 'banquina' : a < tw ? 'centro' : 'entreHuellaYBorde';
             // densidad por m² — física / visual — según la zona (camino de camiones: huellas compactas, piedras sueltas a los costados)
-            const D = { huella: [0.008, 0.4], centro: [0.06, 1.3], entreHuellaYBorde: [0.07, 1.6], banquina: [0.22, 3.5] }[zone], cell = 0.5 * dl / 6; // 6 intentos por celda
+            const D = { huella: [0.008, 0.6], centro: [0.06, 3.2], entreHuellaYBorde: [0.07, 2.0], banquina: [0.22, 6], banco: [0.35 * bk, 30 * bk] }[zone], cell = 0.5 * dl / 6; // 6 intentos por celda
             const r0 = hash2(sd, 9, 532), t = hash2(sd, 10, 533), P = at(t, s);
             if (r0 < D[0] * amt * cell) { // piedra que la goma toca
-              const big = hash2(sd, 11, 534) < (zone === 'banquina' ? 0.07 : zone === 'huella' ? 0 : 0.025);
-              let r = big ? 0.2 + 0.12 * hash2(sd, 12, 535) : 0.07 + (zone === 'banquina' ? 0.11 : 0.06) * hash2(sd, 12, 535) ** 1.4;
+              const big = hash2(sd, 11, 534) < (zone === 'banquina' ? 0.07 : zone === 'banco' ? 0.06 * STONY[key] : zone === 'huella' ? 0 : 0.025);
+              let r = big ? 0.12 + 0.08 * hash2(sd, 12, 535) : 0.035 + (zone === 'banquina' || zone === 'banco' ? 0.05 : 0.03) * hash2(sd, 12, 535) ** 1.4; // Etapa 5: más chicas (foto 6885: 1–5 cm, alguna de 10–20)
               let p = r * (big ? 0.24 + 0.06 * hash2(sd, 13, 536) : 0.16 + 0.12 * hash2(sd, 13, 536));
               if (zone === 'huella') p = Math.min(p, 0.02); // las ruedas de los camiones las aplastaron
               p = Math.min(p, r * 0.3); // ancho ≥ 3,3 × alto: laderas de ~35° como máximo (sin picos de colisión)
               putStone(stoneMesh(key, A.d, true), P.x, P.y, P.h, r, p, 0.75 + 0.5 * hash2(sd, 14, 537), hash2(sd, 15, 538) * 6.283, sd, P.i, s, big ? 8 : 6);
               stats.phys++; stats.physByZone[zone]++; if (big) stats.big++;
             } else if (r0 < (D[0] + D[1]) * amt * cell) { // gravilla visual
-              const r = (zone === 'huella' ? 0.025 : 0.03) + (zone === 'banquina' ? 0.08 : 0.055) * hash2(sd, 16, 539) ** 1.3; putPebble(stoneMesh(key, A.d, false), P.x, P.y, P.h, r, r * (0.35 + 0.3 * hash2(sd, 17, 540)), hash2(sd, 18, 541) * 6.283, sd, P.i, s); stats.vis++;
+              const r = 0.011 + (zone === 'banquina' || zone === 'banco' ? 0.026 : 0.018) * hash2(sd, 16, 539) ** 1.5; /* cantos de 2–7 cm (foto 6885) */ putPebble(stoneMesh(key, A.d, false), P.x, P.y, P.h, r, r * (0.35 + 0.3 * hash2(sd, 17, 540)), hash2(sd, 18, 541) * 6.283, sd, P.i, s); stats.vis++;
             }
           }
         }
@@ -515,22 +571,33 @@ const Core = (() => {
           if (C5 && isD) { /* cuneta de 3 partes: sin pared aparte (la parte exterior es la última franja) */ }
           else if (BK && isD && A.length > 4) { wall.push({ cols: rv(nz(A.slice(3), P, 3)), d, step }); Ain = A.slice(0, 4); }
           else if (BK && !isD && Bc.length > 2) { const kb = Math.min(3, Bc.length - 1); bankP.push({ cols: rv(nz(Bc.slice(0, kb), P, cut)), d, step }); Bout = Bc.slice(kb - 1); }
-          inner.push({ cols: rv(Ain), d, step }); outer.push({ cols: rv(Bout), d, step, mat: o.sideMatAt ? o.sideMatAt(d, side) : null });
+          inner.push({ cols: rv(Ain), d, step, ty: BR ? BTT[side > 0 ? 0 : 1][i] : null }); outer.push({ cols: rv(Bout), d, step, mat: o.sideMatAt ? o.sideMatAt(d, side) : null });
         }
         // superficie física: cuneta / cuneta húmeda / banquina + suelo del camino (DITCHGRAVEL, SOFTCLAY, VERGEROAD…): agarre apenas menor que el camino
         const key = (run.key === 'DITCHMUD' ? 'SOFT' : isD ? 'DITCH' : 'VERGE') + roadK, mat = run.key === 'DITCHMUD' ? 'ditchmud' : run.key === 'DITCHROCK' ? 'ditchrock' : isD ? 'ditchside' : 'verge';
+        if (BR && isD && inner.length > 1 && inner[0].cols.length === 6) {
+          // Etapa 6 · materiales y física por tipo de borde y por franja (de adentro hacia afuera: 5 franjas)
+          const hs3 = (a, b) => { const v = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return v - Math.floor(v); };
+          const viejo = q => hs3(Math.floor(inner[q].d / 40), side * 19 + 3) < ((inner[q].ty === 'C' ? +(BR.C || {}).cordon_viejo_con_pasto : +(BR.A || {}).cordon_viejo_con_pasto) || 0.4);
+          const MAP = { A: ['BLOOSE|loose', 'BLOOSE|loose', 'DBOT|ditchbot', 'DBOT|ditchbot', 'CORDON|ditchwall'], B: ['DSLOPE|loose', 'DSLOPE|loose', 'DBOT|ditchbot', 'DBOT|ditchbot', 'DWALL|ditchwall'],
+            C: ['GRASS|grass', 'BANQ|verge', 'BANQ|verge', 'BANQ|verge', 'CORDON|ditchwall'], D: ['BLOOSE|loose', 'BLOOSE|loose', 'GRASS|grass', 'GRASS|grass', 'GRASS|grass'] };
+          const cell = (q, k) => { const kk = side > 0 ? k : 4 - k; let c = MAP[inner[q].ty || 'B'][kk]; if (kk === 4 && c.startsWith('CORDON') && viejo(q)) c = 'CORDON|grass'; return c; };
+          const combos = new Set(); for (let q = 0; q < inner.length; q++) for (let k = 0; k < 5; k++) combos.add(cell(q, k));
+          for (const cb of combos) { const [k2, m2] = cb.split('|');
+            for (const m of ribbonMeshes(inner, false, k2, m2, 1.5, { next: () => cnt(k2) }, 1500, (q, k) => cell(q, k) === cb)) meshes.push(m); }
+        } else
         if (C5 && isD && inner.length > 1 && inner[0].cols.length === 6) {
           // tres superficies a lo ancho (foto IMG_6896): talud interior de ripio suelto (DSLOPE), fondo blando (DBOT), talud exterior de
           // tierra firme (DWALL). El límite entre partes salta media franja al azar a lo largo: sin líneas rectas.
           const hs2 = (a, b) => { const v = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return v - Math.floor(v); };
           const part = (q, k) => { const kk = side > 0 ? k : 4 - k, r = hs2(Math.floor(inner[q].d * 1.3), side * 7 + kk), r2 = hs2(Math.floor(inner[q].d * 0.7), side * 11 + kk);
-            if (kk <= 1) return 'S'; if (kk === 2) return r < 0.25 ? 'B' : 'S'; if (kk === 3) return r2 < 0.2 ? 'S' : r2 > 0.85 ? 'W' : 'B'; return 'W'; };
-          for (const [P2, k2, m2] of [['S', 'DSLOPE', 'loose'], ['B', 'DBOT', run.key === 'DITCHMUD' ? 'ditchmud' : (o.ditchBotMat || 'ditch')], ['W', 'DWALL', o.bankMat || 'ditchrock']])
-            for (const m of ribbonMeshes(inner, false, k2, m2, 7, { next: () => cnt(k2) }, 1500, (q, k) => part(q, k) === P2)) meshes.push(m);
+            void r; void r2; if (kk <= 1) return 'S'; if (kk <= 3) return 'B'; return 'W'; }; // Etapa 5: sin saltos al azar (hacían placas rectangulares claras de ripio suelto dentro del fondo, km 0,26)
+          for (const [P2, k2, m2] of [['S', 'DSLOPE', 'loose'], ['B', 'DBOT', run.key === 'DITCHMUD' ? 'ditchmud' : (o.ditchBotMat || 'ditch')], ['W', 'DWALL', o.ditchWallMat || o.bankMat || 'ditchrock']])
+            for (const m of ribbonMeshes(inner, false, k2, m2, 1.5, { next: () => cnt(k2) }, 1500, (q, k) => part(q, k) === P2)) meshes.push(m);
         } else
         for (const m of ribbonMeshes(inner, false, key, mat, 7, { next: () => cnt(key) })) meshes.push(m);
-        if (wall.length > 1) for (const m of ribbonMeshes(wall, false, key, o.bankMat, o.bankLen || 5, { next: () => cnt(key) })) meshes.push(m);
-        if (bankP.length > 1) for (const m of ribbonMeshes(bankP, false, key, o.bankMat, o.bankLen || 5, { next: () => cnt(key) })) meshes.push(m);
+        if (wall.length > 1) for (const m of ribbonMeshes(wall, false, key, o.ditchWallMat || o.bankMat, 1.5, { next: () => cnt(key) })) meshes.push(m);
+        if (bankP.length > 1) for (const m of ribbonMeshes(bankP, false, key, o.bankMat, 2, { next: () => cnt(key) })) meshes.push(m);
         // el talud cambia de tipo a lo largo (pasto con flores, tierra con agujas de pino, pasto seco con piedras): una malla por tramo
         let a0 = 0; for (let k = 1; k <= outer.length; k++) { if (k < outer.length && (outer[k].mat || 'grass') === (outer[a0].mat || 'grass')) continue;
           const part = outer.slice(a0, Math.min(outer.length, k + 1)); if (part.length > 1) for (const m of ribbonMeshes(part, false, 'GRASS', outer[a0].mat || 'grass', 7, { next: () => 500 + cnt('GRASS') })) meshes.push(m); a0 = k; }

@@ -83,6 +83,9 @@ RBR_MAT = {
     "DSLOPE": ("GRAVEL_FINE_DEEP_DRY", "GRAVEL_FINE_DEEP_DAMP", "GRAVEL_FINE_DEEP_WET"),             # cuneta: talud interior de ripio suelto
     "DBOT": ("DIRT_SOFT_DRY", "DIRT_SOFT_DAMP", "DIRT_SOFT_WET"),                                      # cuneta: fondo blando
     "DWALL": ("DIRT_HARD_DRY", "DIRT_HARD_DAMP", "DIRT_HARD_WET"),                                     # cuneta: talud exterior firme
+    "BLOOSE": ("GRAVEL_COARSE_DEEP_DRY", "GRAVEL_COARSE_DEEP_DAMP", "GRAVEL_COARSE_DEEP_WET"),        # Etapa 6: franja de ripio suelto del borde
+    "BANQ": ("DIRT_HARD_DRY", "DIRT_HARD_DAMP", "DIRT_HARD_WET"),                                      # Etapa 6: banquina ancha compactada (tipo C)
+    "CORDON": ("DIRT_SOFT_DRY", "DIRT_SOFT_DAMP", "DIRT_SOFT_WET"),                                    # Etapa 6: cordón de tierra removida
     "STONYB": ("GRAVEL_COARSE_DEEPER_DRY", "GRAVEL_COARSE_DEEPER_DAMP", "GRAVEL_COARSE_DEEPER_WET"),    # pedregoso: banco
     "CLAY": ("DIRT_HARD_DRY", "DIRT_HARD_DAMP", "DIRT_HARD_WET"),
     "MUD": ("DIRT_SOFT_DRY", "DIRT_SOFT_DAMP", "DIRT_SOFT_WET"),
