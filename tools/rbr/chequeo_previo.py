@@ -78,7 +78,7 @@ def main(carpeta):
     ln = np.linalg.norm(nrm, axis=1) + 1e-12
     nz = nrm[:, 2] / ln
     def es_calzada(n):  # tiras del camino (no las piedras 3D con colisión: llevan el material 'stone')
-        return bool(re.match(r"^\d+(GRAVEL|LOOSE|CLAY|MUD|ROAD|WET|SNOW|ICE)$", n)) and not str(mats.get(n, "")).startswith(("stone", "boulder"))
+        return bool(re.match(r"^\d+(STONYL|STONY|GRAVEL|LOOSE|CLAY|MUD|ROAD|WET|SNOW|ICE)$", n)) and not str(mats.get(n, "")).startswith(("stone", "boulder"))
     camino = np.array([es_calzada(nombres[o]) for o in OBJ]) if len(OBJ) else np.zeros(0, bool)
     res["triangulos_con_fisica"] = int(len(T))
     res["triangulos_calzada"] = int(camino.sum())
@@ -166,6 +166,15 @@ def main(carpeta):
     dz_lat = np.abs(np.diff(Z, axis=1))
     esc_l = [(round(float(ds[i]), 1), POS_ANCHO[j], round(float(dz_long[i, j]), 3)) for i, j in zip(*np.nonzero(np.nan_to_num(dz_long) > UMBRAL_ESCALON))]
     esc_t = [(round(float(ds[i]), 1), POS_ANCHO[j], round(float(dz_lat[i, j]), 3)) for i, j in zip(*np.nonzero(np.nan_to_num(dz_lat) > UMBRAL_ESCALON))]
+    # escalones esperados (Etapa 5): los pozos hondos aprobados (rbr_datos.json → escalones_esperados) no son un problema
+    ESP = D.get("escalones_esperados") or []
+    def esperado(m):
+        return next((e for e in ESP if abs(m - e["m"]) <= e.get("r", 2.0) + 1.0), None)
+    esp_l = [e for e in esc_l if esperado(e[0])]; esp_t = [e for e in esc_t if esperado(e[0])]
+    esc_l = [e for e in esc_l if not esperado(e[0])]; esc_t = [e for e in esc_t if not esperado(e[0])]
+    res["escalones_esperados"] = {"pozos": len(ESP), "a_lo_largo": esp_l[:50], "a_lo_ancho": esp_t[:50]}
+    if esp_l or esp_t:
+        res["avisos"].append(f"{len(esp_l)}+{len(esp_t)} escalones en pozos hondos aprobados (esperados, no son error)")
     # 5. colisión por tramos de 100 m
     cub = []
     for k in range(int(math.ceil(L / 100))):
@@ -195,7 +204,7 @@ def main(carpeta):
     with open(os.path.join(carpeta, "chequeo_previo.txt"), "w", encoding="utf-8") as f:
         f.write(f"CHEQUEO PREVIO A RBR — {'OK' if res['ok'] else 'CON PROBLEMAS'}\n")
         for k in ("largo_driveline_m", "muestras", "cobertura_superficie_pct", "n_huecos", "n_solapamientos", "n_normales_invertidas",
-                  "n_escalones_largo", "n_escalones_ancho", "max_salto_largo_m", "max_salto_ancho_m", "triangulos_con_fisica", "triangulos_calzada"):
+                  "n_escalones_largo", "n_escalones_ancho", "escalones_esperados", "max_salto_largo_m", "max_salto_ancho_m", "triangulos_con_fisica", "triangulos_calzada"):
             f.write(f"  {k}: {res[k]}\n")
         f.write(f"  texturas faltantes: {len(falt)}\n  cobertura por 100 m (%): {cub}\n")
         for p in res["problemas"]:

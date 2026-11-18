@@ -32,10 +32,35 @@ const RGMASK = (() => {
   const DEF = { separacion_huellas: 1.7, ancho_huella: 0.62, corrimiento_huella: 0.18, variacion_ancho: 0.4, intensidad_huellas: 1, grava_cruza_huella: 0.5, halo_tierra_m: 0.22,
     lomo_medio_ancho: 0.42, cordon_medio_ancho: 0.5, cordon_dist_borde: 0.6, canto_grueso: 0.9, grava_manchones: 0.8, banquina_ancho: 0.5, matas: 0.5,
     irregularidad_borde: 0.18, serpenteo_borde: 0.25, semilla: 7 };
+  // ---------- TIPOS DE PISO (Etapa 5): pedregoso / ripio suelto ----------
+  // FL.pts: cambios de piso ordenados [{ d, from, to, len, irr }]; FL.start: piso al principio; FL.ed: tramos editados a mano
+  // [{ d0, d1, type, len, irr }] que mandan sobre lo automático. pBase(d) = peso del piso pedregoso (0–1) en el eje.
+  const FL = { start: 'ripio', pts: [], ed: [], adv: 0.25, irr: 0.6, len: 120,
+    // sin el bloque "pisos" del archivo de parámetros los dos pisos son neutros (igual que la V4: sin piedras grandes, factores 1)
+    P: { pedregoso: { piedras_grandes: 0, grava_suelta: 1, canto_grueso: 1, relieve_irregular: 1, cordones: 1 },
+         ripio: { piedras_grandes: 0, grava_suelta: 1, canto_grueso: 1, relieve_irregular: 1, cordones: 1 } } };
+  const wOf = t => t === 'pedregoso' ? 1 : 0;
+  const ramp = (x, a, b) => { const t = Math.max(0, Math.min(1, (x - a) / ((b - a) || 1e-9))); return t * t * (3 - 2 * t); };
+  FL.pBase = d => { let w = wOf(FL.start), irr = FL.irr;
+    for (const c of FL.pts) { const L = Math.max(1, c.len ?? FL.len), t = ramp(d, c.d - L / 2, c.d + L / 2); if (t > 0) { w = wOf(c.from) + (wOf(c.to) - wOf(c.from)) * t; if (t < 1) irr = c.irr ?? FL.irr; } }
+    for (const e of FL.ed) { const L = Math.max(1, e.len ?? FL.len), t = Math.min(ramp(d, e.d0 - L / 2, e.d0 + L / 2), 1 - ramp(d, e.d1 - L / 2, e.d1 + L / 2)); if (t > 0) { w = w + (wOf(e.type) - w) * t; if (t < 1) irr = e.irr ?? FL.irr; } }
+    return { w, irr }; };
   const M = {
     P: { ...DEF },
     // carga los valores del archivo de parámetros (cada entrada { valor, unidad, estado, ... } o un número)
     load(cfg) { if (!cfg) return this; for (const k in DEF) { const v = cfg[k]; const x = v && typeof v === 'object' ? v.valor : v; if (x != null && isFinite(+x)) this.P[k] = +x; } NORM.clear(); NY.clear(); return this; },
+    FL,
+    // configuración de pisos: el bloque "pisos" del archivo de parámetros
+    loadFloors(cfg) { if (!cfg) return this; const v = (o, def) => o && typeof o === 'object' && 'valor' in o ? o.valor : (o ?? def);
+      FL.len = +v(cfg.transicion_m, 120); FL.irr = +v(cfg.irregularidad, 0.6); FL.adv = +v(cfg.avance_por_bordes, 0.25); FL.start = (cfg.auto_cambios && cfg.auto_cambios.inicio) || v(cfg.tipo_por_defecto, 'ripio');
+      for (const t of ['pedregoso', 'ripio']) if (cfg[t]) for (const k in FL.P[t]) { const x = +v(cfg[t][k]); if (isFinite(x)) FL.P[t][k] = x; } return this; },
+    setFloors(start, pts, ed) { FL.start = start || FL.start; FL.pts = (pts || []).slice().sort((a, b) => a.d - b.d); FL.ed = ed || []; },
+    // peso del piso pedregoso en (d, s): transición orgánica (manchones), y el ripio entra primero por el lomo y los cordones
+    floorP(d, s, m) { const { w, irr } = FL.pBase(d); if (w <= 0.001 || w >= 0.999) return w; const k = 4 * w * (1 - w);
+      const n = 0.65 * vnoiseG(s, d, 7, 4, 0.55, 1.0, 9101) + 0.35 * vnoiseG(s, d, 2.2, 3, 0.5, 0.6, 9102) - 0.5;
+      let p = w + k * (irr * n * 1.9 + FL.adv * ((m ? m.trk : 0) * 0.6 - (m ? Math.max(m.ridge, m.windrow) : 0)));
+      p = Math.max(0, Math.min(1, p)); const sh = ss(p, 0.3, 0.7); return p * (1 - irr * 0.6) + sh * irr * 0.6; },
+    floorParam(k, p) { return FL.P.ripio[k] + (FL.P.pedregoso[k] - FL.P.ripio[k]) * p; },
     // máscaras en (d, s) para un camino de medio ancho hw. Devuelve valores 0..1:
     //  trk huellas compactadas · loose grava media (manchones, lomo, cordón) · coarse canto grueso · ridge lomo · windrow cordón
     //  soil banquina de tierra (fuera de la calzada) · veg pasto y matas · inroad dentro de la calzada · tc centro de la huella (m)
@@ -63,21 +88,24 @@ const RGMASK = (() => {
       const wc = hw0 - (P.cordon_dist_borde + vY(Y, 9, sd + 24) * 0.12), ww = P.cordon_medio_ancho * (1 + vY(Y, 13, sd + 25) * 0.3);
       const windrow = Math.max(0, Math.min(1, ss(Math.abs(ax - wc), geo ? ww + 0.1 : ww, geo ? Math.max(0, ww - 0.3) : ww * 0.2) * (0.25 + 1.1 * vnoise2(X, Y, 1.3, 5, 0.55, 1.0, sd + 26))));
       const halo = Math.max(0, Math.min(1, haloMax * (0.35 + 0.9 * vnoise2(X, Y, 0.7, 4, 0.55, 0.5, sd + 33)) * inroad)), notrk = Math.max(0, 1 - Math.max(trk, 0.7 * halo));
+      const fp = this.floorP(d, s, { trk, ridge, windrow }), fq = k => this.floorParam(k, fp); // peso del piso pedregoso y parámetros mezclados
       const gpatch = geo ? ss(vnoise2(X, Y, 2.6, 5, 0.55, 1.2, sd + 27), 0.5 - 0.2 * P.grava_manchones, 0.85) : ss(vnoise2(X, Y, 2.6, 5, 0.55, 1.2, sd + 27), 0.66 - 0.2 * P.grava_manchones, 0.68);
       const cpatch = geo ? ss(vnoise2(X, Y, 0.9, 5, 0.55, 1.5, sd + 28), 0.55 - 0.08 * P.canto_grueso, 0.95) : ss(vnoise2(X, Y, 0.9, 5, 0.55, 1.5, sd + 28), 0.70 - 0.08 * P.canto_grueso, 0.76);
-      const loose = Math.max(0, Math.min(1, Math.max(gpatch, 0.9 * ridge, 0.9 * windrow) * notrk * inroad));
+      const loose = Math.max(0, Math.min(1, Math.max(gpatch, 0.9 * ridge, 0.9 * windrow) * notrk * inroad * fq('grava_suelta')));
       const coreC = Math.max(ss(windrow, 0.2, 0.6) * P.canto_grueso, ss(ridge, 0.35, 0.75) * P.canto_grueso * 0.8);
-      const coarse = Math.max(0, Math.min(1, Math.max(coreC, cpatch * P.canto_grueso * 0.9) * notrk * inroad));
+      const coarse = Math.max(0, Math.min(1, Math.max(coreC, cpatch * P.canto_grueso * 0.9) * notrk * inroad * fq('canto_grueso')));
+      // cantos grandes y rocas claras sueltas (piso pedregoso, foto 6902): manchas de 10–20 cm repartidas, menos en las huellas
+      const rk = fq('piedras_grandes'), rocks = rk > 0.01 ? Math.max(0, Math.min(1, ss(vnoise2(X, Y, 0.32, 3, 0.5, 0.5, sd + 40), 0.80 - 0.14 * rk - (geo ? 0.1 : 0), 0.84 - 0.14 * rk + (geo ? 0.1 : 0)) * (1 - 0.7 * trk) * inroad * Math.min(1, rk / 0.5))) : 0;
       const sb = P.banquina_ancho * (1 + vY(Y, 7, sd + 29) * 0.35), outside = 1 - inroad;
       const grass0 = ss(ax + c0(vnoise2(X, Y, 0.9, 5, 0.55, 1.4, sd + 30)) * 0.3, hw0 + sb, hw0 + sb + 0.35);
       const tufts = ss(vnoise2(X, Y, 0.18, 3, 0.5, 0.6, sd + 31), 0.62 - 0.08 * P.matas, 0.66) * outside;
       const bald = ss(vnoise2(X, Y, 1.2, 5, 0.55, 1.0, sd + 32), 0.76, 0.80);
       const veg = Math.max(0, Math.min(1, Math.max(grass0 * (1 - 0.85 * bald), 0.95 * tufts) * outside));
-      return { trk, loose, coarse, ridge: ridge * inroad, windrow: windrow * inroad, soil: outside, veg, inroad, tc: sep / 2 };
+      return { trk, loose, coarse, rocks, fp, ridge: ridge * inroad, windrow: windrow * inroad, soil: outside, veg, inroad, tc: sep / 2 };
     },
     // grilla precalculada (para pintar millones de píxeles): canales a `res` m, lectura bilineal
     grid(d0, len, HW, hwAt, res = 0.08) {
-      const nx = Math.ceil(2 * HW / res) + 2, ny = Math.ceil(len / res) + 2, K = ['trk', 'loose', 'coarse', 'ridge', 'windrow', 'soil', 'veg', 'inroad'], G = K.map(() => new Float32Array(nx * ny));
+      const nx = Math.ceil(2 * HW / res) + 2, ny = Math.ceil(len / res) + 2, K = ['trk', 'loose', 'coarse', 'rocks', 'fp', 'ridge', 'windrow', 'soil', 'veg', 'inroad'], G = K.map(() => new Float32Array(nx * ny));
       for (let j = 0; j < ny; j++) { const d = d0 + j * res, hw = hwAt(d); for (let i = 0; i < nx; i++) { const s = -HW + i * res, m = this.at(d, s, hw); for (let k = 0; k < K.length; k++) G[k][j * nx + i] = m[K[k]]; } }
       return (d, s) => { const fx = Math.max(0, Math.min(nx - 1.001, (s + HW) / res)), fy = Math.max(0, Math.min(ny - 1.001, (d - d0) / res)), i = Math.floor(fx), j = Math.floor(fy), u = fx - i, v = fy - j, o = {};
         for (let k = 0; k < K.length; k++) { const g = G[k], a = j * nx + i; o[K[k]] = (g[a] * (1 - u) + g[a + 1] * u) * (1 - v) + (g[a + nx] * (1 - u) + g[a + nx + 1] * u) * v; } return o; };

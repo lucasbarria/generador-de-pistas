@@ -699,7 +699,17 @@ const DEM = {
       }
     };
     await Promise.all(Array.from({ length: 8 }, worker));
+    this.smooth(this.smoothM ?? 30);
   },
+  // Etapa 5: el modelo de 30 m viene remuestreado por vecino más cercano (terrazas de ~30 m con escalones de ~1 m). Se suaviza con un
+  // promedio en caja (dos pasadas separables ≈ campana) de 'suavizado_modelo_m' (PROVISIONAL), cruzando los bordes de los tiles.
+  smooth(m) { if (!(m > 0) || !this.tiles.size) return; const lat = -53.8, mpp = 156543.03 * Math.cos((this.lat0 ?? lat) * D2R) / 2 ** this.z, r = Math.max(1, Math.round(m / 2 / mpp));
+    for (const pass of [0, 1]) for (const dir of [0, 1]) { const out = new Map();
+      for (const [k, a] of this.tiles) { const [tx, ty] = k.split(',').map(Number), b = new Float32Array(65536);
+        for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) { let t = 0, c = 0; for (let q = -r; q <= r; q++) { const v = dir ? this.pix(tx * 256 + x, ty * 256 + y + q) : this.pix(tx * 256 + x + q, ty * 256 + y); if (!isNaN(v)) { t += v; c++; } } b[y * 256 + x] = c ? t / c : a[y * 256 + x]; }
+        out.set(k, b); }
+      this.tiles = out; void pass; }
+    this.smoothed = { m, r, mpp }; },
   pix(X, Y) { const t = this.tiles.get((X >> 8) + ',' + (Y >> 8)); return t ? t[(Y & 255) * 256 + (X & 255)] : NaN; },
   sample(lat, lon) {
     for (const R of this.custom) { const v = R.sample(lat, lon); if (isFinite(v)) return v; } // modelo propio (MDE-Ar, LiDAR…) donde cubre
@@ -715,10 +725,15 @@ const DEM = {
   tileCount(s, w, n, e, z) { const o = this.z; this.z = z; const [x0, y0] = this.px(n, w).map(v => Math.floor(v / 256)), [x1, y1] = this.px(s, e).map(v => Math.floor(v / 256)); this.z = o; return (x1 - x0 + 3) * (y1 - y0 + 3); },
 };
 
+// microrrelieve sembrado del terreno (Etapa 5, PROVISIONAL): ondulación suave de pocos cm que el modelo de 30 m no tiene
+function microAt(x, y) { const T = PHYSG.ent('terreno'); if (!T || !PHYSG.on('terreno')) return 0; const a = +T.microrrelieve_m || 0, L = +T.microrrelieve_tamano_m || 6; if (!a) return 0;
+  return (vn2(x / L, y / L, 777) - 0.5) * 2 * a * 0.7 + (vn2(x / (L * 3.3), y / (L * 3.3), 778) - 0.5) * 2 * a * 0.6; }
 // ---------- Superficies ----------
 // mu = agarre relativo (FRICTION de Assetto Corsa). sin = [alto, largo] de la vibración del suelo
 const SURF = {
   ROAD:   { name: 'Asfalto',        mu: 0.99, col: [58, 58, 60],    amp: 14, sin: [0, 0],        damp: 0,    ui: '#6b6f75' },
+  STONY:  { name: 'Pedregoso (huellas)', mu: 0.80, col: [150, 120, 90], amp: 34, sin: [0.008, 0.35], damp: 0.03, ui: '#a0704a' },
+  STONYL: { name: 'Pedregoso suelto (lomo y bordes)', mu: 0.74, col: [160, 128, 96], amp: 44, sin: [0.012, 0.3], damp: 0.05, ui: '#c08a5a' },
   GRAVEL: { name: 'Ripio (huellas firmes)', mu: 0.82, col: [140, 118, 86],  amp: 30, sin: [0.004, 0.6],  damp: 0.02, ui: '#b08d5f' },
   WET:    { name: 'Mojado',         mu: 0.78, col: [34, 36, 40],    amp: 7,  sin: [0, 0],        damp: 0,    ui: '#3d6fa8' },
   CLAY:   { name: 'Tierra arcillosa', mu: 0.79, col: [132, 108, 80],  amp: 26, sin: [0.005, 0.65], damp: 0.024, ui: '#8a6446' },
@@ -747,6 +762,8 @@ const MATDEF = Object.fromEntries(Object.entries({
   ROAD:   { cat: 'calzada', desc: 'Asfalto: ondulaciones suaves, parches de reparación con escalón de pocos mm, pozos solo si está muy gastado.', geo: { ondul: 0.25, rut: 0.12, berm: 0, corrug: 0, hole: 0.12, deep: 0.25, mound: 0, erosion: 0, water: 0, morro: 0.25, patch: 1 }, lib: { det: 'det_road' } },
   WET:    { cat: 'calzada', desc: 'Asfalto mojado: misma forma que el asfalto, menos agarre.', geo: { ondul: 0.25, rut: 0.12, berm: 0, corrug: 0, hole: 0.15, deep: 0.25, mound: 0, erosion: 0, water: 0.3, morro: 0.25, patch: 1 } },
   GRAVEL: { cat: 'calzada', desc: 'Ripio compactado: huellas firmes, lomo central, serrucho en frenadas, baches y pozos ocasionales.', geo: {}, lib: { det: 'det_road' } },
+  STONY:  { cat: 'calzada', desc: 'Piso pedregoso: cantos grandes y medianos sobre tierra compactada; huellas firmes, piso irregular.', geo: { mound: 1.4 }, lib: { det: 'det_road_e' } },
+  STONYL: { cat: 'calzada', desc: 'Piso pedregoso suelto (lomo y bordes): piedras sueltas.', geo: { rut: 0.6, berm: 1.2, corrug: 1.1, hole: 0.9, mound: 2.0, ondul: 1.2 }, lib: { det: 'det_road_e' } },
   LOOSE:  { cat: 'calzada', desc: 'Ripio suelto y grueso: más piedras y montoncitos, bordos de grava, serrucho marcado; huellas menos hundidas.', geo: { rut: 0.6, berm: 1.5, corrug: 1.3, hole: 0.8, mound: 1.8, ondul: 1.2 }, lib: { det: 'det_road' } },
   CLAY:   { cat: 'calzada', desc: 'Tierra compactada (algo húmeda): huellas más hondas, más baches, charcos y surcos de agua; menos piedras.', geo: { rut: 1.35, hole: 1.25, corrug: 0.6, mound: 0.6, erosion: 1.3, water: 1.3 }, lib: { det: 'det_dirt' } },
   MUD:    { cat: 'calzada', desc: 'Barro: huellas muy hondas, pozos y ondulación fuerte; casi sin piedras.', geo: { rut: 1.8, hole: 1.5, deep: 1.3, ondul: 1.5, corrug: 0.3, mound: 0.3, erosion: 1.2, water: 1.6 }, lib: { det: 'det_dirt' } },
@@ -766,7 +783,7 @@ const TEXDEF = {
   water: { col: [52, 92, 120], amp: 8 }, urban: { col: [112, 116, 96], amp: 22 }, ditchside: { col: [88, 82, 58], amp: 20 }, ditchmud: { col: [70, 62, 48], amp: 16 }, ditchrock: { col: [110, 104, 92], amp: 26 },
   banner: { col: [200, 200, 200], amp: 0 }, bconc: { col: [154, 152, 144], amp: 0 }, brail: { col: [190, 195, 198], amp: 0 }, bwall: { col: [217, 210, 194], amp: 0 }, broofr: { col: [150, 46, 36], amp: 0 }, broofb: { col: [44, 78, 130], amp: 0 }, broofg: { col: [52, 104, 64], amp: 0 }, broofs: { col: [150, 150, 146], amp: 0 }, fpost: { col: [107, 90, 68], amp: 0 }, fwire: { col: [74, 74, 70], amp: 0 }, fgate: { col: [123, 100, 72], amp: 0 }, ditch: { col: [74, 70, 46], amp: 24 }, verge: { col: [120, 112, 92], amp: 22 }, bark: { col: [84, 62, 44], amp: 20, rows: true }, boulder: { col: [128, 124, 116], amp: 30 },
 };
-const ROAD_KEYS = ['ROAD', 'GRAVEL', 'CLAY', 'WET', 'LOOSE', 'MUD', 'SNOW', 'ICE'];
+const ROAD_KEYS = ['ROAD', 'STONY', 'GRAVEL', 'CLAY', 'WET', 'LOOSE', 'MUD', 'SNOW', 'ICE'];
 $('#surfKey').innerHTML = ROAD_KEYS.map(k => `<option value="${k}">${SURF[k].name} (agarre ${Math.round(SURF[k].mu * 100)}%)</option>`).join('');
 
 // ---------- Texturas procedurales ----------
@@ -1629,7 +1646,10 @@ const RGLIB = {
     // Etapa 4: las capas siguen la máscara V3 (RGMASK), igual que en Blender: suelo del sector → grava media → canto grueso
     // → banquina de tierra (fuera de la calzada) → huellas compactadas → pasto. mk = muestra de la máscara (si ya se calculó)
     const m = mk || RGMASK.at(d, s, hw), e = L.hasE ? this.eastAt(d, s) : 0, mix = (c, c2, t) => [c[0] + (c2[0] - c[0]) * t, c[1] + (c2[1] - c[1]) * t, c[2] + (c2[2] - c[2]) * t];
-    let c = e < 0.999 ? this.stoch(L.W, s, d, 1.7, 500, true) : null; if (e > 0.001) { const c2 = this.stoch(L.E, s + 3.3, d + 1.7, 1.7, 520, true); c = c ? mix(c, c2, e) : c2; }
+    // Etapa 5: el GRANO del suelo lo decide el tipo de piso (pedregoso = textura del este, ripio = la del oeste) con borde orgánico (m.fp);
+    // el TONO sigue los puntos de sector congelados (e)
+    const eg = L.hasE ? (m.fp != null ? m.fp : e) : 0;
+    let c = eg < 0.999 ? this.stoch(L.W, s, d, 1.7, 500, true) : null; if (eg > 0.001) { const c2 = this.stoch(L.E, s + 3.3, d + 1.7, 1.7, 520, true); c = c ? mix(c, c2, eg) : c2; }
     const sm = [0, 1, 2].map(i => L.W.mean[i] + (L.E.mean[i] - L.W.mean[i]) * e); // color medio del suelo en este punto
     // a ~3 cm/px la foto reducida pierde el grano (piedras de 1–8 cm promediadas): se recupera el contraste que tenía
     const boost = (q, M, k) => [M[0] + (q[0] - M[0]) * k, M[1] + (q[1] - M[1]) * k, M[2] + (q[2] - M[2]) * k];
@@ -1638,7 +1658,8 @@ const RGLIB = {
     const lay = (D, t, k, sx, sy, cell, seed, rot, gain, mul) => { if (!D || t <= 0.02) return; const kk = tint(D, k), q = this.stoch(D, s + sx, d + sy, cell, seed, rot), q2 = gain ? boost(q, D.mean, gain) : q, mm = mul || [1, 1, 1];
       c = mix(c, [q2[0] * kk[0] * mm[0], q2[1] * kk[1] * mm[1], q2[2] * kk[2] * mm[2]], Math.min(1, t)); };
     lay(L.L, m.loose * 0.9, 0.6, 1.3, 2.1, 0.9, 585, true, 2.0, [0.9, 0.9, 0.92]);           // grava media: manchones, lomo y cordón (GRAVEL_LOOSE)
-    lay(L.B, m.coarse * 0.9, 0.25, 0.7, 3.1, 0.9, 590, true);                                    // canto rodado grueso gris azulado (SHOULDER_BERM)
+    lay(L.B, m.coarse * 0.9, 0.25, 0.7, 3.1, 0.9, 590, true);
+    if (m.rocks > 0.02) lay(L.B, m.rocks * 0.85, 0.15, 2.9, 0.4, 0.45, 595, true, 1.7, [1.08, 1.07, 1.05]);         // piedras grandes del piso pedregoso (foto 6902: D50 ~21 mm, ~35 % ≥ 40 mm)                                    // canto rodado grueso gris azulado (SHOULDER_BERM)
     if (m.soil > 0.02) { const kt = tint(L.T, 0.8), qt = this.stoch(L.T, s + 5.1, d + 0.3, 1.1, 610, true); let qs = [qt[0] * kt[0] * 0.8, qt[1] * kt[1] * 0.8, qt[2] * kt[2] * 0.8];
       if (L.S) { const ks = tint(L.S, 0.5), q3 = this.stoch(L.S, s, d, 0.9, 540, false); qs = mix(qs, [q3[0] * ks[0], q3[1] * ks[1], q3[2] * ks[2]], 0.35); }
       c = mix(c, qs, m.soil); }                                                                    // banquina de tierra (TRACK_COMPACTED tonado + TIRE_LOOSE_SOIL)
@@ -1920,13 +1941,16 @@ async function fetchBase(o, key) {
   let z = o.z; while (z > 10 && DEM.tileCount(s, w, n, e, z) > 500) z--;
   if (z !== o.z) log(`Zona grande: uso detalle de elevación z${z}.`);
   log(`Descargando elevación (${DEM.tileCount(s, w, n, e, z)} tiles)…`);
+  DEM.lat0 = (s + n) / 2; { const T = PHYSG.ent('terreno'); DEM.smoothM = T && PHYSG.on('terreno') ? (+T.suavizado_modelo_m || 0) : 0; }
   await DEM.load(s, w, n, e, z);
+  if (DEM.smoothed) log(`Elevación suavizada ${DEM.smoothed.m} m (quita los escalones del remuestreo del modelo de 30 m).`);
   if (DEM.used.cop || DEM.used.ter) log(`Elevación: ${DEM.used.cop ? `Copernicus GLO-30 en ${DEM.used.cop} tiles` : ''}${DEM.used.cop && DEM.used.ter ? ' y ' : ''}${DEM.used.ter ? `Terrarium (SRTM y otras) en ${DEM.used.ter}` : ''}. Ambos son modelos de ~30 m: el relieve general es real, el detalle chico no.`);
   if (DEM.spikes) log(`Elevación: se corrigieron ${DEM.spikes} picos erróneos del satélite.`);
   const lat0 = (s + n) / 2, lon0 = (w + e) / 2, P = Core.makeProj(lat0, lon0);
   let h0 = Infinity; for (let i = 0; i <= 20; i++) for (let j = 0; j <= 20; j++) h0 = Math.min(h0, DEM.sample(s + (n - s) * i / 20, w + (e - w) * j / 20));
   h0 = Math.floor(h0);
-  const height = (x, y) => { const [la, lo] = P.inv(x, y); return DEM.sample(la, lo) - h0; };
+  // demOff (Etapa 5): desfase GPS ↔ modelo de elevación, corregido en el TERRENO (el eje conserva las alturas del GPS)
+  const heightRaw = (x, y) => { const [la, lo] = P.inv(x, y); return DEM.sample(la, lo) - h0; }, height = (x, y) => heightRaw(x, y) - (S.base && S.base.demOff || 0) + microAt(x, y);
   const heightS = (x, y) => {
     let t = height(x, y) * 2, c = 2; const r = 10;
     for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; t += height(x + Math.cos(a) * r, y + Math.sin(a) * r); c++; }
@@ -1946,7 +1970,7 @@ async function fetchBase(o, key) {
   try { await loadTiles(L.latLngBounds([s, w], [n, e]), 250); }
   catch (err) { log('No se pudo leer el tipo de suelo (' + err.message + '): el terreno va todo como pasto.', 'err'); }
   const landAt = (x, y) => { const [la, lo] = P.inv(x, y), [gx, gy] = ll2g(la, lo); return landAtG(gx, gy); };
-  S.base = { key, mode: S.mode, P, h0, height, heightS, bbox, lat0, lon0, pts, closed, landAt };
+  S.base = { key, mode: S.mode, P, h0, height, heightRaw, heightS, bbox, lat0, lon0, pts, closed, landAt, demOff: 0 };
 }
 
 // Subir/bajar un tramo: el tramo queda recto entre dos alturas ABSOLUTAS (no se suman al terreno, así su pendiente no se cuela).
@@ -2010,8 +2034,8 @@ function editFns(o, total, closed) {
       for (let i = S.edits.length - 1; i >= 0; i--) { const e = S.edits[i]; if (e.kind === 'surface' && inSec(d, e)) return e.key; }
       if (o.snow && o.snowRoad && h + S.base.h0 >= o.snowAlt) return 'SNOW';
       if (PHOTOMAT.rutZoneAt(d)) return 'MUD'; // huellones: barro resbaladizo
-      if (o.surface === 'auto' && S.autoSurf) return S.autoSurf(d);
-      return o.surface === 'gravel' || o.surface === 'auto' ? 'GRAVEL' : 'ROAD';
+      const base = o.surface === 'auto' && S.autoSurf ? S.autoSurf(d) : o.surface === 'gravel' || o.surface === 'auto' ? 'GRAVEL' : 'ROAD';
+      return floorKey(d, base);
     },
     smoothSecs: S.edits.filter(e => e.kind === 'smooth'),
     // sección transversal editada por tramo y lado: cuneta (m, 0 = sin cuneta), ancho de cuneta (×), banquina (m), talud (H:V)
@@ -3090,8 +3114,12 @@ TEX.stone = (() => {
 // ---------- PARÁMETROS FÍSICOS (Etapa 4): config/parametros_fisicos.json, incrustado al compilar ----------
 const PHYS = /*PHYS*/null;
 if (PHYS && PHYS.mascaras) RGMASK.load(PHYS.mascaras);
+if (PHYS && PHYS.pisos) RGMASK.loadFloors(PHYS.pisos);
+// superficies físicas de cada piso (Etapa 5, PROVISIONALES): agarre, frenado y vibración desde el archivo de parámetros
+if (PHYS && PHYS.superficies) for (const [k, v] of Object.entries(PHYS.superficies)) if (SURF[k] && v && typeof v === 'object' && 'friction' in v) {
+  SURF[k].mu = +v.friction; SURF[k].damp = +v.damping; SURF[k].sin = [+v.sin_height, +v.sin_length]; if (MATDEF[k]) MATDEF[k].phys = SURF[k]; }
 const PHYSG = {
-  ent(k) { return (PHYS && PHYS.geometria && PHYS.geometria[k]) || {}; },
+  ent(k) { return (PHYS && ((PHYS.geometria && PHYS.geometria[k]) || (PHYS.costados && PHYS.costados[k]))) || {}; },
   // interruptor de la interfaz (#geo_<clave>) o 'activo' del archivo
   on(k) { const el = typeof document !== 'undefined' ? document.getElementById('geo_' + k) : null; if (el && el.type === 'checkbox') return el.checked; return this.ent(k).activo !== false; },
   k(k) { if (!this.on(k)) return 0; const v = +this.ent(k).intensidad; return isFinite(v) ? v : 1; },
@@ -3101,9 +3129,23 @@ const PHYSG = {
 // los interruptores de la interfaz arrancan como dice el archivo
 if (typeof document !== 'undefined') { const f = () => { for (const el of document.querySelectorAll('input[id^="geo_"]')) el.checked = PHYSG.ent(el.id.slice(4)).activo !== false; };
   document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', f) : f(); }
+// superficie física según el tipo de piso (Etapa 5): en las transiciones se intercalan franjas de cada superficie (largo
+// 'mancha_m') con la proporción del piso pintado en el eje: el agarre cambia de a poco y coincide con lo que se ve
+// resumen de los pisos (automático + editado): tramos, puntos de cambio y km de cada piso
+function floorSpans(total) { const T = total || S.floorTotal || 0, st = 5, out = []; let cur = null;
+  for (let d = 0; d <= T; d += st) { const w = RGMASK.FL.pBase(d).w, t = w >= 0.98 ? 'pedregoso' : w <= 0.02 ? 'ripio' : 'transición';
+    if (!cur || cur.t !== t) { if (cur) cur.d1 = d; cur = { t, d0: d, d1: d }; out.push(cur); } } if (cur) cur.d1 = T; return out; }
+function floorInfo(show) { const el = typeof document !== 'undefined' && document.getElementById('floorInfo'); if (!el) return; const sp = floorSpans(); if (!sp.length) { el.textContent = ''; return; }
+  const km = t => sp.filter(x => x.t === t).reduce((a, x) => a + x.d1 - x.d0, 0) / 1000;
+  el.innerHTML = sp.map(x => `<b>${x.t}</b> ${(x.d0 / 1000).toFixed(2)}–${(x.d1 / 1000).toFixed(2)} km`).join(' · ') + ` <span class="mut">(pedregoso ${km('pedregoso').toFixed(2)} km · ripio ${km('ripio').toFixed(2)} km · transiciones ${km('transición').toFixed(2)} km)</span>`;
+  if (show) { const x = sp.find(q => q.t === 'transición') || sp[0]; S.sel = { d0: x.d0, d1: x.d1 }; if (typeof drawProfile === 'function') drawProfile(); if (typeof drawSel === 'function') drawSel(); } }
+function floorKey(d, base) { if (base !== 'GRAVEL' && base !== 'LOOSE') return base; const p = RGMASK.floorP(d, 0, null); if (p <= 0.001) return base; if (p >= 0.999) return 'STONY';
+  const L = (PHYS && PHYS.superficies && PHYS.superficies.mancha_m && +PHYS.superficies.mancha_m.valor) || 3, k = Math.floor(d / L), h = Math.abs(Math.sin(k * 127.1 + 311.7) * 43758.5453) % 1;
+  return h < p ? 'STONY' : base; }
 const RELIEF = {
   amp: () => { const v = $('#relief') ? +$('#relief').value : 1; return isFinite(v) ? v : 1; },
   env(total) { // humedad y bosque cada 20 m (sirve en cualquier lugar con foto satelital)
+    this.total = total; this.SZ = null;
     const SA = S.autoSurf && S.autoSurf.at, n = Math.ceil(total / 20) + 1, Q = Array.from({ length: n }, (_, k) => SA ? SA(k * 20) : null);
     const lv = Q.map(q => q && q.lum).filter(v => v != null), ok = lv.length && Math.max(...lv) - Math.min(...lv) >= 8;
     const rank = f => { const v = Q.map((q, k) => [q ? f(q) : null, k]).filter(x => x[0] != null).sort((p, q) => p[0] - q[0]), r = new Float32Array(n).fill(0.5); v.forEach(([, k], i) => r[k] = v.length > 1 ? i / (v.length - 1) : 0.5); return r; };
@@ -3119,6 +3161,13 @@ const RELIEF = {
   // desgaste: intensidad general, tránsito y semilla (la misma semilla da exactamente las mismas irregularidades)
   setWear() { const v = id => { const el = $(id); return el ? +el.value : NaN; };
     this.W = isFinite(v('#wear')) ? v('#wear') : 1; this.T = isFinite(v('#traffic')) ? v('#traffic') : 1; this.SD = isFinite(v('#wearSeed')) ? Math.round(v('#wearSeed')) : 1; },
+  // zonas de serrucho al azar (Etapa 5, PROVISIONAL): cantidad, largo, onda y amplitud del archivo de parámetros; se apagan con activo=false
+  serrZonas() { if (this.SZ) return this.SZ; const C = PHYSG.ent('serrucho_zonas'), T = this.total || 3000, Z = [], I = PHYSG.k('serrucho_zonas');
+    if (I > 0 && T > 200 && C.cantidad) { const R = rngOf((C.semilla | 0) + 7001), n = C.cantidad | 0;
+      for (let i = 0, t = 0; i < n && t < n * 30; t++) { const L = C.largo_min_m + R() * (C.largo_max_m - C.largo_min_m), d0 = 60 + R() * (T - 120 - L);
+        if (Z.some(z => d0 < z.d1 + 40 && d0 + L > z.d0 - 40)) continue; Z.push({ d0, d1: d0 + L }); i++; } Z.sort((a, b) => a.d0 - b.d0); }
+    return (this.SZ = { Z, onda: (C && +C.onda_m) || 1.5, amp: ((C && +C.amplitud_m) || 0.012) * I, ramp: (C && +C.rampa_m) || 6 }); },
+  serr(d) { const S2 = this.serrZonas(); for (const z of S2.Z) if (d > z.d0 && d < z.d1) { const r = Math.min(1, (d - z.d0) / S2.ramp, (z.d1 - d) / S2.ramp); return { w: r * r * (3 - 2 * r), onda: S2.onda, amp: S2.amp }; } return 0; },
   // desnivel (m) del piso en (d, s): c = { hum, hollow, forest, K, G, BZ } del núcleo (curvatura, pendiente, frenada/aceleración)
   at(d, s, hw, c) {
     const A = this.A ?? 1; if (!A) return 0;
@@ -3128,6 +3177,7 @@ const RELIEF = {
     const Wr = this.W ?? 1, Tr = this.T ?? 1, sd = (this.SD ?? 1) * 7.31, H = (x, y, k) => hashU(x, y, k + sd), N = (x, y, k) => vn2(x, y, k + sd);
     const w = Math.max(c.hum, c.hollow * 0.8), K = c.K || 0, G = Math.abs(c.G || 0), BZ = c.BZ || 0, a = Math.abs(s), g = geoMix(c); // g: cuánto de cada irregularidad lleva este material
     const m = RGMASK.at(d, s, hw, true), tw = m.tc;
+    const fpv = m.fp != null ? m.fp : 0, FQ = kk => RGMASK.floorParam(kk, fpv); // Etapa 5: relieve según el tipo de piso (pedregoso más irregular; ripio más liso y amontonado en lomo y bordes)
     const wear = Wr * (0.55 + 0.45 * N(d / 160, 3.3, 120)) * (0.8 + 0.4 * Tr);                    // el desgaste cambia a lo largo (sectores más o menos castigados)
     let z = 0, k;
     if ((k = K_('ondulacion_general'))) z += (N(d / v('ondulacion_general', 'largo_m', 7), s / v('ondulacion_general', 'ancho_m', 2.2), 91) - 0.5) * (v('ondulacion_general', 'amplitud_seco_m', 0.02) + v('ondulacion_general', 'amplitud_humedo_extra_m', 0.03) * w) * g.ondul * k;
@@ -3135,12 +3185,14 @@ const RELIEF = {
     // huellas de las ruedas hundidas y lomo central más alto (más en curvas, subidas y con camiones), con la forma de la máscara
     const rutD = (v('roderas', 'profundidad_base_m', 0.012) + v('roderas', 'profundidad_transito_m', 0.03) * Tr * (0.5 + 0.5 * N(d / 55, 2.2, 123)) + v('roderas', 'profundidad_humedad_m', 0.02) * w) * wear * (1 + v('roderas', 'extra_en_pendiente', 0.6) * Math.min(1, G / 0.1)) * g.rut;
     if ((k = K_('roderas'))) z -= rutD * m.trk * k;
-    if ((k = K_('lomo_central'))) z += rutD * v('lomo_central', 'fraccion_de_rodera', 0.45) * m.ridge * k;
+    if ((k = K_('lomo_central'))) z += rutD * v('lomo_central', 'fraccion_de_rodera', 0.45) * m.ridge * FQ('cordones') * k;
     // cordón de ripio suelto cerca de los bordes (lo que tiran las ruedas), más del lado de afuera de las curvas
     const out = K !== 0 && Math.sign(s) === -Math.sign(K) ? Math.min(1, Math.abs(K) * 60) : 0;
-    if ((k = K_('cordones'))) z += (v('cordones', 'altura_m', 0.012) + v('cordones', 'altura_extra_curva_m', 0.025) * out) * wear * g.berm * (0.6 + 0.8 * N(d / 9, s > 0 ? 5 : 6, 124)) * m.windrow * k;
+    if ((k = K_('cordones'))) z += (v('cordones', 'altura_m', 0.012) + v('cordones', 'altura_extra_curva_m', 0.025) * out) * wear * g.berm * (0.6 + 0.8 * N(d / 9, s > 0 ? 5 : 6, 124)) * m.windrow * FQ('cordones') * k;
     // piso irregular de baja amplitud donde hay grava suelta o canto grueso (nuevo en V4)
-    if ((k = K_('deformaciones_locales'))) { const t = v('deformaciones_locales', 'tamano_m', 0.9); z += (N(d / t, s / t, 150) - 0.5) * 2 * v('deformaciones_locales', 'amplitud_m', 0.008) * Math.max(m.loose, m.coarse) * k; }
+    if ((k = K_('deformaciones_locales'))) { const t = v('deformaciones_locales', 'tamano_m', 0.9); z += (N(d / t, s / t, 150) - 0.5) * 2 * v('deformaciones_locales', 'amplitud_m', 0.008) * Math.max(m.loose, m.coarse) * FQ('relieve_irregular') * k; }
+    if (m.rocks > 0.01 && (k = K_('deformaciones_locales'))) z += m.rocks * ((PHYS && PHYS.pisos && PHYS.pisos.piedras_altura_m && +PHYS.pisos.piedras_altura_m.valor) || 0.018) * (0.6 + 0.8 * N(d / 0.7, s / 0.7, 151)) * k;                       // piedras grandes (pedregoso): bultos suaves
+    { const zs = this.serr(d); if (zs > 0) z += Math.sin(2 * Math.PI * d / zs.onda + 2 * N(d / 20, 4.4, 152) + 0.6 * s) * zs.amp * zs.w * (0.75 + 0.25 * g.corrug); } // serrucho en zonas al azar (Etapa 5)
     // serrucho (calaminas) en frenadas y aceleraciones: ondas transversales
     if (BZ > 0.05 && (k = K_('serrucho'))) { const lam = v('serrucho', 'onda_min_m', 1.6) + v('serrucho', 'onda_extra_m', 0.4) * N(d / 50, 7.7, 125); z += Math.sin(2 * Math.PI * d / lam + 3 * N(d / 30, 8.8, 126)) * v('serrucho', 'amplitud_m', 0.011) * BZ * wear * Tr * g.corrug * k; }
     // baches (más donde es húmedo)
@@ -3668,20 +3720,31 @@ async function rebuild(keepCam) {
     const raise = BRs.length && RAMP[0] ? (x, y) => { let dz = 0; for (const b of BRs) { const e = Math.hypot(x - b.p[0], y - b.p[1]); let v = 0;
       if (e < b.half) v = RAMP[0]; else if (e < b.half + RAMP[1]) { const u = (e - b.half) / RAMP[1]; v = RAMP[0] * (1 - u * u * (3 - 2 * u)); } if (v > dz) dz = v; } return dz; } : null;
     // altura del camino desde el GPS (GoPro/GPX): mucho más fiel que el satélite dentro del bosque
-    let roadH = null;
+    let roadH = null; B.demOff = 0;
     if (o.gpsAlt && S.gpsTrack && S.gpsTrack.filter(p => isFinite(p[2]) && p[2] !== 0).length > 20) {
       const T0 = S.gpsTrack.filter(p => isFinite(p[2]) && p[2] !== 0), L = T0.map(p => B.P.fwd(p[0], p[1]));
       const dist = [0]; for (let i = 1; i < L.length; i++) dist.push(dist[i - 1] + Math.hypot(L[i][0] - L[i - 1][0], L[i][1] - L[i - 1][1]));
       const sm = T0.map((p, i) => { let s = 0, w = 0; for (let k = i; k >= 0 && dist[i] - dist[k] < 40; k--) { s += T0[k][2]; w++; } for (let k = i + 1; k < T0.length && dist[k] - dist[i] < 40; k++) { s += T0[k][2]; w++; } return s / w; });
-      const diffs = L.map((q, i) => B.height(q[0], q[1]) - sm[i]).sort((p, q) => p - q), off = diffs[Math.floor(diffs.length / 2)];
+      const diffs = L.map((q, i) => B.heightRaw(q[0], q[1]) - sm[i]).sort((p, q) => p - q), off = diffs[Math.floor(diffs.length / 2)]; B.demOff = off; // el desfase se aplica al terreno
       const cs = 25, grid = new Map(); L.forEach((q, i) => { const k = Math.floor(q[0] / cs) + ',' + Math.floor(q[1] / cs); (grid.get(k) || grid.set(k, []).get(k)).push(i); });
       roadH = (x, y) => { let best = null, bd = 25; const gx = Math.floor(x / cs), gy = Math.floor(y / cs);
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) for (const i of grid.get((gx + dx) + ',' + (gy + dy)) || []) { const d = Math.hypot(L[i][0] - x, L[i][1] - y); if (d < bd) { bd = d; best = i; } }
-        return best == null ? null : sm[best] + off; };
-      log(`Altura del camino tomada del GPS (${T0.length.toLocaleString()} puntos, alineada con el satélite ${off >= 0 ? '+' : ''}${off.toFixed(1)} m).`);
+        return best == null ? null : sm[best]; };
+      log(`Altura del camino tomada del GPS (${T0.length.toLocaleString()} puntos) sin modificar; el modelo de elevación se corrió ${-off >= 0 ? '+' : ''}${(-off).toFixed(1)} m para coincidir con el GPS (desfase corregido en el terreno).`);
     }
     S.roadH = roadH;
     // humedad del camino, relieve del piso y accesos (caminos laterales de OpenStreetMap que tocan el recorrido)
+    // tipos de piso (Etapa 5): cambios automáticos del archivo de parámetros (puntos GPS proyectados sobre el recorrido) + tramos editados a mano
+    { const cum = [0]; for (let i = 1; i < rPts.length; i++) cum.push(cum[i - 1] + Math.hypot(rPts[i][0] - rPts[i - 1][0], rPts[i][1] - rPts[i - 1][1]));
+      const proj = (lat, lon) => { const [x, y] = B.P.fwd(lat, lon); let best = Infinity, bd = null; for (let i = 1; i < rPts.length; i++) { const a = rPts[i - 1], b = rPts[i], vx = b[0] - a[0], vy = b[1] - a[1], L2 = vx * vx + vy * vy || 1e-9;
+          const t = Math.max(0, Math.min(1, ((x - a[0]) * vx + (y - a[1]) * vy) / L2)), e = Math.hypot(a[0] + vx * t - x, a[1] + vy * t - y); if (e < best) { best = e; bd = cum[i - 1] + t * Math.sqrt(L2); } } return best < 40 ? bd : null; };
+      const AC = PHYS && PHYS.pisos && PHYS.pisos.auto_cambios, pts = [];
+      let start = (PHYS && PHYS.pisos && PHYS.pisos.tipo_por_defecto && PHYS.pisos.tipo_por_defecto.valor) || 'ripio';
+      if (AC && Array.isArray(AC.valor)) { const near = AC.valor.map(c => ({ c, d: proj(c.lat, c.lon) })).filter(q => q.d != null);
+        if (near.length) { start = AC.inicio || start; for (const q of near) pts.push({ d: q.d, from: q.c.desde, to: q.c.hasta, len: q.c.transicion_m, irr: q.c.irregularidad }); } }
+      const ed = S.edits.filter(e => e.kind === 'floor').map(e => ({ d0: e.d0, d1: e.d1, type: e.type, len: e.len, irr: e.irr }));
+      RGMASK.setFloors(start, pts, ed); S.floorAuto = { start, pts }; S.floorSig = JSON.stringify(ed); S.floorEd = ed; S.floorTotal = cum[cum.length - 1]; setTimeout(() => floorInfo(false), 0);
+      if (pts.length || ed.length) log(`Tipos de piso: ${start} desde el inicio${pts.map(p => `, ${p.to} desde ${(p.d / 1000).toFixed(2)} km (transición ${p.len} m)`).join('')}${ed.length ? ` · ${ed.length} tramo(s) editado(s)` : ''}.`); }
     { const tt = rPts.reduce((a, p, i) => i ? a + Math.hypot(p[0] - rPts[i - 1][0], p[1] - rPts[i - 1][1]) : 0, 0); RELIEF.env(tt); RELIEF.A = RELIEF.amp(); RELIEF.setWear(); }
     SIDECAT.on = SIDECAT.active(); if (SIDECAT.on) { SIDECAT.build(); SIDECAT.prepAlt(B, rPts); }
     PACK.apply(); if (DETAIL.enabled()) await DETAIL.prepare();
@@ -3704,7 +3767,7 @@ async function rebuild(keepCam) {
             const cr = tx * (q[1] - a[1]) - ty * (q[0] - a[0]), sd = cr > 0 ? 1 : -1, w = ln.cls === 'track' || ln.cls === 'path' ? 4 : 6;
             if (!ACCS.some(z => Math.abs(z.d - cum[bi]) < 12 && z.sd === sd)) ACCS.push({ d: cum[bi], sd, w, osm: true }); } }
       } }
-    const routeArgs = { bareAt: S.autoW ? S.autoW.bare : null, clearAt: S.autoW ? S.autoW.clear : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, terrRes: o.res, shoulder: Math.min(3.5, o.res * 1.5 + 1),
+    const routeArgs = { cun5: PHYSG.on('cunetas_v5') ? PHYSG.ent('cunetas_v5') : null, tal: PHYSG.on('taludes') ? { ...PHYSG.ent('taludes'), k: PHYSG.k('taludes'), fp: d => RGMASK.FL.pBase(d).w } : null, bareAt: S.autoW ? S.autoW.bare : null, clearAt: S.autoW ? S.autoW.clear : null, roadH, raise, bridge: BRs.length ? (x, y) => BRs.some(b => Math.hypot(x - b.p[0], y - b.p[1]) < b.half) : null, pts: rPts, closed: B.closed, width: o.width, hSmooth: o.hSmooth, height: B.height, lines: o.lines, ditch: o.ditch, terrRes: o.res, shoulder: Math.min(3.5, o.res * 1.5 + 1),
       humAt: RELIEF.humAt, forestAt: RELIEF.forestAt, bankMat: TEX.bank && PACK.on ? 'bank' : null, bankLen: 5, sideMatAt: SIDECAT.on ? (d, sd) => SIDECAT.typeAt(d, sd) : null, sideLumpAt: SIDECAT.on ? (d, sd, e) => SIDECAT.lumpAt(d, sd, e) : null, reliefAt: RELIEF.A ? (d, s, hw, c) => RELIEF.at(d, s, hw, c) : null, roadCols: PHYSG.cols(), ditchP: { k: PHYSG.k('cunetas'), bmin: PHYSG.v('cunetas', 'profundidad_bosque_min_m', 0.38), bext: PHYSG.v('cunetas', 'profundidad_bosque_extra_m', 0.22), cmin: PHYSG.v('cunetas', 'profundidad_campo_min_m', 0.16), cext: PHYSG.v('cunetas', 'profundidad_campo_extra_m', 0.12) }, stones: RELIEF.A && $('#stones') ? +$('#stones').value : (RELIEF.A ? 1 : 0), accesses: ACCS, procAccess: !$('#access') || $('#access').checked };
     S.live = { routeArgs, cache: { keyFn: () => JSON.stringify(S.edits.filter(e => e.kind === 'shape')) }, sideArgs: null, sideSegs: [] };
     res = Core.buildRoute({ ...routeArgs, ...editFns(o, S.lastTotal, B.closed), cache: S.live.cache });
@@ -4098,7 +4161,7 @@ const EDIT_TXT = {
   profile: e => `Perfil por puntos (${e.pts.length})`, rasante: e => `${RAS_NAME[e.type] || 'Rasante'} ${fmtH(+(+e.h).toFixed(2))} m`,
   smooth: () => 'Suavizar', flat: e => `Aplanar (${{ start: 'altura inicial', end: 'altura final', avg: 'promedio', abs: (e.h ?? 0).toFixed(1) + ' m' }[e.ref || 'start']}${(e.k ?? 1) < 1 ? ', ' + Math.round(e.k * 100) + '%' : ''})`, grade: e => `Pendiente constante ${e.pct != null ? (e.pct > 0 ? '+' : '') + e.pct.toFixed(1) + '%' : fmtH(e.dh) + ' m'}`, bump: e => `Lomada ${+e.h.toFixed(2)} m`, jump: e => `Salto ${+e.h.toFixed(2)} m`, cattle: () => 'Guardaganado',
   shape: e => `Curva movida ${Math.hypot(e.dx, e.dy).toFixed(1)} m`, pothole: e => `Bache ${+e.h.toFixed(2)} m`, width: e => `Ancho ${+e.w.toFixed(1)} m`,
-  bank: e => e.abs ? `Inclinación ${+e.deg.toFixed(1)}°` : `Peralte ${+e.deg.toFixed(1)}°`, surface: e => SURF[e.key].name,
+  bank: e => e.abs ? `Inclinación ${+e.deg.toFixed(1)}°` : `Peralte ${+e.deg.toFixed(1)}°`, surface: e => SURF[e.key].name, floor: e => `Piso ${e.type === 'pedregoso' ? 'pedregoso' : 'ripio suelto'} (transición ${e.len} m, irregularidad ${e.irr})`,
   section: e => `Sección ${{ both: 'ambos lados', L: 'izquierda', R: 'derecha' }[e.side || 'both']}: ` + [e.ditch == null ? null : e.ditch === 0 ? 'sin cuneta' : `cuneta ${e.ditch} m`, e.wf != null && e.wf !== 1 ? `ancho ×${e.wf}` : null, e.berm != null ? `banquina ${e.berm} m` : null, e.talud != null ? `talud ${e.talud}:1` : null].filter(Boolean).join(', '),
   lock: e => `Punto fijo ${fmtH(+(e.h + (S.result ? S.result.h0 : 0)).toFixed(2))} m (${e.ref === 'dato' ? 'dato medido' : 'altura fijada'})`,
 };
@@ -4144,6 +4207,11 @@ if ($('#tLockDato')) $('#tLockDato').onclick = () => lockAt('dato');
 if ($('#tLockNow')) $('#tLockNow').onclick = () => lockAt('actual');
 $('#tWidth').onclick = () => { if (!needSel()) return; addEdit({ kind: 'width', ...secSel(), w: Math.max(3, Math.min(25, num('#ew', 7))) }); };
 $('#tBank').onclick = () => { if (!needSel()) return; addEdit({ kind: 'bank', ...secSel(), deg: Math.max(-15, Math.min(25, num('#eb', 6))) }); };
+$('#tFloor').onclick = () => { if (!needSel()) return; const sl = secSel(), len = Math.max(0, Math.min(400, +$('#floorLen').value || 0)), irr = Math.max(0, Math.min(1, +$('#floorIrr').value || 0));
+  addEdit({ kind: 'floor', d0: sl.d0, d1: sl.d1, type: $('#floorType').value === 'pedregoso' ? 'pedregoso' : 'ripio', len, irr }); };
+$('#tFloorMove').onclick = () => { const e = ED.active; if (!e || e.kind !== 'floor') { log('Elegí primero un cambio de piso en la lista de cambios.'); return; } if (!needSel()) return; const sl = secSel(); edPushUndo();
+  Object.assign(e, { d0: sl.d0, d1: sl.d1, len: Math.max(0, Math.min(400, +$('#floorLen').value || 0)), irr: Math.max(0, Math.min(1, +$('#floorIrr').value || 0)), type: $('#floorType').value === 'pedregoso' ? 'pedregoso' : 'ripio' }); editsChanged(); };
+$('#tFloorMap').onclick = () => floorInfo(true);
 $('#tSurf').onclick = () => { if (!needSel()) return; addEdit({ kind: 'surface', ...secSel(), key: $('#surfKey').value }); };
 $('#tClearEd').onclick = () => { if (!S.edits.length) return; edPushUndo(); S.edits = []; ED.active = null; editsChanged(); };
 $('#tApply').onclick = () => applyEdits();
@@ -4271,6 +4339,20 @@ async function addRBRPackage(R, zip, slug) {
     texturas[mat] = { dds: `texturas/${mat}.dds`, alfa, w: t.w, h: t.h };
   }
   f.file('track.mtl', Core.toMTL([...used].filter(m => texturas[m]).map(m => [m, texturas[m].dds, '1 1 1'])));
+  // Etapa 5 · detalle fino de la calzada para RBR (segunda textura, DOUBLE_TEXTURE): la tira del camino (rs_N, ~4 cm/px) se ve genérica
+  // de cerca. Se suma un detalle de 2 × 2 m a ~2 mm/px hecho de las fotos de cada piso; su alfa es la máscara de piedras (más donde
+  // la foto tiene contraste local) y RBR lo mezcla con la tira: lerp(tira, detalle, alfa). Elegido por la superficie física de cada malla.
+  let detalle = null;
+  if (RGLIB.on()) { const W2 = 1024, PPM = W2 / 2, mk = (it, seed, stones) => { if (!it) return null; const r0 = RGLIB.detail(it, W2, W2, PPM, seed, true, null, stones ? RGLIB.item('stones_e') : null, stones ? (+RGLIB.cfg.stones || 0) * 1.5 : 0);
+      const d = r0.cv.getContext('2d').getImageData(0, 0, W2, W2).data, L = new Float32Array(W2 * W2); for (let i = 0; i < L.length; i++) L[i] = 0.3 * d[i * 4] + 0.59 * d[i * 4 + 1] + 0.11 * d[i * 4 + 2];
+      const box = (A, r, dx) => { const B2 = new Float32Array(A.length); for (let y = 0; y < W2; y++) for (let x = 0; x < W2; x++) { let t = 0; for (let q = -r; q <= r; q++) { const X = dx ? (x + q + W2) % W2 : x, Y = dx ? y : (y + q + W2) % W2; t += A[Y * W2 + X]; } B2[y * W2 + x] = t / (2 * r + 1); } return B2; };
+      const Mn = box(box(L, 12, 1), 12, 0), out = new Uint8ClampedArray(d.length);
+      for (let i = 0; i < L.length; i++) { const a = Math.max(0.2, Math.min(0.85, 0.3 + Math.abs(L[i] - Mn[i]) / 255 * 3.2)); out[i * 4] = d[i * 4]; out[i * 4 + 1] = d[i * 4 + 1]; out[i * 4 + 2] = d[i * 4 + 2]; out[i * 4 + 3] = a * 255; }
+      return out; };
+    const tP = mk(RGLIB.item('det_road_e') || RGLIB.item('det_road'), 5101, true), tR = mk(RGLIB.item('det_road'), 5103, false);
+    if (tP && tR) { $('#prog').textContent = 'RBR: detalle fino de la calzada…'; await tick();
+      for (const [nm, a] of [['det_pedregoso', tP], ['det_ripio', tR]]) { f.file(`texturas/${nm}.dds`, rgbaToDDS(a, W2, W2, true)); texturas[nm] = { dds: `texturas/${nm}.dds`, alfa: true, detalle: true, w: W2, h: W2 }; }
+      detalle = { tile_m: 2, por_superficie: { STONY: 'det_pedregoso', STONYL: 'det_pedregoso', GRAVEL: 'det_ripio', LOOSE: 'det_ripio' }, nota: 'segunda textura (DOUBLE_TEXTURE) sólo en la calzada; alfa = máscara de piedras' }; } }
   // driveline: el eje del camino con su altimetría final, cada ~6 m
   const st = Math.max(1, Math.round(6 / ((r.dist[1] - r.dist[0]) || 2))), idx = []; for (let i = 0; i < n; i += st) idx.push(i); if (idx[idx.length - 1] !== n - 1) idx.push(n - 1);
   const pt = i => [+r.C[i][0].toFixed(3), +r.C[i][1].toFixed(3), +r.hs[i].toFixed(3)];
@@ -4286,10 +4368,18 @@ async function addRBRPackage(R, zip, slug) {
   const notas = []; for (const nt of R.info.notes || []) { const id = rbrNoteId(nt); if (id && nt.d > start && nt.d < finish) notas.push({ m: +to3(nt.d).toFixed(1), m_eje: +nt.d.toFixed(1), id, txt: nt.txt }); }
   const ic = dAt(Math.max(4, start - 18)), tg = r.T[ic];
   const auto = { m: +(start - r.dist[ic]).toFixed(1), pos: [+r.C[ic][0].toFixed(3), +r.C[ic][1].toFixed(3), +(r.hs[ic] + 0.4).toFixed(3)], rumbo: Math.atan2(tg[1], tg[0]) };
+  // escalones esperados (Etapa 5): pozos hondos aprobados por el usuario (Etapa 4); el chequeo previo los cuenta aparte, no como error
+  // sólo los pozos hondos: la diferencia del relieve con y sin 'pozos_hondos' (interruptor de la interfaz)
+  const pozoOn = (d, tw, hw, P) => { const el = document.getElementById('geo_pozos_hondos'); if (!el || !el.checked) return false; let a = 0, b = 0;
+    for (const s of [-tw, tw]) a = Math.min(a, RELIEF.at(d, s, hw, P)); el.checked = false; for (const s of [-tw, tw]) b = Math.min(b, RELIEF.at(d, s, hw, P)); el.checked = true; return b - a > 0.05; };
+  const esperados = []; { const sp = 0.5; let cur = null; for (let d = 0; d < T; d += sp) { const P = r.ctxAt(d), hw = (r.W[dAt(d)] || 6) / 2, tw = RGMASK.at(d, 0, hw).tc; let zmin = 0;
+      for (const s of [-tw, tw]) { const z = RELIEF.at(d, s, hw, P); if (z < zmin) zmin = z; }
+      if (zmin < -0.07 && pozoOn(d, tw, hw, P)) { if (cur && d - cur.d1 < 2) { cur.d1 = d; cur.z = Math.min(cur.z, zmin); } else { cur = { d0: d, d1: d, z: zmin }; esperados.push(cur); } } }
+    for (const e of esperados) { e.m = +to3((e.d0 + e.d1) / 2).toFixed(1); e.m_eje = +((e.d0 + e.d1) / 2).toFixed(1); e.r = +Math.max(1.5, (e.d1 - e.d0) / 2 + 1.5).toFixed(1); e.prof_m = +(-e.z).toFixed(3); e.tipo = 'pozo hondo (aprobado en la Etapa 4)'; delete e.d0; delete e.d1; delete e.z; } }
   const cnt = {}; for (const kk of r.SURF) cnt[kk] = (cnt[kk] || 0) + 1; const main = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0][0];
   const datos = { version: 1, generado: new Date().toISOString(), generador: (typeof BUILD !== 'undefined' && BUILD && BUILD.version) || '', nombre: R.o.name, carpeta: 'rbr_' + slug,
     pais: 'AR', autor: 'Generador de Pistas', superficie_rbr: main === 'ROAD' ? 'TARMAC' : main === 'SNOW' || main === 'ICE' ? 'SNOW' : 'GRAVEL', luz_vertices: 0.82,
-    modelo, largo_driveline_m: +c3[c3.length - 1].toFixed(1), largo_eje_m: +T.toFixed(1), driveline, eventos, notas, auto, texturas, objetos,
+    modelo, largo_driveline_m: +c3[c3.length - 1].toFixed(1), largo_eje_m: +T.toFixed(1), driveline, eventos, notas, auto, texturas, objetos, detalle_calzada: detalle, escalones_esperados: esperados,
     nota: 'Coordenadas en metros: x = este, y = norte, z = altura (Blender, Z arriba). La driveline es el eje del camino del generador.' };
   f.file('rbr_datos.json', JSON.stringify(datos));
   if (RBR_FILES) for (const [name, txt] of Object.entries(RBR_FILES)) f.file(name, /\.bat$/i.test(name) ? txt.replace(/\r?\n/g, '\r\n') : txt);
@@ -5182,7 +5272,8 @@ function projectState() {
   return {
     v: 1, app: 'generador-de-pistas', saved: new Date().toISOString(), mode: S.mode, inputs,
     pick: { path: G.path, steps: G.steps, virtual: G.virtual },
-    wps: S.wps.map(p => [p.lat, p.lng]), edits: ED.session ? JSON.parse(ED.session.base).e : S.edits, // lo pendiente (sin OK) no se guarda gps: S.gpsTrack ? S.gpsTrack.map(p => [+p[0].toFixed(7), +p[1].toFixed(7), +(+p[2] || 0).toFixed(1)]) : null,
+    wps: S.wps.map(p => [p.lat, p.lng]), edits: ED.session ? JSON.parse(ED.session.base).e : S.edits, // lo pendiente (sin OK) no se guarda
+    gps: S.gpsTrack ? S.gpsTrack.map(p => [+p[0].toFixed(7), +p[1].toFixed(7), +(+p[2] || 0).toFixed(1)]) : null,
     rect: b ? [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()] : null,
     spawn: S.spawn ? [S.spawn.lat, S.spawn.lng] : null,
     side: S.side, placed: ED.session ? JSON.parse(ED.session.base).p || [] : S.placed,

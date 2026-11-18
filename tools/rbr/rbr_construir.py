@@ -72,7 +72,9 @@ def fase(nombre):
 # (seco, húmedo, mojado). Los nombres son los del enum MaterialID del complemento (rbr_track_formats/mat.py).
 RBR_MAT = {
     "GRAVEL": ("GRAVEL_MEDIUM_SHALLOW_DRY", "GRAVEL_MEDIUM_SHALLOW_DAMP", "GRAVEL_MEDIUM_SHALLOW_WET"),  # huellas firmes
-    "LOOSE": ("GRAVEL_COARSE_DEEP_DRY", "GRAVEL_COARSE_DEEP_DAMP", "GRAVEL_COARSE_DEEP_WET"),            # lomo y bordes sueltos
+    "LOOSE": ("GRAVEL_MEDIUM_DEEP_DRY", "GRAVEL_MEDIUM_DEEP_DAMP", "GRAVEL_MEDIUM_DEEP_WET"),            # ripio: lomo y bordes sueltos (Etapa 5: grava media)
+    "STONY": ("GRAVEL_COARSE_SHALLOW_DRY", "GRAVEL_COARSE_SHALLOW_DAMP", "GRAVEL_COARSE_SHALLOW_WET"),   # pedregoso: huellas (Etapa 5, PROVISIONAL)
+    "STONYL": ("GRAVEL_COARSE_DEEP_DRY", "GRAVEL_COARSE_DEEP_DAMP", "GRAVEL_COARSE_DEEP_WET"),          # pedregoso: lomo y bordes con piedras sueltas
     "CLAY": ("DIRT_HARD_DRY", "DIRT_HARD_DAMP", "DIRT_HARD_WET"),
     "MUD": ("DIRT_SOFT_DRY", "DIRT_SOFT_DAMP", "DIRT_SOFT_WET"),
     "ROAD": ("TARMAC_MEDIUM_CLEAN_DRY", "TARMAC_MEDIUM_CLEAN_DAMP", "TARMAC_MEDIUM_CLEAN_WET"),
@@ -92,7 +94,7 @@ RBR_MAT = {
 # RBR no tiene agarres "un poco menores": se usa el mismo material del camino (banquina) o su variante más fina (cuneta).
 SIDE_RULE = {
     "VERGE": lambda base: RBR_MAT.get(base),
-    "DITCH": lambda base: {"GRAVEL": RBR_MAT["DITCH"], "LOOSE": RBR_MAT["DITCH"], "CLAY": RBR_MAT["CLAY"],
+    "DITCH": lambda base: {"GRAVEL": RBR_MAT["DITCH"], "LOOSE": RBR_MAT["DITCH"], "STONY": RBR_MAT["DITCH"], "STONYL": RBR_MAT["DITCH"], "CLAY": RBR_MAT["CLAY"],
                            "ROAD": RBR_MAT["KERB"]}.get(base, RBR_MAT.get(base)),
     "SOFT": lambda base: RBR_MAT["SOFT"],
 }
@@ -219,7 +221,7 @@ def importar(D):
     p0 = D["driveline"][len(D["driveline"]) // 2]
     best = None
     for o in objs:
-        if not re.match(r"^\d+(GRAVEL|LOOSE|CLAY|MUD|ROAD|SNOW|ICE|SAND|WET)$", o.name.split(".")[0]):
+        if not re.match(r"^\d+(STONYL|STONY|GRAVEL|LOOSE|CLAY|MUD|ROAD|SNOW|ICE|SAND|WET)$", o.name.split(".")[0]):
             continue
         # el importador de OBJ deja el giro de ejes en la transformación del objeto:
         # se compara en coordenadas de mundo, que son las que exporta el complemento
@@ -357,7 +359,7 @@ def corregir_opacidad(maps, tid, D):
     también el piso. Se deja OpacityMap=true sólo en las que tienen alfa (matas, alambrado, carteles, tranquera)."""
     fase("9b. Opacidad de las texturas en el .ini del tramo")
     from rbr_track_formats import tracks_ini  # type: ignore
-    alfa = {k for k, v in D["texturas"].items() if v.get("alfa")}
+    alfa = {k for k, v in D["texturas"].items() if v.get("alfa") and not v.get("detalle")}
     d = os.path.join(maps, f"{tid}-{tracks_ini.sanitise_stage_name(D['nombre'])}")
     for f in os.listdir(d):
         if not re.match(rf"track-{tid}_[MNEO]\.ini$", f, re.I):
@@ -415,6 +417,10 @@ def materiales(D, grupos):
     fase("5. Materiales RBR (texturas DDS + material físico por superficie)")
     from rbr_track_addon.shaders.texture import setup_texture_node_tree, RBR_TEXTURE_NODE_TREE_PREFIX  # type: ignore
     from rbr_track_addon.shaders.shader_node import make_rbr_blender_material, UV_DIFFUSE_1, VC_COLOR  # type: ignore
+    try:
+        from rbr_track_addon.shaders.shader_node import UV_DIFFUSE_2  # type: ignore
+    except Exception:
+        UV_DIFFUSE_2 = "RBR_DIFFUSE_2"
     from rbr_track_formats.mat import MaterialID  # type: ignore
     tex = D["texturas"]
     # Los materiales que trae el OBJ se llaman igual que las texturas: el complemento arma el
@@ -455,7 +461,33 @@ def materiales(D, grupos):
                 for cond, mid in zip(("dry", "damp", "wet"), ids):
                     for age in ("new", "normal", "worn"):
                         getattr(fb, f"{cond}_{age}").material_id = MaterialID[mid].value
-            m = make_rbr_blender_material(diffuse_1=tree, diffuse_2=None, specular=None, uv_velocity=None)
+            tree2 = None
+            det = ((D.get("detalle_calzada") or {}).get("por_superficie") or {}).get(fis) if fis else None
+            if det and det in tex and not arg("--sin-detalle"):
+                # Etapa 5: segunda textura (detalle fino a escala real) sólo en las mallas de la calzada
+                p2 = os.path.join(BASE, tex[det]["dds"])
+                if os.path.exists(p2):
+                    if p2 not in imgs:
+                        imgs[p2] = bpy.data.images.load(p2, check_existing=True)
+                    tree2 = bpy.data.node_groups.get(RBR_TEXTURE_NODE_TREE_PREFIX + det)
+                    if tree2 is None:
+                        tree2 = setup_texture_node_tree()
+                        tree2.name = RBR_TEXTURE_NODE_TREE_PREFIX + det
+                        for cond in ("dry", "damp", "wet"):
+                            for age in ("new", "normal", "worn"):
+                                tree2.nodes[f"{cond}/{age}"].image = imgs[p2]
+                        tree2.nodes["internal"].is_road_surface = False
+                else:
+                    aviso(f"Falta la textura de detalle {p2}: la calzada va sin detalle fino")
+            try:
+                m = make_rbr_blender_material(diffuse_1=tree, diffuse_2=tree2, specular=None, uv_velocity=None)
+            except Exception as ex:
+                if tree2 is None:
+                    raise
+                aviso(f"No se pudo armar la doble textura en {mat}/{fis} ({ex}): va sin detalle fino")
+                tree2 = None
+                m = make_rbr_blender_material(diffuse_1=tree, diffuse_2=None, specular=None, uv_velocity=None)
+            m["rg_detalle"] = det if tree2 is not None else ""
             try:  # el complemento marca la textura como transparente si blend_method no es OPAQUE
                 m.blend_method = "CLIP" if t.get("alfa") else "OPAQUE"
             except Exception as ex:
@@ -479,20 +511,35 @@ def materiales(D, grupos):
             me.uv_layers[0].name = UV_DIFFUSE_1
         else:
             error(f"{o.name} no tiene UV")
+        if cache[key].get("rg_detalle"):
+            # UV del detalle: coordenadas de mundo / tamaño del tile (2 m): escala real, sin costuras entre mallas vecinas
+            tm = float((D.get("detalle_calzada") or {}).get("tile_m", 2))
+            uv2 = me.uv_layers.get(UV_DIFFUSE_2) or me.uv_layers.new(name=UV_DIFFUSE_2)
+            mw = o.matrix_world
+            co = [mw @ v.co for v in me.vertices]
+            vals = []
+            for lp in me.loops:
+                w = co[lp.vertex_index]
+                vals += [w.x / tm, w.y / tm]
+            uv2.data.foreach_set("uv", vals)
+            me.uv_layers.active = me.uv_layers[UV_DIFFUSE_1]
+            n_det = getattr(materiales, "_ndet", 0) + 1
+            materiales._ndet = n_det
         if VC_COLOR not in me.color_attributes:
             ca = me.color_attributes.new(VC_COLOR, "BYTE_COLOR", "CORNER")
             g = float(D.get("luz_vertices", 0.82))
             ca.data.foreach_set("color", [g, g, g, 1.0] * len(ca.data))
     if sin_fis:
         aviso("Superficies sin equivalente directo en RBR (se usó pasto): " + ", ".join(sorted(set(sin_fis))))
-    log(f"{len(cache)} materiales RBR, {len(imgs)} texturas DDS")
+    log(f"{len(cache)} materiales RBR, {len(imgs)} texturas DDS"
+        + (f", detalle fino (doble textura) en {getattr(materiales, '_ndet', 0)} mallas de la calzada" if getattr(materiales, "_ndet", 0) else ""))
 
 
 # ---------------------------------------------------------------- 6. colisiones y tipos de objeto
 def tipos(grupos, D=None):
     fase("6. Colisiones y tipos de objeto")
     ncol = 0
-    alfa = {k for k, v in ((D or {}).get("texturas") or {}).items() if v.get("alfa")}
+    alfa = {k for k, v in ((D or {}).get("texturas") or {}).items() if v.get("alfa") and not v.get("detalle")}
     nob, ninv = 0, 0
     for o, fis, mat, cat in list(grupos):
         s = o.rbr_object_settings

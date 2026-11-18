@@ -31,7 +31,8 @@ QUÉ HACE EL SCRIPT
  - Une las mallas por superficie y material. Camino, cunetas, banquinas, terreno, troncos y piedras que se tocan
    llevan colisión; copas, gravilla fina y líneas son sólo visuales.
  - Materiales RBR con cada textura y el material físico de RBR según la superficie (seco / húmedo / mojado):
-     ripio firme (huellas)  -> GRAVEL_MEDIUM_SHALLOW     ripio suelto (lomo y bordes) -> GRAVEL_COARSE_DEEP
+     ripio firme (huellas)  -> GRAVEL_MEDIUM_SHALLOW     ripio suelto (lomo y bordes) -> GRAVEL_MEDIUM_DEEP
+     pedregoso (huellas)    -> GRAVEL_COARSE_SHALLOW     pedregoso suelto (lomo, bordes) -> GRAVEL_COARSE_DEEP
      cuneta junto al ripio  -> GRAVEL_FINE_DEEP          banquina                     -> igual que el camino
      tierra arcillosa       -> DIRT_HARD                 barro / cuneta húmeda        -> DIRT_SOFT / DIRT_MEDIUM
      pasto                  -> GRASS_MEDIUM              asfalto                      -> TARMAC_MEDIUM_CLEAN
@@ -52,5 +53,8 @@ QUÉ HACE EL SCRIPT
 
 LO QUE NO HACE
  - No prueba el tramo manejando: eso hay que hacerlo en el juego (largada, colisiones, agarre, piedras).
+ - Calzada con detalle fino (Etapa 5): segunda textura de 2 x 2 m a ~2 mm/px hecha de las fotos de cada piso
+   (texturas/det_pedregoso.dds y det_ripio.dds, DOUBLE_TEXTURE del complemento). Para armar sin ella:
+   CREAR_TRAMO_RBR.bat con --sin-detalle.
  - RBR no tiene niveles de detalle por objeto como Assetto Corsa: los árboles cercanos van en su versión simplificada
    y los lejanos como láminas.

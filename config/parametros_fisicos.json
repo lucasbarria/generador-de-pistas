@@ -3,45 +3,474 @@
  "version": 1,
  "mascaras": {
   "_descripcion": "Dónde va cada parte del camino (huellas, lomo, cordones, grava, banquina). Misma receta que las máscaras V3 de Blender, calculada sobre la traza.",
-  "separacion_huellas": {"valor": 1.7, "unidad": "m", "estado": "PROVISIONAL", "descripcion": "Distancia entre los centros de las dos huellas (trocha de un auto/camioneta). Se reduce sola si el camino es angosto."},
-  "ancho_huella": {"valor": 0.62, "unidad": "m", "estado": "PROVISIONAL", "descripcion": "Ancho de cada huella compactada (fotos 6887/6899, sin escala medida)."},
-  "corrimiento_huella": {"valor": 0.18, "unidad": "m", "estado": "PROVISIONAL", "descripcion": "Cuánto se corre la huella de lado a lo largo del camino."},
-  "variacion_ancho": {"valor": 0.4, "unidad": "fracción", "estado": "PROVISIONAL", "descripcion": "Variación del ancho de la huella a lo largo (0 = constante)."},
-  "intensidad_huellas": {"valor": 1.0, "unidad": "0–1", "estado": "PROVISIONAL", "descripcion": "Cuánto se marcan las huellas (pintura y hundimiento)."},
-  "grava_cruza_huella": {"valor": 0.5, "unidad": "0–1", "estado": "PROVISIONAL", "descripcion": "Cuánta grava suelta cruza sobre la huella."},
-  "halo_tierra_m": {"valor": 0.22, "unidad": "m", "estado": "PROVISIONAL", "descripcion": "Franja junto a la huella sin grava suelta."},
-  "lomo_medio_ancho": {"valor": 0.42, "unidad": "m", "estado": "PROVISIONAL", "descripcion": "Medio ancho del lomo central de grava entre las huellas."},
-  "cordon_medio_ancho": {"valor": 0.5, "unidad": "m", "estado": "PROVISIONAL", "descripcion": "Medio ancho del cordón de grava cerca de cada borde."},
-  "cordon_dist_borde": {"valor": 0.6, "unidad": "m", "estado": "PROVISIONAL", "descripcion": "Distancia del cordón al borde del camino."},
-  "canto_grueso": {"valor": 0.9, "unidad": "0–1", "estado": "PROVISIONAL", "descripcion": "Cantidad de canto rodado grueso en lomo y cordón."},
-  "grava_manchones": {"valor": 0.8, "unidad": "0–1", "estado": "PROVISIONAL", "descripcion": "Cantidad de manchones de grava media."},
-  "banquina_ancho": {"valor": 0.5, "unidad": "m", "estado": "PROVISIONAL", "descripcion": "Ancho de la banquina de tierra antes del pasto."},
-  "matas": {"valor": 0.5, "unidad": "0–1", "estado": "PROVISIONAL", "descripcion": "Densidad de matas en la banquina (pintura)."},
-  "irregularidad_borde": {"valor": 0.18, "unidad": "m", "estado": "PROVISIONAL", "descripcion": "Irregularidad fina del borde camino/banquina."},
-  "serpenteo_borde": {"valor": 0.25, "unidad": "m", "estado": "PROVISIONAL", "descripcion": "Serpenteo lento del borde a lo largo."},
-  "semilla": {"valor": 7, "unidad": "entero", "estado": "fijo", "descripcion": "Semilla de las máscaras (la misma semilla da exactamente el mismo camino)."}
+  "separacion_huellas": {
+   "valor": 1.7,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Distancia entre los centros de las dos huellas (trocha de un auto/camioneta). Se reduce sola si el camino es angosto."
+  },
+  "ancho_huella": {
+   "valor": 0.62,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Ancho de cada huella compactada (fotos 6887/6899, sin escala medida)."
+  },
+  "corrimiento_huella": {
+   "valor": 0.18,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Cuánto se corre la huella de lado a lo largo del camino."
+  },
+  "variacion_ancho": {
+   "valor": 0.4,
+   "unidad": "fracción",
+   "estado": "PROVISIONAL",
+   "descripcion": "Variación del ancho de la huella a lo largo (0 = constante)."
+  },
+  "intensidad_huellas": {
+   "valor": 1.0,
+   "unidad": "0–1",
+   "estado": "PROVISIONAL",
+   "descripcion": "Cuánto se marcan las huellas (pintura y hundimiento)."
+  },
+  "grava_cruza_huella": {
+   "valor": 0.5,
+   "unidad": "0–1",
+   "estado": "PROVISIONAL",
+   "descripcion": "Cuánta grava suelta cruza sobre la huella."
+  },
+  "halo_tierra_m": {
+   "valor": 0.22,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Franja junto a la huella sin grava suelta."
+  },
+  "lomo_medio_ancho": {
+   "valor": 0.42,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Medio ancho del lomo central de grava entre las huellas."
+  },
+  "cordon_medio_ancho": {
+   "valor": 0.5,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Medio ancho del cordón de grava cerca de cada borde."
+  },
+  "cordon_dist_borde": {
+   "valor": 0.6,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Distancia del cordón al borde del camino."
+  },
+  "canto_grueso": {
+   "valor": 0.9,
+   "unidad": "0–1",
+   "estado": "PROVISIONAL",
+   "descripcion": "Cantidad de canto rodado grueso en lomo y cordón."
+  },
+  "grava_manchones": {
+   "valor": 0.8,
+   "unidad": "0–1",
+   "estado": "PROVISIONAL",
+   "descripcion": "Cantidad de manchones de grava media."
+  },
+  "banquina_ancho": {
+   "valor": 0.5,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Ancho de la banquina de tierra antes del pasto."
+  },
+  "matas": {
+   "valor": 0.5,
+   "unidad": "0–1",
+   "estado": "PROVISIONAL",
+   "descripcion": "Densidad de matas en la banquina (pintura)."
+  },
+  "irregularidad_borde": {
+   "valor": 0.18,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Irregularidad fina del borde camino/banquina."
+  },
+  "serpenteo_borde": {
+   "valor": 0.25,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Serpenteo lento del borde a lo largo."
+  },
+  "semilla": {
+   "valor": 7,
+   "unidad": "entero",
+   "estado": "fijo",
+   "descripcion": "Semilla de las máscaras (la misma semilla da exactamente el mismo camino)."
+  }
  },
  "geometria": {
   "_descripcion": "Relieve de la malla del camino (superficie física en RBR y Assetto Corsa). Alturas en metros sobre el perfil del eje GPS (que no cambia).",
-  "columnas_calzada": {"valor": 21, "unidad": "columnas", "estado": "fijo", "descripcion": "Columnas del corte transversal de la calzada cuando hay relieve (V3: 15). 21 = una cada ~0,35 m en 7 m de ancho."},
-  "ondulacion_general": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "amplitud_seco_m": 0.02, "amplitud_humedo_extra_m": 0.03, "largo_m": 7, "ancho_m": 2.2, "descripcion": "Ondulación suave de todo el piso."},
-  "ondulacion_longitudinal": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "amplitud_m": 0.03, "largo_m": 23, "descripcion": "Ondulación larga a lo largo del camino."},
-  "roderas": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "profundidad_base_m": 0.012, "profundidad_transito_m": 0.03, "profundidad_humedad_m": 0.02, "extra_en_pendiente": 0.6, "descripcion": "Huellas hundidas. Forma y lugar: máscara de huellas (la misma que se pinta)."},
-  "lomo_central": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "fraccion_de_rodera": 0.45, "descripcion": "Lomo de grava entre las huellas, como fracción de la profundidad de la rodera. Lugar: máscara del lomo."},
-  "cordones": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "altura_m": 0.012, "altura_extra_curva_m": 0.025, "descripcion": "Cordón de ripio suelto cerca de los bordes (más del lado de afuera de las curvas). Lugar: máscara de cordón."},
-  "serrucho": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "amplitud_m": 0.011, "onda_min_m": 1.6, "onda_extra_m": 0.4, "descripcion": "Calaminas antes y después de curvas cerradas (frenada/aceleración)."},
-  "baches": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "profundidad_seco_m": 0.02, "profundidad_humedo_extra_m": 0.08, "descripcion": "Baches donde el piso es húmedo."},
-  "baches_sueltos": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "profundidad_chico_m": 0.015, "profundidad_mediano_m": 0.04, "profundidad_extra_m": 0.03, "cada_m": 7, "descripcion": "Baches chicos y medianos sueltos (más en las huellas)."},
-  "pozos_hondos": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "profundidad_min_m": 0.08, "profundidad_extra_m": 0.06, "cada_m": 220, "descripcion": "Pozos ocasionales más hondos (inventados por el generador, ya estaban en la V3; no medidos)."},
-  "montoncitos": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "altura_min_m": 0.02, "altura_extra_m": 0.03, "cada_m": 11, "descripcion": "Montoncitos de tierra y piedras cerca de los bordes."},
-  "erosion": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "profundidad_m": 0.05, "descripcion": "Surcos de erosión en pendientes fuertes (>6 %)."},
-  "surcos_agua": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "profundidad_m": 0.06, "descripcion": "Surcos del agua en tramos húmedos."},
-  "morros": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "altura_min_m": 0.05, "altura_extra_m": 0.07, "cada_m": 260, "descripcion": "Morros suaves (inventados por el generador, ya estaban en la V3; no medidos)."},
-  "deformaciones_locales": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "amplitud_m": 0.008, "tamano_m": 0.9, "descripcion": "Nuevo en V4: piso irregular de baja amplitud donde hay grava suelta o canto grueso (sigue la máscara)."},
-  "cunetas": {"activo": true, "intensidad": 1.0, "estado": "PROVISIONAL", "profundidad_bosque_min_m": 0.38, "profundidad_bosque_extra_m": 0.22, "profundidad_campo_min_m": 0.16, "profundidad_campo_extra_m": 0.12, "descripcion": "Profundidad automática de las cunetas (sólo si la opción Cunetas no es 'sin cunetas')."}
+  "columnas_calzada": {
+   "valor": 21,
+   "unidad": "columnas",
+   "estado": "fijo",
+   "descripcion": "Columnas del corte transversal de la calzada cuando hay relieve (V3: 15). 21 = una cada ~0,35 m en 7 m de ancho."
+  },
+  "ondulacion_general": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "amplitud_seco_m": 0.02,
+   "amplitud_humedo_extra_m": 0.03,
+   "largo_m": 7,
+   "ancho_m": 2.2,
+   "descripcion": "Ondulación suave de todo el piso."
+  },
+  "ondulacion_longitudinal": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "amplitud_m": 0.03,
+   "largo_m": 23,
+   "descripcion": "Ondulación larga a lo largo del camino."
+  },
+  "roderas": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "profundidad_base_m": 0.012,
+   "profundidad_transito_m": 0.03,
+   "profundidad_humedad_m": 0.02,
+   "extra_en_pendiente": 0.6,
+   "descripcion": "Huellas hundidas. Forma y lugar: máscara de huellas (la misma que se pinta)."
+  },
+  "lomo_central": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "fraccion_de_rodera": 0.45,
+   "descripcion": "Lomo de grava entre las huellas, como fracción de la profundidad de la rodera. Lugar: máscara del lomo."
+  },
+  "cordones": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "altura_m": 0.012,
+   "altura_extra_curva_m": 0.025,
+   "descripcion": "Cordón de ripio suelto cerca de los bordes (más del lado de afuera de las curvas). Lugar: máscara de cordón."
+  },
+  "serrucho": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "amplitud_m": 0.011,
+   "onda_min_m": 1.6,
+   "onda_extra_m": 0.4,
+   "descripcion": "Calaminas antes y después de curvas cerradas (frenada/aceleración)."
+  },
+  "baches": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "profundidad_seco_m": 0.02,
+   "profundidad_humedo_extra_m": 0.08,
+   "descripcion": "Baches donde el piso es húmedo."
+  },
+  "baches_sueltos": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "profundidad_chico_m": 0.015,
+   "profundidad_mediano_m": 0.04,
+   "profundidad_extra_m": 0.03,
+   "cada_m": 7,
+   "descripcion": "Baches chicos y medianos sueltos (más en las huellas)."
+  },
+  "pozos_hondos": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "profundidad_min_m": 0.08,
+   "profundidad_extra_m": 0.06,
+   "cada_m": 220,
+   "descripcion": "Pozos ocasionales más hondos (inventados por el generador, ya estaban en la V3; no medidos)."
+  },
+  "montoncitos": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "altura_min_m": 0.02,
+   "altura_extra_m": 0.03,
+   "cada_m": 11,
+   "descripcion": "Montoncitos de tierra y piedras cerca de los bordes."
+  },
+  "erosion": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "profundidad_m": 0.05,
+   "descripcion": "Surcos de erosión en pendientes fuertes (>6 %)."
+  },
+  "surcos_agua": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "profundidad_m": 0.06,
+   "descripcion": "Surcos del agua en tramos húmedos."
+  },
+  "morros": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "altura_min_m": 0.05,
+   "altura_extra_m": 0.07,
+   "cada_m": 260,
+   "descripcion": "Morros suaves (inventados por el generador, ya estaban en la V3; no medidos)."
+  },
+  "deformaciones_locales": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "amplitud_m": 0.008,
+   "tamano_m": 0.9,
+   "descripcion": "Nuevo en V4: piso irregular de baja amplitud donde hay grava suelta o canto grueso (sigue la máscara)."
+  },
+  "cunetas": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "profundidad_bosque_min_m": 0.38,
+   "profundidad_bosque_extra_m": 0.22,
+   "profundidad_campo_min_m": 0.16,
+   "profundidad_campo_extra_m": 0.12,
+   "descripcion": "Profundidad automática de las cunetas (sólo si la opción Cunetas no es 'sin cunetas')."
+  },
+  "serrucho_zonas": {
+   "activo": true,
+   "intensidad": 1.0,
+   "estado": "PROVISIONAL",
+   "cantidad": 5,
+   "largo_min_m": 25,
+   "largo_max_m": 80,
+   "onda_m": 1.5,
+   "amplitud_m": 0.012,
+   "semilla": 11,
+   "descripcion": "Zonas de serrucho repartidas al azar (semilla reproducible), aparte del de las frenadas.",
+   "nota_onda": "El serrucho real suele tener 0,6–0,9 m de onda, pero la malla tiene una sección cada 0,5 m: con menos de ~1,5 m la onda se deforma (aliasing). Se usa 1,5 m; PROVISIONAL.",
+   "rampa_m": 6
+  }
  },
  "variacion": {
   "_descripcion": "Variación natural a lo largo: la semilla del desgaste (interfaz) y la de las máscaras dan siempre el mismo resultado.",
-  "transicion_irregularidades_m": {"valor": 16, "unidad": "m", "estado": "fijo", "descripcion": "Largo de la mezcla entre las irregularidades de dos superficies."}
+  "transicion_irregularidades_m": {
+   "valor": 16,
+   "unidad": "m",
+   "estado": "fijo",
+   "descripcion": "Largo de la mezcla entre las irregularidades de dos superficies."
+  }
+ },
+ "pisos": {
+  "_descripcion": "Tipos de piso de la calzada (Etapa 5). Cada tipo cambia la pintura, el relieve y la superficie física. Ubicación automática: 'auto_cambios' (puntos del GPS, se proyectan sobre el recorrido). El editor de la app (Suelo → Piso) manda sobre lo automático.",
+  "tipo_por_defecto": {
+   "valor": "ripio",
+   "estado": "PROVISIONAL",
+   "descripcion": "Piso donde no hay datos."
+  },
+  "auto_cambios": {
+   "estado": "ESTIMADO_DE_FOTOS",
+   "descripcion": "Río Grande: pedregoso desde la largada; pasa a ripio suelto entre 0,93 y 1,05 km del GPX (fotos 6902–6907 a 545 m = pedregoso; 6894–6899 a 996 m = ripio; satélite: cambio de color 0,95–1,08 km). Confirmado por el usuario.",
+   "valor": [
+    {
+     "desde": "pedregoso",
+     "hasta": "ripio",
+     "lat": -53.791345,
+     "lon": -67.795545,
+     "gpx_m": 990,
+     "transicion_m": 120,
+     "irregularidad": 0.6
+    }
+   ],
+   "inicio": "pedregoso"
+  },
+  "transicion_m": {
+   "valor": 120,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Largo por defecto de una transición entre pisos (editable por cambio)."
+  },
+  "irregularidad": {
+   "valor": 0.6,
+   "unidad": "0–1",
+   "estado": "PROVISIONAL",
+   "descripcion": "Qué tan manchada e irregular es la transición (0 = gradual pareja, 1 = manchones grandes)."
+  },
+  "avance_por_bordes": {
+   "valor": 0.25,
+   "unidad": "0–1",
+   "estado": "ESTIMADO_DE_FOTOS",
+   "descripcion": "La grava suelta del ripio aparece primero en el lomo y los cordones y por último en las huellas (fotos 6894/6899)."
+  },
+  "pedregoso": {
+   "estado": "ESTIMADO_DE_FOTOS",
+   "fotos": [
+    "IMG_6902",
+    "IMG_6903",
+    "IMG_6904",
+    "IMG_6905",
+    "IMG_6906",
+    "IMG_6907"
+   ],
+   "piedras_grandes": {
+    "valor": 0.8,
+    "unidad": "0–1",
+    "descripcion": "Cantidad de cantos grandes y rocas claras (10–20 cm, foto 6902 con escala)."
+   },
+   "grava_suelta": {
+    "valor": 0.45,
+    "unidad": "×",
+    "descripcion": "Multiplicador de la grava media suelta (menos que en el ripio)."
+   },
+   "canto_grueso": {
+    "valor": 1.3,
+    "unidad": "×",
+    "descripcion": "Multiplicador del canto grueso."
+   },
+   "relieve_irregular": {
+    "valor": 2.2,
+    "unidad": "×",
+    "descripcion": "Multiplicador de las deformaciones locales (piedras que sobresalen)."
+   },
+   "cordones": {
+    "valor": 0.7,
+    "unidad": "×",
+    "descripcion": "Cordones y lomo de grava más bajos."
+   }
+  },
+  "ripio": {
+   "estado": "ESTIMADO_DE_FOTOS",
+   "fotos": [
+    "IMG_6865",
+    "IMG_6866",
+    "IMG_6880",
+    "IMG_6881",
+    "IMG_6883",
+    "IMG_6885",
+    "IMG_6890",
+    "IMG_6892",
+    "IMG_6893",
+    "IMG_6894",
+    "IMG_6899"
+   ],
+   "piedras_grandes": {
+    "valor": 0.08,
+    "unidad": "0–1",
+    "descripcion": "Casi sin cantos grandes."
+   },
+   "grava_suelta": {
+    "valor": 1.25,
+    "unidad": "×",
+    "descripcion": "Más grava chica suelta, acumulada en lomo y bordes."
+   },
+   "canto_grueso": {
+    "valor": 0.7,
+    "unidad": "×",
+    "descripcion": "Menos canto grueso."
+   },
+   "relieve_irregular": {
+    "valor": 0.7,
+    "unidad": "×",
+    "descripcion": "Piso más parejo."
+   },
+   "cordones": {
+    "valor": 1.4,
+    "unidad": "×",
+    "descripcion": "Cordones y lomo de grava más marcados (fotos 6885, 6894)."
+   }
+  },
+  "piedras_altura_m": {
+   "valor": 0.018,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Altura extra del relieve donde hay piedras grandes (piso pedregoso). Bultos suaves: la malla no puede tener piedras sueltas de 4–8 cm."
+  }
+ },
+ "superficies": {
+  "_descripcion": "Agarre y vibración de cada piso (PROVISIONAL, sin medición). AC: FRICTION / DAMPING / SIN_HEIGHT / SIN_LENGTH. RBR: material físico del juego.",
+  "STONY": {
+   "nombre": "Pedregoso (huellas)",
+   "friction": 0.8,
+   "damping": 0.03,
+   "sin_height": 0.008,
+   "sin_length": 0.35,
+   "rbr": "GRAVEL_COARSE_SHALLOW",
+   "estado": "PROVISIONAL"
+  },
+  "STONYL": {
+   "nombre": "Pedregoso suelto (lomo y bordes)",
+   "friction": 0.74,
+   "damping": 0.05,
+   "sin_height": 0.012,
+   "sin_length": 0.3,
+   "rbr": "GRAVEL_COARSE_DEEP",
+   "estado": "PROVISIONAL"
+  },
+  "GRAVEL": {
+   "nombre": "Ripio (huellas)",
+   "friction": 0.82,
+   "damping": 0.02,
+   "sin_height": 0.004,
+   "sin_length": 0.6,
+   "rbr": "GRAVEL_MEDIUM_SHALLOW",
+   "estado": "PROVISIONAL"
+  },
+  "LOOSE": {
+   "nombre": "Ripio suelto (lomo y bordes)",
+   "friction": 0.72,
+   "damping": 0.06,
+   "sin_height": 0.006,
+   "sin_length": 0.5,
+   "rbr": "GRAVEL_MEDIUM_DEEP",
+   "estado": "PROVISIONAL"
+  },
+  "mancha_m": {
+   "valor": 3,
+   "unidad": "m",
+   "estado": "PROVISIONAL",
+   "descripcion": "Largo de cada franja de superficie física en las transiciones (se intercalan con la proporción de cada piso)."
+  }
+ },
+ "costados": {
+  "_descripcion": "Etapa 5: costados del camino y terreno (cuneta de las fotos, taludes, modelo de elevación). Cada bloque se apaga con activo=false o desde la interfaz.",
+  "cunetas_v5": {
+   "activo": true,
+   "estado": "ESTIMADO_DE_FOTOS",
+   "descripcion": "Perfil de cuneta desde las fotos 6887, 6893, 6894, 6897, 6906: borde → banda de grava casi plana → caída continua suave → fondo poco marcado → bordo de tierra o pasto. Escala: ancho de calzada (6–9 m), postes de alambrado (~1,2 m), delineador de curva (~1 m), canto rodado 2–8 cm (fotos cenitales con celular). Error estimado ±50 % en alturas, ±30 % en anchos.",
+   "banda_grava_m": 0.6,
+   "pendiente_caida_hv": 4.0,
+   "profundidad_min_m": 0.12,
+   "profundidad_extra_m": 0.25,
+   "fondo_m": 0.5,
+   "pendiente_subida_hv": 3.0,
+   "bordo_m": 0.18,
+   "prob_bordo": 0.6,
+   "variacion_m": 60
+  },
+  "taludes": {
+   "activo": true,
+   "estado": "ESTIMADO_DE_FOTOS",
+   "descripcion": "Desmonte (camino encajonado) o terraplén a los costados. Alto según el piso (fotos: 545 m paredes de tierra de 0,5–0,9 m a los dos lados; 996 m un lado ~0,4 m; oeste ~0,2 m) y el signo de la diferencia con el modelo de elevación. Error ±50 %.",
+   "encajonado_pedregoso_m": 0.65,
+   "encajonado_ripio_m": 0.22,
+   "pendiente_desmonte_hv": 1.6,
+   "pendiente_terraplen_hv": 2.5,
+   "uso_modelo": 0.7,
+   "variacion_m": 90
+  },
+  "terreno": {
+   "estado": "PROVISIONAL",
+   "suavizado_modelo_m": 30,
+   "distancia_fusion_m": 40,
+   "microrrelieve_m": 0.05,
+   "microrrelieve_tamano_m": 6,
+   "descripcion": "El modelo de elevación (30 m) se suaviza para quitar los escalones del remuestreo; el desfase con el GPS se corrige en el terreno."
+  }
  }
 }

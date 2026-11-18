@@ -103,7 +103,7 @@ const Core = (() => {
   function counterFrom(start) { let i = start; return { next: () => i++ }; }
   const D2R_ = Math.PI / 180;
   function counters() { const c = {}; return k => { c[k] = (c[k] || 0) + 1; return c[k]; }; }
-  const MAT = { DITCH: 'ditch', ROAD: 'asphalt', GRAVEL: 'gravel', CLAY: 'clay', WET: 'wet', LOOSE: 'loose', MUD: 'mud', SNOW: 'snow', ICE: 'ice', GRASS: 'grass', POWDER: 'powder' };
+  const MAT = { STONY: 'gravel', STONYL: 'loose', DITCH: 'ditch', ROAD: 'asphalt', GRAVEL: 'gravel', CLAY: 'clay', WET: 'wet', LOOSE: 'loose', MUD: 'mud', SNOW: 'snow', ICE: 'ice', GRASS: 'grass', POWDER: 'powder' };
 
   // ---------- Perfil por puntos de control ----------
   // pts: [{d, h, gin?, gout?}] ordenados por d. mode: 'linear' | 'pchip' (suave, sin pasarse) | 'spline' (curva) |
@@ -265,6 +265,14 @@ const Core = (() => {
     // sección editada a mano (cuneta / banquina / talud por tramo y lado): manda sobre lo automático, con transición suave en los extremos
     const secOv = (i, sd) => { const q = o.sectionAt ? o.sectionAt(dist[i], sd) : null; return q && q.t > 0 ? q : null; };
     if (o.sectionAt) { const ap = (A, sd) => A.map((v, i) => { const q = secOv(i, sd); return q && q.ditch != null ? v + (q.ditch - v) * q.t : v; }); DLs = ap(DLs, 1); DRs = ap(DRs, -1); }
+    // Etapa 5 · taludes: cuánto queda el terreno de cada lado por ARRIBA (encajonado / desmonte, > 0) o por DEBAJO (terraplén, < 0)
+    // del plano del camino. Mezcla lo medido en el modelo de elevación (OFL/OFR, a 10 m) con lo típico de cada piso (fotos), y varía a lo largo.
+    const TAL = o.tal || null, encOf = (i, sd) => { if (!TAL) return 0; const fp = TAL.fp ? TAL.fp(dist[i]) : 0, ef = (+TAL.encajonado_ripio_m || 0) + ((+TAL.encajonado_pedregoso_m || 0) - (+TAL.encajonado_ripio_m || 0)) * fp;
+      const md = Math.max(-1.2, Math.min(1.5, sd > 0 ? OFL[i] : OFR[i])), u = Math.max(0, Math.min(1, +TAL.uso_modelo || 0)), vv = 0.6 + 0.8 * vn1(dist[i] / Math.max(10, +TAL.variacion_m || 90), sd * 83 + 5);
+      return (ef * (1 - u) + md * u) * vv * (TAL.k ?? 1); };
+    let ENL = new Array(n).fill(0), ENR = new Array(n).fill(0);
+    if (TAL) { ENL = smooth1D(ENL.map((_, i) => encOf(i, 1)), 6, closed); ENR = smooth1D(ENR.map((_, i) => encOf(i, -1)), 6, closed); }
+    const C5 = o.cun5 || null;
     // perfil transversal de cada costado (distancias desde el borde del ripio):
     // berma de piedras → cuneta en V con fondo → contratalud que sube (o baja) hasta el terreno real de ese lado
     const sideProf = (i, sd, force) => {
@@ -272,9 +280,27 @@ const Core = (() => {
       const ov = secOv(i, sd), ot = ov ? ov.t : 0, mix = (a, b) => b == null ? a : a + (b - a) * ot;
       const slF = (dh, fill, cut) => mix(dh < 0 ? fill : cut, ov ? ov.talud : null); // talud (horizontal : vertical)
       const bare = o.bareAt ? o.bareAt(dist[i], sd) : 1, bw = mix(Math.max(0.25, Math.min(1.0, 0.35 * bare + 0.15)), ov ? ov.berm : null);
-      const tg = e => hs[i] + sl * (hw + e) - 0.05;
+      const E = sd > 0 ? ENL[i] : ENR[i], tg0 = e => hs[i] + sl * (hw + e) - 0.05, tg = e => tg0(e) + E;
+      const slT = (dh, fill, cut) => TAL ? slF(dh, +TAL.pendiente_terraplen_hv || fill, +TAL.pendiente_desmonte_hv || cut) : slF(dh, fill, cut);
       let pts, xe, clear;
-      if (Dd > 0.12) {
+      if (Dd > 0.12 && C5) {
+        // Etapa 5 · cuneta de las fotos (ESTIMADO_DE_FOTOS): borde → banda de grava apenas caída → bajada suave (H:V ~4) → fondo →
+        // subida (H:V ~3) → bordo bajo de tierra/pasto (no siempre) → talud hasta el terreno (desmonte o terraplén). Sin escalones.
+        const d = dist[i], up = Math.max(0, Math.min(1, (sl - 0.03) / 0.2)), VAR = Math.max(10, +C5.variacion_m || 60);
+        const bg = (+C5.banda_grava_m || 0.6) * mix(0.8 + 0.4 * vn1(d / 23, sd * 91 + 1), ov ? ov.berm : null);
+        const Dv = ((+C5.profundidad_min_m || 0.12) + (+C5.profundidad_extra_m || 0.25) * vn1(d / VAR, sd * 29 + 7)) * (1 - 0.5 * up), D = mix(Dv, ov && ov.ditch > 0.12 ? ov.ditch : null);
+        const wsc = mix(0.85 + 0.3 * vn1(d / 17, sd * 43 + 5), ov ? ov.wf : null), wc = D * (+C5.pendiente_caida_hv || 4) * wsc, fondo = (+C5.fondo_m || 0.5) * (0.7 + 0.6 * vn1(d / 11, sd * 37 + 1)) * wsc;
+        const hasB = vn1(d / (VAR * 0.6), sd * 97 + 3) < (+C5.prob_bordo || 0) , bh = hasB ? (+C5.bordo_m || 0.18) * (0.5 + 0.9 * vn1(d / 7, sd * 11 + 3)) * (1 - up) : 0;
+        const e0 = bg, h0 = edge - 0.02 - 0.015 * vn1(d / 3.1, sd * 67 + 2), e1 = e0 + wc * 0.5, e2 = e0 + wc, bot = edge - D, e3 = e2 + fondo;
+        const lv = tg0(e3 + 0.6), top = Math.max(lv, bot + 0.04) + bh, e4 = e3 + Math.max(0.25, (top - bot) * (+C5.pendiente_subida_hv || 3)), e5 = e4 + (bh > 0.01 ? 0.3 + bh * 3 : 0.25);
+        const eT = e5 + Math.abs(E) * (E >= 0 ? ((TAL && +TAL.pendiente_desmonte_hv) || 1.6) : ((TAL && +TAL.pendiente_terraplen_hv) || 2.5)) + 0.3;
+        const tE = e => { const t = Math.max(0, Math.min(1, (e - e5) / Math.max(0.3, eT - e5))); return tg0(e) + E * t * t * (3 - 2 * t); };
+        xe = Math.max(eT, e5 + 0.6);
+        const U = e => e / 3.2;
+        pts = [[0, edge, U(0)], [e0, h0, U(e0)], [e1, h0 - (h0 - bot) * 0.55, U(e1)], [e2, bot + 0.01, U(e2)], [e3, bot, U(e3)], [e4, top, U(e4)],
+          [e5, tE(e5) + bh * 0.15, U(e5)], [e5 + (xe - e5) * 0.4, tE(e5 + (xe - e5) * 0.4)], [e5 + (xe - e5) * 0.75, tE(e5 + (xe - e5) * 0.75)], [xe, tE(xe)]];
+        clear = e2;
+      } else if (Dd > 0.12) {
         // cuneta orgánica, distinta a cada lado: se adapta al monte de ese costado.
         // · ladera que sube (sl > 0): casi no se cava; el fondo queda apenas bajo el borde y la pared de atrás sube con el terreno
         // · terreno que baja: cuneta baja, con la tierra sacada formando un bordo irregular
@@ -292,7 +318,7 @@ const Core = (() => {
         const mw = 0.8 + 0.8 * vn1(d / 12, sd * 17 + 2);
         const a0 = mix(0.08 + 0.06 * vn1(d / 6, sd * 53 + 1), ov ? ov.berm : null), a2 = Math.max(a0 + 0.22, a0 + 0.42 * ww + ox), a1 = a0 + (a2 - a0) * 0.55, a3 = a2 + Math.max(0.2, 0.36 * ww * mw), a4 = a3 + 0.42 * ww * mw;
         const bot = edge - D, crest = Math.max(edge + 0.02, tg(a4)), mtop = (edge + Math.max(0.02, lump)) * (1 - up) + crest * up;
-        xe = a4 + 0.8; for (let k = 0; k < 3; k++) { const dh = tg(xe) - mtop; xe = Math.min(ov && ov.talud != null ? 14 : 9, a4 + Math.max(0.8, Math.abs(dh) * slF(dh, 1.5, 1.1))); }
+        xe = a4 + 0.8; for (let k = 0; k < 3; k++) { const dh = tg(xe) - mtop; xe = Math.min(ov && ov.talud != null ? 14 : 9, a4 + Math.max(0.8, Math.abs(dh) * slT(dh, 1.5, 1.1))); }
         const top = tg(xe), mid = mtop + (top - mtop) * 0.5 + lump * 0.3;
         // paredes redondeadas (labio, fondo cóncavo, hombro) para que se funda con la banquina y el terreno sin escalón
         const ero = (vn1(d / 3.1, sd * 67 + 2) - 0.5) * 0.06; // labio erosionado, desparejo
@@ -300,7 +326,7 @@ const Core = (() => {
         clear = a4 + 0.3;
       } else {
         const b0 = edge - 0.06; xe = bw + 1;
-        for (let k = 0; k < 3; k++) { const dh = tg(xe) - b0; xe = Math.min(ov && ov.talud != null ? 14 : 9, bw + Math.max(1, Math.abs(dh) * slF(dh, 1.5, 1.2))); }
+        for (let k = 0; k < 3; k++) { const dh = tg(xe) - b0; xe = Math.min(ov && ov.talud != null ? 14 : 9, bw + Math.max(1, Math.abs(dh) * slT(dh, 1.5, 1.2))); }
         const top = tg(xe), L = (f) => [bw + (xe - bw) * f, b0 + (top - b0) * f];
         pts = [[0, edge], [bw, b0], L(0.33), L(0.66), L(0.85), [xe, top]];
         clear = bw + 0.3;
@@ -308,7 +334,7 @@ const Core = (() => {
       // solapa sobre el plano del terreno (una celda de la grilla) y faldón que se mete debajo: sin rajas ni pozos en la unión
       const F = (o.terrRes || 4) * 1.1;
       const Rr = (o.terrRes || 4) * 0.95; pts.push([xe + F, tg(xe + F) + 0.02], [xe + F + Rr, tg(xe + F + Rr) - 0.12]);
-      return { pts, xe: xe + F, clear, Dd, sl };
+      return { pts, xe: xe + F, clear, Dd, sl, E };
     };
     const SP = []; for (let i = 0; i < n; i++) SP.push([sideProf(i, 1), sideProf(i, -1)]);
     const routeSegs = () => {
@@ -316,7 +342,7 @@ const Core = (() => {
       for (let i = 0; i < segCount; i++) {
         const j = (i + 1) % n, L = SP[i][0], R = SP[i][1], xL = Math.max(L.xe, SP[j][0].xe), xR = Math.max(R.xe, SP[j][1].xe);
         segs.push([C[i][0], C[i][1], C[j][0], C[j][1], hs[i], hs[j], W[i] / 2, SL[i], SL[j], Math.max(xL, xR) + 0.6, Math.max(DLs[i], DRs[i], DLs[j], DRs[j]), CS[i],
-          SLL[i], SLR[i], xL, xR, Math.max(DLs[i], DLs[j]), Math.max(DRs[i], DRs[j]), OFL[i], OFR[i], L.clear, R.clear]);
+          SLL[i], SLR[i], xL, xR, Math.max(DLs[i], DLs[j]), Math.max(DRs[i], DRs[j]), OFL[i], OFR[i], L.clear, R.clear, L.E || 0, R.E || 0]);
       }
       return segs;
     };
@@ -335,7 +361,7 @@ const Core = (() => {
     const SCR = (() => { const nC = o.roadCols && o.roadCols >= 15 ? o.roadCols | 1 : 15; if (nC === 15) return [-1, -0.86, -0.72, -0.58, -0.44, -0.3, -0.15, 0, 0.15, 0.3, 0.44, 0.58, 0.72, 0.86, 1];
       return Array.from({ length: nC }, (_, k) => -1 + 2 * k / (nC - 1)); })();
     // franjas de superficie física a lo ancho: suelto en el lomo central (|f| < 0,12) y en los cordones/bordes (|f| > 0,7), firme en las huellas
-    const BANDS = key => { const out = []; for (let j = 0; j + 1 < SCR.length; j++) { const f = Math.abs((SCR[j] + SCR[j + 1]) / 2), k = f < 0.12 || f > 0.7 ? 'LOOSE' : key;
+    const BANDS = key => { const LK = key === 'STONY' ? 'STONYL' : 'LOOSE', out = []; for (let j = 0; j + 1 < SCR.length; j++) { const f = Math.abs((SCR[j] + SCR[j + 1]) / 2), k = f < 0.12 || f > 0.7 ? LK : key;
       if (out.length && out[out.length - 1][2] === k) out[out.length - 1][1] = j + 1; else out.push([j, j + 1, k]); } return out; };
     const sec = (i, j, dOff, rutMode) => {
       const hw = W[i] / 2;
@@ -375,7 +401,7 @@ const Core = (() => {
     // en Assetto Corsa la malla visible ES la colisión, así que la piedra que se ve y la que toca la goma coinciden.
     // Forma de domo bajo (ancho ≥ 2,2 veces el alto), sin aristas verticales: el rayo de cada rueda sube y baja de a poco,
     // sin picos de colisión. La gravilla fina es sólo visual (sin colisión, se deja de dibujar a ~45 m).
-    const STONY = { GRAVEL: 1, CLAY: 0.75, LOOSE: 1.3 }, stoneAmt = o.stones == null ? 1 : +o.stones, stoneGroups = new Map();
+    const STONY = { GRAVEL: 1, CLAY: 0.75, LOOSE: 1.3, STONY: 1.6, STONYL: 1.8 }, stoneAmt = o.stones == null ? 1 : +o.stones, stoneGroups = new Map();
     const stats = { phys: 0, vis: 0, big: 0, physByZone: { huella: 0, centro: 0, entreHuellaYBorde: 0, banquina: 0 } };
     const stoneMesh = (key, d, phys) => { const c = Math.floor(d / 100), gk = (phys ? key : 'V') + '|' + c; let m = stoneGroups.get(gk);
       if (!m) { m = newMesh(phys ? `${cnt(key)}${key}` : `STONES_${c}`, 'stone'); m.ri = []; m.rs = []; m.stones = true; if (phys) m.physStones = true; else m.lod = [0, 30]; stoneGroups.set(gk, m); } return m; };
@@ -439,7 +465,7 @@ const Core = (() => {
         if (prev && o.reliefAt) for (const q of subSecs(prev, cur, 4)) secs.push(addRelief(q));
         secs.push(prev = cur); }
       if (o.reliefAt) for (const q of secs) if (q.step === step) addRelief(q);
-      const bands = o.reliefAt && !rutMode && (run.key === 'GRAVEL' || run.key === 'CLAY') && secs.length && secs[0].cols.length === SCR.length
+      const bands = o.reliefAt && !rutMode && (run.key === 'GRAVEL' || run.key === 'CLAY' || run.key === 'STONY') && secs.length && secs[0].cols.length === SCR.length
         ? BANDS(run.key) : [[0, secs.length ? secs[0].cols.length - 1 : 0, run.key]];
       for (const [a, b, key] of bands) { const part = bands.length > 1 ? secs.map(q => ({ ...q, cols: q.cols.slice(a, b + 1) })) : secs;
         for (const m of ribbonMeshes(part, false, key, MAT[run.key], 7, { next: () => cnt(key) })) { m.road = true; meshes.push(m); } }
@@ -462,7 +488,7 @@ const Core = (() => {
         for (let ii = run.i0; ii <= run.i1 + 1; ii++) {
           const i = ii % n, hw = W[i] / 2, sp0 = SP[i][side > 0 ? 0 : 1], P = (sp0.Dd > 0.12) === isD ? sp0.pts : sideProf(i, side, isD).pts;
           const col = ([e, h], u) => { const [x, y] = pos(i, side * (hw + e)); return { x, y, h, u, i, sc: side * hw }; }, d = dist[i] + (ii >= n ? total : 0);
-          const A = P.slice(0, cut + 1).map((q, k) => col(q, U[k])), Bc = P.slice(cut).map((q, k) => { const c = col(q, q[0] / 5);
+          const A = P.slice(0, cut + 1).map((q, k) => col(q, q[2] != null ? q[2] : U[k])), Bc = P.slice(cut).map((q, k) => { const c = col(q, q[0] / 5);
             if (o.sideLumpAt && k > 0 && k < P.length - cut - 2) c.h += o.sideLumpAt(d, side, q[0]); return c; }); // montículos del talud (catálogo de costados)
           // tira de barranco (biblioteca): en la cuneta va en la pared de afuera (del fondo al borde); sin cuneta, en el primer tramo del talud. u = 0 abajo, 1 arriba, a escala real
           const rv = a => side > 0 ? a : a.slice().reverse(), nz = (arr, P0, k0) => { const e0 = P0[k0][0], e1 = P0[k0 + arr.length - 1][0]; return arr.map((c, k) => ({ ...c, u: (P0[k0 + k][0] - e0) / Math.max(0.3, e1 - e0) })); };
@@ -644,7 +670,7 @@ const Core = (() => {
     // tramo con perfil transversal propio (cuneta + contratalud): el terreno sigue la ladera de ESE lado
     if (bS && bS[12] !== undefined && !isNaN(bS[4])) {
       const left = bLat > 0, sl = left ? bS[12] : bS[13], xe = left ? bS[14] : bS[15], Dd = left ? bS[16] : bS[17], off = left ? bS[18] : bS[19];
-      const hc = bS[4] + (bS[5] - bS[4]) * bT, hw = bS[6], tg = e => hc + sl * (hw + e) - 0.05;
+      const hc = bS[4] + (bS[5] - bS[4]) * bT, hw = bS[6], EE = (left ? bS[22] : bS[23]) || 0, tg = e => hc + sl * (hw + e) - 0.05 + EE;
       const slr = bS[7] + (bS[8] - bS[7]) * bT, edgeH = hc + slr * (left ? hw : -hw);
       if (best < 0) h = hc + slr * Math.max(-hw, Math.min(hw, bLat)) - depth - (bS[10] || 0);
       else if (best < xe + 0.1) h = Math.min(edgeH - Dd, tg(xe)) - 0.45 - 0.5 * Math.max(0, -sl) * (o.res || 4);
