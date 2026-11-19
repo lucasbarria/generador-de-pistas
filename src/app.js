@@ -4247,7 +4247,7 @@ async function rebuild(keepCam) {
     const rk = { name: 'ROCKS_side', mat: 'boulder', v: [], uv: [], f: [] }; let nr = 0;
     for (let i = 0; i < res.n; i++) for (const sd of [1, -1]) { const tp = SIDECAT.TYPES[SIDECAT.typeAt(res.dist[i], sd)]; if (hashU(i, sd, 311) > 0.3 * tp.rocks + 0.05) continue;
       const e = 0.9 + hashU(i, sd, 312) * 4, lat = sd * (res.W[i] / 2 + e), nx = -res.T[i][1], ny = res.T[i][0], x0 = res.C[i][0] + nx * lat, y0 = res.C[i][1] + ny * lat, h = sideH(i, sd, e, x0, y0); if (h == null) continue;
-      const r = (res.sideBands ? 0.45 : 1) * (0.08 + Math.pow(hashU(i, sd, 313), 2) * 0.35), b = rk.v.length, // Etapa 7: con las bandas de Río Grande, piedras más chicas (las placas claras de 40 cm no están en las fotos) rot = hashU(i, sd, 314) * 6.28, j = k => 0.75 + 0.5 * hashU(i * 7 + k, sd, 315);
+      const r = (res.sideBands ? 0.45 : 1) * (0.08 + Math.pow(hashU(i, sd, 313), 2) * 0.35), b = rk.v.length, rot = hashU(i, sd, 314) * 6.28, j = k => 0.75 + 0.5 * hashU(i * 7 + k, sd, 315);
       [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 0.7], [0, 0, -0.5]].forEach(([X, Y, Z], k) => { const f = r * j(k), cx = X * Math.cos(rot) - Y * Math.sin(rot), cy = X * Math.sin(rot) + Y * Math.cos(rot); rk.v.push([x0 + cx * f, y0 + cy * f, h - r * 0.25 + Z * f]); rk.uv.push([(X + 1) / 2, (Y + 1) / 2]); });
       [[0, 2, 4], [2, 1, 4], [1, 3, 4], [3, 0, 4], [2, 0, 5], [1, 2, 5], [3, 1, 5], [0, 3, 5]].forEach(([a, bb, cc]) => rk.f.push([b + a, b + bb, b + cc])); nr++; }
     // piedras sueltas en las cunetas (labio, fondo y bordo), más donde la cuneta es de piedra y en el lado de afuera de las curvas
@@ -4259,7 +4259,7 @@ async function rebuild(keepCam) {
         const x0 = res.C[i][0] + nx * lat + res.T[i][0] * hashU(i, q, 323) * 2, y0 = res.C[i][1] + ny * lat + res.T[i][1] * hashU(i, q, 323) * 2, r = 0.05 + Math.pow(hashU(i * 3 + q, sd, 324), 2) * 0.16, bb = rk.v.length, rot = hashU(i, sd + q, 325) * 6.28, j = k2 => 0.7 + 0.6 * hashU(i * 11 + k2 + q, sd, 326);
         [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 0.6], [0, 0, -0.5]].forEach(([X, Y, Z], k2) => { const f = r * j(k2), cx = X * Math.cos(rot) - Y * Math.sin(rot), cy = X * Math.sin(rot) + Y * Math.cos(rot); rk.v.push([x0 + cx * f, y0 + cy * f, h - r * 0.3 + Z * f]); rk.uv.push([(X + 1) / 2, (Y + 1) / 2]); });
         [[0, 2, 4], [2, 1, 4], [1, 3, 4], [3, 0, 4], [2, 0, 5], [1, 2, 5], [3, 1, 5], [0, 3, 5]].forEach(([a1, b1, c1]) => rk.f.push([bb + a1, bb + b1, bb + c1])); nr++; } }
-    if (nr) meshes.push(rk);
+    if (nr) meshes.push(rk); // Etapa 7: con las bandas de Río Grande (sideBands) las piedras de costado son más chicas: las placas claras de 40 cm no están en las fotos
     // Etapa 5 · señales de curva (sólo en las curvas cerradas con banco): flechas rojas afuera, placas rayadas en la entrada y la salida, balizas amarillas
     if (typeof CURVAS !== 'undefined' && CURVAS.list.length) { if (!TEX.senal) TEX.senal = makeSignTex(); const sg = { name: 'OBJECTS_senales', mat: 'senal', v: [], uv: [], f: [] }; let ns = 0;
       const step = res.dist[1] - res.dist[0], put = (d, sd, e, kind, faceBack) => { const i = Math.max(0, Math.min(res.n - 1, Math.round(d / step))), P = res.SP && res.SP[i] && res.SP[i][sd > 0 ? 0 : 1];
