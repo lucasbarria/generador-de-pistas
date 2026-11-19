@@ -2,6 +2,11 @@
 const Core = (() => {
   const R = 6378137, D2R = Math.PI / 180;
 
+  // pausa cooperativa: los bucles pesados la consultan; si ya pasaron ms desde t0 devuelve una promesa
+  // que le cede el hilo al navegador (la página se pinta, sigue respondiendo y no aparece
+  // "el navegador no responde"); si no, devuelve null y el bucle sigue sin costo extra (solo un performance.now() por chequeo)
+  const yieldIfOver = (t0, ms = 30) => performance.now() - t0 > ms ? new Promise(r => setTimeout(r, 0)) : null;
+
   function makeProj(lat0, lon0) {
     const kx = Math.cos(lat0 * D2R) * R * D2R, ky = R * D2R;
     return {
@@ -867,20 +872,21 @@ const Core = (() => {
     return { changed, i0, i1, j0, j1 };
   }
 
-  function buildTerrain(o, progress) {
+  async function buildTerrain(o, progress) {
     const { bbox, res } = o;
     const nx = Math.floor((bbox.maxx - bbox.minx) / res) + 1, ny = Math.floor((bbox.maxy - bbox.miny) / res) + 1;
     const ctx = terrainCtx(o), { cs, hx, hy, cells } = ctx;
-    let near = null;
+    let near = null, t0y = performance.now(), pr = null;
     if (isFinite(o.margin)) {
       near = new Uint8Array(hx * hy);
       // margen por tramo (o.segMargin[si]): en bosque cerrado no hace falta generar tanto campo, no se ve
-      for (let cy = 0; cy < hy; cy++) for (let cx = 0; cx < hx; cx++) { const list = cells[cy * hx + cx]; if (!list) continue;
+      for (let cy = 0; cy < hy; cy++) { for (let cx = 0; cx < hx; cx++) { const list = cells[cy * hx + cx]; if (!list) continue;
         const mg = o.segMargin ? Math.max(...list.map(si => o.segMargin[si] != null ? o.segMargin[si] : o.margin)) : o.margin, rr = Math.ceil(mg / cs);
         for (let dy = -rr; dy <= rr; dy++) for (let dx = -rr; dx <= rr; dx++) {
           const X = cx + dx, Y = cy + dy; if (X >= 0 && Y >= 0 && X < hx && Y < hy && (dx * dx + dy * dy) * cs * cs <= (mg + cs * 1.5) ** 2) near[Y * hx + X] = 1;
         }
       }
+      pr = yieldIfOver(t0y); if (pr) { await pr; t0y = performance.now(); } }
     }
     const H = new Float32Array(nx * ny), need = new Uint8Array(nx * ny);
     for (let j = 0; j < ny; j++) {
@@ -891,9 +897,13 @@ const Core = (() => {
         need[j * nx + i] = 1;
         H[j * nx + i] = terrainPointH(ctx, x, y);
       }
-      if (progress && j % 50 === 0) progress(j / ny);
+      if (progress && j % 50 === 0) progress(0.5 * j / ny);
+      pr = yieldIfOver(t0y); if (pr) { await pr; t0y = performance.now(); }
     }
     const CH = 60, meshes = [], cnt = counters();
+    // el armado de mallas también se hace por bloques y cede el hilo: para tramos largos recorre
+    // toda la grilla (millones de celdas) y sin esto la página quedaría congelada varios minutos
+    const nBlock = Math.ceil((ny - 1) / CH) * Math.ceil((nx - 1) / CH); let doneB = 0;
     for (let cj = 0; cj < ny - 1; cj += CH) for (let ci = 0; ci < nx - 1; ci += CH) {
       const parts = {};
       const get = ([key, mat]) => parts[key + '|' + mat] || (parts[key + '|' + mat] = { m: Object.assign(newMesh(`${cnt(key)}${key}`, mat), { terrain: true, chunk: [ci, cj] }), map: new Map() });
@@ -916,7 +926,9 @@ const Core = (() => {
         P.m.f.push([a, b, c], [a, c, d]);
       }
       for (const k in parts) meshes.push(parts[k].m);
+      if ((pr = yieldIfOver(t0y)) != null) { if (progress) progress(0.5 + 0.5 * ++doneB / nBlock); await pr; t0y = performance.now(); } else doneB++;
     }
+    if (progress) progress(1);
     return { meshes, nx, ny, H, need, CH };
   }
 
@@ -960,7 +972,7 @@ const Core = (() => {
     else if (m.block) for (let b = 0; b + m.block <= m.v.length; b += m.block) out.push([b, m.block]);
     return out;
   }
-  function buildTrees(o) {
+  async function buildTrees(o, progress) {
     const { ter, bbox, res } = o, nx = ter.nx, ny = ter.ny, H = ter.H, need = ter.need;
     const hAt = (x, y) => {
       const fi = (x - bbox.minx) / res, fj = (y - bbox.miny) / res, i = Math.floor(fi), j = Math.floor(fj);
@@ -970,7 +982,11 @@ const Core = (() => {
       return { h: H[k] * (1 - a) * (1 - b) + H[k + 1] * a * (1 - b) + H[k + nx] * (1 - a) * b + H[k + nx + 1] * a * b, slope: Math.hypot(H[k + 1] - H[k], H[k + nx] - H[k]) / res };
     };
     const rd = roadDistFn(o.segs, true), base = o.base || 4, cand = [], CL = o.clear || 3;
-    for (let gy = Math.floor(bbox.miny / base); gy <= Math.ceil(bbox.maxy / base); gy++)
+    // el barrido de candidatos recorre toda la zona en grilla; en tramos largos son millones de celdas,
+    // así que cede el hilo cada tanto (si no, el navegador corta la página)
+    let gyTot = Math.ceil(bbox.maxy / base) - Math.floor(bbox.miny / base), gyI = 0, t0v = performance.now(), prv = null;
+    for (let gy = Math.floor(bbox.miny / base); gy <= Math.ceil(bbox.maxy / base); gy++) {
+      gyI++;
       for (let gx = Math.floor(bbox.minx / base); gx <= Math.ceil(bbox.maxx / base); gx++) {
         const r0 = hash2(gx, gy, 1), x = (gx + hash2(gx, gy, 2)) * base, y = (gy + hash2(gx, gy, 3)) * base;
         const t = hAt(x, y); if (!t || t.slope > 1.3) continue;
@@ -989,18 +1005,21 @@ const Core = (() => {
         if (dr < 0) continue; // no dentro de la cuneta
         cand.push([x, y, t.h, kind, hash2(gx, gy, 4), hash2(gx, gy, 5), r0 * (1 + Math.max(0, Math.min(dr, 140) - 40) / 50), edge && kind === 2]);
       }
+      if ((prv = yieldIfOver(t0v)) != null) { if (progress) progress(0.4 * gyI / gyTot); await prv; t0v = performance.now(); }
+    }
     let list = cand;
     if (list.length > o.maxTrees) { list = cand.slice().sort((a, b) => a[6] - b[6]).slice(0, o.maxTrees); }
     // troncos con choque (objetos WALL) para los árboles cercanos al camino
     const walls = [];
     if (o.trunkDist) {
-      let wm = null;
+      let wm = null, tw = 0;
       for (const [x, y, h, kind, ra] of list) {
         if (kind === 2 || rd(x, y, o.trunkDist + 1) > o.trunkDist) continue;
         if (!wm || wm.v.length > 50000) { wm = newMesh(`${o.wallCounter()}WALL`, 'bark'); wm.block = 18; walls.push(wm); }
         const r = kind === 0 ? 0.14 + ra * 0.1 : 0.12 + ra * 0.12, top = 2.8, b = wm.v.length, N = 8;
         for (let k = 0; k <= N; k++) { const a = k / N * Math.PI * 2; wm.v.push([x + Math.cos(a) * r, y + Math.sin(a) * r, h - 0.5], [x + Math.cos(a) * r * 0.8, y + Math.sin(a) * r * 0.8, h + top]); wm.uv.push([k / N, 0], [k / N, 2]); }
         for (let k = 0; k < N; k++) { const a0 = b + k * 2, a1 = b + k * 2 + 2; wm.f.push([a0, a1, a1 + 1], [a0, a1 + 1, a0 + 1]); }
+        if ((++tw & 2047) === 0 && (prv = yieldIfOver(t0v)) != null) { await prv; t0v = performance.now(); }
       }
     }
     const meshes = [...walls], PER = 3000;
@@ -1074,8 +1093,10 @@ const Core = (() => {
         for (const back of [0, 1]) { const c = M.v.length; M.v.push([x - dx, y - dy, z0], [x + dx, y + dy, z0], [x + dx, y + dy, z0 + Ht], [x - dx, y - dy, z0 + Ht]); M.uv.push([u0, 0.004], [u1, 0.004], [u1, 0.992], [u0, 0.992]);
           if (back) M.f.push([c, c + 2, c + 1], [c, c + 3, c + 2]); else M.f.push([c, c + 1, c + 2], [c, c + 2, c + 3]); for (const q of M.v.slice(c)) M.n.push(nn(q[0], q[1], q[2])); } } };
     // reparto por distancia al camino (los más cercanos primero)
-    const ranked = list.map(t => [t, rd(t[0], t[1], 260)]).sort((p, q) => p[1] - q[1]); let nA = 0, nB = 0;
+    const ranked = list.map(t => [t, rd(t[0], t[1], 260)]).sort((p, q) => p[1] - q[1]); let nA = 0, nB = 0, iRk = 0;
     for (const [t, dr] of ranked) {
+      // cada árbol puede llevar cientos de triángulos: en tramos largos esto tarda minutos, se cede el hilo seguido
+      if ((iRk++ & 511) === 511 && (prv = yieldIfOver(t0v)) != null) { if (progress) progress(0.4 + 0.6 * iRk / ranked.length); await prv; t0v = performance.now(); }
       const [x, y, h, kind, ra] = t, tier = dr <= 40 && nA < AMAX ? 'A' : dr <= 200 && nB < BMAX ? 'B' : 'C';
       const mark = M => { if (M.blocks) M.blocks.push(M.v.length); };
       // tronco caído en el suelo del bosque (cerca del camino, no pegado)
@@ -1169,6 +1190,6 @@ const Core = (() => {
     return mats.map(([name, tex, kd]) => `newmtl ${name}\nKa 1 1 1\nKd ${kd}\nKs 0 0 0\nd 1\nillum 1\nmap_Kd ${tex}\n`).join('\n');
   }
 
-  return { MAT, profileInterp, blocksOf, buildTrees, buildRocks, roadDistFn, patchTerrain, terrainHeightFn, makeProj, resample, smooth1D, buildRoute, buildArea, buildSideRoads, buildTerrain, toOBJ, toMTL, computeNormals, clodN };
+  return { MAT, profileInterp, blocksOf, buildTrees, buildRocks, roadDistFn, patchTerrain, terrainHeightFn, makeProj, resample, smooth1D, buildRoute, buildArea, buildSideRoads, buildTerrain, toOBJ, toMTL, computeNormals, clodN, yieldIfOver };
 })();
 if (typeof module !== 'undefined') module.exports = Core;
