@@ -2960,7 +2960,7 @@ function sideToTerrain(list) {
 // (R ripio suelto/piedras · G tierra del canal y del cordón · B pasto · A banquina de tierra compactada con piedras, fotos 6891/6893) y encima los
 // detalles de las fotos del preset a escala real (DETAIL 'side': 0,8 m por repetición). Límites entre franjas irregulares (ruido de 5 cm a 1,7 m),
 // el tipo de borde se mezcla por manchas donde cambia y los terrones se sombrean con el MISMO ruido que levanta la malla (Core.clodN).
-const SBP = { NU: 128, NV: 2048, MU: 64, MV: 1024 };
+const SBP = { NU: 256, NV: 2048, MU: 64, MV: 1024 }; // Etapa 7: 2,5 cm/px a lo ancho (antes 5 cm)
 function sbMeans() { if (SBP.mean && SBP.mean.stamp === PACK.stamp) return SBP.mean;
   const rg = typeof RGLIB !== 'undefined' && RGLIB.on && RGLIB.on(), it = r => rg ? RGLIB.item(r) : null, cvOf = (role, tex) => (it(role) && it(role).cv) || TEX[tex] || TEX.grass;
   const mean = cv => { const c = scaleCanvas(cv, 32), d = c.getContext('2d').getImageData(0, 0, 32, 32).data, m = [0, 0, 0]; for (let i = 0; i < d.length; i += 4) { m[0] += d[i]; m[1] += d[i + 1]; m[2] += d[i + 2]; } return m.map(v => v / 1024); };
@@ -2996,7 +2996,7 @@ function paintSideBands(res, only) {
     // Etapa 7: textura real de las fotos (no el color medio): muestreo estocástico a 1 m por celda, con el tono de la franja encima
     const TD = SBT[mt === 'weed' ? 'grass' : mt === 'canal' || mt === 'cordon' || mt === 'wall' ? 'dirt' : mt]; if (TD) { const q = RGLIB.stoch(TD.D, arc, d, mt === 'grass' || mt === 'weed' ? 1.3 : 0.9, TD.seed + side, true), M = TD.D.mean;
       if (mt === 'weed') { const g2 = RGLIB.stoch(SBT.loose.D, arc + 7, d, 0.9, 77, true), M2 = SBT.loose.D.mean; for (let i = 0; i < 3; i++) c[i] = c[i] * 0.5 * (q[i] / Math.max(1, M[i]) + g2[i] / Math.max(1, M2[i])); }
-      else for (let i = 0; i < 3; i++) c[i] = c[i] * q[i] / Math.max(1, M[i]); }
+      else { const gain = mt === 'loose' || mt === 'stones' || mt === 'shoulder' ? 1.9 : 1.2; for (let i = 0; i < 3; i++) c[i] = c[i] * Math.max(0.3, 1 + gain * (q[i] - M[i]) / Math.max(1, M[i])); } } // más contraste: a 2,5 cm/px el ripio se ve como en la calzada
     const ch = CHN[mt]; for (let q = 0; q < 4; q++) msk[q] = ch[q]; col[0] = c[0] * macro; col[1] = c[1] * macro; col[2] = c[2] * macro; };
   for (const tag of ['L', 'R']) { const rows = SB[tag], side = tag === 'L' ? 1 : -1; if (!rows || rows.length < 2) continue;
     const pieces = new Set(); for (const r of rows) pieces.add(Math.floor(r.d / PL));
@@ -3020,7 +3020,7 @@ function paintSideBands(res, only) {
   return np;
 }
 function terrainLibOn() { return DETAIL.enabled() && PACK.on && !!PACK.get('det_grass') && !!(PACK.get('det_forest') || PACK.get('det_dirt') || PACK.get('det_rock')); }
-const TERR_MULT = [1, 0.43, 1.31, 0.61]; // escalas relativas de los 4 detalles del terreno en modo mezcla (4,5 m · 10,5 m · 3,4 m · 7,4 m)
+const TERR_MULT = [1, 0.43, 1.31, 0.61]; // escalas relativas de los 4 detalles del terreno en modo mezcla (base 1,3 m: 1,3 · 3,0 · 1,0 · 2,1 m)
 function bakeInternalTerrain(B, ter, meshes, res, rd, env = {}) {
   const TML = terrainLibOn(), TMIX = TML && (!meshes.some(m => m.terrain && m.mat === 'forest') || (typeof PRESETS !== 'undefined' && PRESETS.cur && PRESETS.list[PRESETS.cur] && PRESETS.list[PRESETS.cur].arboles === 0)); DETAIL.tmix = TMIX;
   const smt = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -3090,7 +3090,7 @@ function bakeInternalTerrain(B, ter, meshes, res, rd, env = {}) {
       if (mkd && !(px & 3) && !(py & 3)) { const mo = ((py >> 2) * MN + (px >> 2)) * 4, cc = [0, 0, 0, 0]; for (let q = 0; q < M.length; q++) cc[CH[q]] += w[q] / sum;
         if (TMIX) { // pasto en dos escalas repartido con ruido + manchas de tierra + manchas secas
           const tG = smt(0.36, 0.64, vn(wx / 5.3, wy / 5.3, 71) * 0.65 + vn(wx / 1.7, wy / 1.7, 73) * 0.35), dr0 = Math.max(0, Math.min(1, DRY[c00] * k00 + DRY[c10] * k10 + DRY[c01] * k01 + DRY[c11] * k11));
-          const dB = Math.min(0.9, cc[1] + cc[2] + cc[3] + 0.7 * smt(0.8, 0.93, vn(wx / 6.5, wy / 6.5, 83))), dA = Math.min(0.85, 0.75 * smt(0.52, 0.78, vn(wx / 21, wy / 21, 89)) + 0.3 * dr0) * (1 - dB), gr = Math.max(0, 1 - dB - dA);
+          const dB = Math.min(0.9, (cc[1] + cc[2] + cc[3]) * smt(0.25, 0.75, vn(wx / 23, wy / 23, 85)) + 0.7 * smt(0.8, 0.93, vn(wx / 6.5, wy / 6.5, 83))), dA = Math.min(0.85, 0.75 * smt(0.52, 0.78, vn(wx / 21, wy / 21, 89)) + 0.3 * dr0) * (1 - dB), gr = Math.max(0, 1 - dB - dA);
           cc[0] = gr * (1 - tG); cc[1] = gr * tG; cc[2] = dB; cc[3] = dA; }
         for (let c = 0; c < 4; c++) mkd.data[mo + c] = Math.round(cc[c] * 255); }
       for (let q = 0; q < M.length; q++) { if (w[q] / sum < 0.02) continue; const c = samp(D[q], wx, wy, M[q] === 'rock' ? 6 : 5), t = w[q] / sum; r += c[0] * t; g += c[1] * t; b += c[2] * t; }
@@ -3103,7 +3103,7 @@ function bakeInternalTerrain(B, ter, meshes, res, rd, env = {}) {
     }
     ox.putImageData(img, 0, 0);
     const name = 'tc_' + k; TEX[name] = out; TEX[name].__dxt = true;
-    if (mk) { mk.__raw = mkd.data; mk.getContext('2d').putImageData(mkd, 0, 0); TEX['mk_' + name] = mk; /* __raw: el canvas premultiplica alfa y perdería los canales donde no hay roca */ out.__ml = { mult: size / 4.5, multV: TMIX ? TERR_MULT : null }; } else delete TEX['mk_' + name];
+    if (mk) { mk.__raw = mkd.data; mk.getContext('2d').putImageData(mkd, 0, 0); TEX['mk_' + name] = mk; /* __raw: el canvas premultiplica alfa y perdería los canales donde no hay roca */ out.__ml = { mult: size / (TMIX ? 1.3 : 4.5), multV: TMIX ? TERR_MULT : null }; /* Etapa 7: en la estepa el detalle del pasto a 1,3 m (a 4,5 m las hojas de la foto quedaban de 40 cm) */ } else delete TEX['mk_' + name];
     for (const m of list) { m.mat = name; m.uv = m.v.map(v => [(v[0] - x0) / size, (v[1] - y0) / size]); }
     n++;
   }
