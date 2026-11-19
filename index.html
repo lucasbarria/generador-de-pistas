@@ -6546,7 +6546,7 @@ async function buildZip(R) {
   const o = R.o, slug = slugify(o.name), zip = new JSZip();
   const tr = zip.folder('content').folder('tracks').folder(slug), src = $('#withSrc').checked ? zip.folder('fuente_' + slug) : null, ref = zip.folder('referencia_rbr_btb');
   const usedMats = [...new Set(R.meshes.map(m => m.mat))];
-  const keys = [...new Set(R.meshes.filter(m => !/^(LINES|TREES|ROCKS|STONES|BANNERS|OBJECTS)_/.test(m.name)).map(m => m.name.replace(/^\d+/, '')))];
+  const keys = [...new Set(R.meshes.filter(m => !/^(LINES|TREES|ROCKS|STONES|BANNERS|OBJECTS|SIDEVIS|far)_/.test(m.name) && !m.far && !m.sideVis).map(m => m.name.replace(/^\d+/, '')))]; // Etapa 7: las bandas pintadas y el horizonte no son superficies físicas
   const kd = m => (m === 'line' || m === 'tree' || m === 'tuft' || m === 'lenga' || m === 'leaves' || m === 'bark' || m.startsWith('side_') || m === 'people' || m.startsWith('tc_') || m.startsWith('rs_')) ? '1 1 1' : (TEXDEF[m] || SURF[MAT2KEY[m]] || { col: [128, 128, 128] }).col.map(v => (v / 255).toFixed(2)).join(' ');
   $('#prog').textContent = 'Escribiendo modelo 3D…'; await tick();
   if ($('#withSrc').checked) {
@@ -7563,7 +7563,7 @@ if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') ||
 
 
 // ---------- Versión: qué compilación es esta y si es la última publicada en GitHub ----------
-const BUILD = {"id": "927d966892e0", "date": "2026-11-19T00:09:46Z", "version": "2026.11.19+927d966", "base": "6bbee414fa36457ea9cdab5f1ffa44af9577d1a3"};
+const BUILD = {"id": "460552852749", "date": "2026-11-19T00:22:25Z", "version": "2026.11.19+4605528", "base": "59932f0488cfa6c036ef6a6ebda300267fd88537"};
 const VER = {
   repo: 'lucasbarria/generador-de-pistas',
   set(state, txt, cls) { const el = $('#verInfo'); if (!el) return; const b = BUILD || {}; const dt = b.date ? new Date(b.date).toLocaleString() : '?';

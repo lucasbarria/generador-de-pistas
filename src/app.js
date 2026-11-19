@@ -4906,7 +4906,7 @@ async function buildZip(R) {
   const o = R.o, slug = slugify(o.name), zip = new JSZip();
   const tr = zip.folder('content').folder('tracks').folder(slug), src = $('#withSrc').checked ? zip.folder('fuente_' + slug) : null, ref = zip.folder('referencia_rbr_btb');
   const usedMats = [...new Set(R.meshes.map(m => m.mat))];
-  const keys = [...new Set(R.meshes.filter(m => !/^(LINES|TREES|ROCKS|STONES|BANNERS|OBJECTS)_/.test(m.name)).map(m => m.name.replace(/^\d+/, '')))];
+  const keys = [...new Set(R.meshes.filter(m => !/^(LINES|TREES|ROCKS|STONES|BANNERS|OBJECTS|SIDEVIS|far)_/.test(m.name) && !m.far && !m.sideVis).map(m => m.name.replace(/^\d+/, '')))]; // Etapa 7: las bandas pintadas y el horizonte no son superficies físicas
   const kd = m => (m === 'line' || m === 'tree' || m === 'tuft' || m === 'lenga' || m === 'leaves' || m === 'bark' || m.startsWith('side_') || m === 'people' || m.startsWith('tc_') || m.startsWith('rs_')) ? '1 1 1' : (TEXDEF[m] || SURF[MAT2KEY[m]] || { col: [128, 128, 128] }).col.map(v => (v / 255).toFixed(2)).join(' ');
   $('#prog').textContent = 'Escribiendo modelo 3D…'; await tick();
   if ($('#withSrc').checked) {
