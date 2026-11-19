@@ -272,3 +272,25 @@ function hipassDetail(cv, frac = 0.12, keep = 0.25) {
       for (let xx = 0; xx < W; xx++) { let s = 0; for (let q = -r; q <= r; q++) s += t[(((q % H) + H) % H) * W + xx]; for (let y = 0; y < H; y++) { a[y * W + xx] = s / (2 * r + 1); s += t[((y + r + 1) % H) * W + xx] - t[(((y - r) % H + H) % H) * W + xx]; } } } return a; };
   for (let k = 0; k < 3; k++) { const lo = blur(Float32Array.from(ch[k])); for (let i = 0; i < N; i++) d[i * 4 + k] = Math.max(0, Math.min(255, ch[k][i] - lo[i] + mean[k] + (lo[i] - mean[k]) * keep)); }
   x.putImageData(im, 0, 0); c.__hp = true; return c; }
+
+// ---------- Etapa 8 · cámara de las fotos: render desde la posición/rumbo/inclinación EXACTOS de cada foto (GPS + EXIF) ----------
+// fov vertical 67,3° = iPhone 13 gran angular (26 mm equiv.) en vertical; inclinación estimada del horizonte de la foto.
+// idPass: misma vista con colores planos por zona (cielo, camino, costado, pasto) para medir el color por zona en foto y render.
+const FOTOCAM = {
+  place(v) { const R = S.result, B = S.base; if (!R || !B) return null; const [x, y] = B.P.fwd(v.lat, v.lon), z = -y; let g = null;
+    const rc = new THREE.Raycaster(new THREE.Vector3(x, 2000, z), new THREE.Vector3(0, -1, 0)); for (const h of rc.intersectObjects(PV.group.children, false)) { const s = h.object.userData.src; if (h.object.visible && !(s && /TREES|ROCKS|SIGN|FENCE|OBJECTS|far_obj/.test(s.name))) { g = h.point.y; break; } }
+    const b = v.rumbo * Math.PI / 180, p = (v.pitch || 0) * Math.PI / 180, dx = Math.sin(b) * Math.cos(p), dy = Math.cos(b) * Math.cos(p), dz = Math.sin(p);
+    PV.drive = null; PV.camera.fov = v.fov || 67.3; PV.camera.near = 0.03; PV.camera.far = 40000; PV.camera.position.set(x, (g ?? 0) + (v.h ?? 1.5), z);
+    PV.controls.target.set(x + dx * 10, (g ?? 0) + (v.h ?? 1.5) + dz * 10, z - dy * 10); PV.controls.update(); return g; },
+  zone(m) { const s = m.userData.src || {}; const k = s.mat || '', n = s.name || ''; if (/^rs_|^road|asphalt/.test(k) || /^\d+(GRAVEL|STONY|LOOSE|MUD|CLAY|ROAD)/.test(n) && !/^tc_|grass/.test(k)) return 0xff0000;
+    if (/^sb_|ditch|bank|verge|loose|BLOOSE|CORDON|DWALL|DBOT/.test(k + n)) return 0x0000ff; if (/^tc_|grass|farland|side_|tuft/.test(k)) return 0x00ff00; return 0xffff00; },
+  async render(W, H, id) { const r = PV.renderer, old = r.getSize(new THREE.Vector2()); r.setSize(W, H, false); PV.camera.aspect = W / H; PV.camera.updateProjectionMatrix(); let saved = null;
+    if (id) { saved = { bg: PV.scene.background, fog: PV.scene.fog, mats: new Map() }; PV.scene.background = new THREE.Color(0); PV.scene.fog = null; const cache = {};
+      PV.scene.traverse(o => { if (o.isMesh || o.isInstancedMesh) { saved.mats.set(o, o.material); const c = o.isInstancedMesh ? 0x00ff00 : this.zone(o); o.material = cache[c] || (cache[c] = new THREE.MeshBasicMaterial({ color: c, side: THREE.DoubleSide })); } }); }
+    else if (typeof PVGRASS !== 'undefined') { PVGRASS.last = null; PVGRASS.update(); }
+    PV.render(); const blob = await new Promise(q => r.domElement.toBlob(q, id ? 'image/png' : 'image/jpeg', 0.9));
+    if (saved) { PV.scene.background = saved.bg; PV.scene.fog = saved.fog; for (const [o, m] of saved.mats) o.material = m; }
+    r.setSize(old.x, old.y, false); PV.camera.aspect = old.x / old.y; PV.camera.updateProjectionMatrix(); return blob; },
+  async panel(vistas, name) { const zip = new JSZip(); for (const [k, v] of Object.entries(vistas)) { this.place(v); zip.file(k + '_render.jpg', await this.render(600, 800)); zip.file(k + '_id.png', await this.render(600, 800, true)); }
+    const blob = await zip.generateAsync({ type: 'blob' }), a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name || 'panel_fotos.zip'; document.body.appendChild(a); a.click(); return blob.size; },
+};
