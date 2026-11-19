@@ -2977,6 +2977,8 @@ function paintSideBands(res, only) {
   // canal de la máscara de cada material: [R ripio, G tierra, B pasto, A banquina]
   const CHN = { loose: [1, 0, 0, 0], stones: [1, 0, 0, 0], canal: [0, 1, 0, 0], cordon: [0.12, 0.88, 0, 0], wall: [0, 1, 0, 0], shoulder: [0.15, 0, 0, 0.85], weed: [0.45, 0, 0.55, 0], grass: [0, 0, 1, 0] };
   const col = new Float32Array(4), msk = new Float32Array(4);
+  const dat = (cv, seed) => { try { return cv ? { D: RGLIB.dat({ name: 'sb_src_' + seed, cv }, 40), seed } : null; } catch (e) { return null; } };
+  const SBT = SBP.tex && SBP.tex.stamp === S0.stamp ? SBP.tex : (SBP.tex = { stamp: S0.stamp, loose: dat(S0.src.loose, 601), stones: dat(S0.src.stones, 603), shoulder: dat(S0.src.shoulder, 607), dirt: dat(S0.src.dirt, 611), grass: dat(S0.src.grass, 613) });
   const sample = (d, arc, ak, W, old, side) => { // color base + máscara en (d, arc)
     const a2 = arc + 0.22 * (vn(d / 1.7, arc / 0.9, 501 + side) - 0.5) + 0.1 * (vn(d / 0.45, arc / 0.35, 503 + side) - 0.5);
     let k = 0; while (k < 4 && a2 >= ak[k + 1]) k++; const beyond = a2 >= ak[5];
@@ -2991,6 +2993,10 @@ function paintSideBands(res, only) {
       if (mt === 'canal') { const wet = 0.64 + 0.1 * vn(d / 3, arc, 521); c = [e[0] * wet, e[1] * wet * 0.98, e[2] * wet * 0.95]; } // fondo húmedo, más oscuro
       else { const zf = Math.sin(Math.min(1, Math.max(0, z - 4) / 0.95) * Math.PI * 0.92), sh = 0.84 + 0.6 * (cl - 0.45) * (0.35 + zf); // terrones: luz arriba, sombra en las grietas
         const tone = mt === 'wall' ? [0.82, 0.78, 0.74] : [0.98, 0.93, 0.86]; c = [e[0] * tone[0] * sh, e[1] * tone[1] * sh, e[2] * tone[2] * sh]; } }
+    // Etapa 7: textura real de las fotos (no el color medio): muestreo estocástico a 1 m por celda, con el tono de la franja encima
+    const TD = SBT[mt === 'weed' ? 'grass' : mt === 'canal' || mt === 'cordon' || mt === 'wall' ? 'dirt' : mt]; if (TD) { const q = RGLIB.stoch(TD.D, arc, d, mt === 'grass' || mt === 'weed' ? 1.3 : 0.9, TD.seed + side, true), M = TD.D.mean;
+      if (mt === 'weed') { const g2 = RGLIB.stoch(SBT.loose.D, arc + 7, d, 0.9, 77, true), M2 = SBT.loose.D.mean; for (let i = 0; i < 3; i++) c[i] = c[i] * 0.5 * (q[i] / Math.max(1, M[i]) + g2[i] / Math.max(1, M2[i])); }
+      else for (let i = 0; i < 3; i++) c[i] = c[i] * q[i] / Math.max(1, M[i]); }
     const ch = CHN[mt]; for (let q = 0; q < 4; q++) msk[q] = ch[q]; col[0] = c[0] * macro; col[1] = c[1] * macro; col[2] = c[2] * macro; };
   for (const tag of ['L', 'R']) { const rows = SB[tag], side = tag === 'L' ? 1 : -1; if (!rows || rows.length < 2) continue;
     const pieces = new Set(); for (const r of rows) pieces.add(Math.floor(r.d / PL));
@@ -3002,8 +3008,8 @@ function paintSideBands(res, only) {
         for (const k of ['A', 'B', 'C', 'D']) W[k] = (A.w[k] || 0) * (1 - t) + (B.w[k] || 0) * t; return { ak: A.arcK.map((v, k) => v + ((B.arcK[k] ?? v) - v) * t), W, old: t < 0.5 ? A.old : B.old }; };
       for (let py = 0; py < NV; py++) { const d = p * PL - MG + (NV - 1 - py + 0.5) / NV * (PL + 2 * MG), R = at(d); // v = 0 abajo (three.js / AC)
         for (let px = 0; px < NU; px++) { const arc = (px + 0.5) / NU * Wb, q = (py * NU + px) * 4; let r = 0, g = 0, b = 0;
-          for (const da of [-0.03, 0.03]) { sample(d, arc + da, R.ak, R.W, R.old, side); r += col[0]; g += col[1]; b += col[2]; } // borde suave (±3 cm)
-          o[q] = Math.min(255, r / 2); o[q + 1] = Math.min(255, g / 2); o[q + 2] = Math.min(255, b / 2); o[q + 3] = 255; } }
+          sample(d, arc, R.ak, R.W, R.old, side); r = col[0]; g = col[1]; b = col[2];
+          o[q] = Math.min(255, r); o[q + 1] = Math.min(255, g); o[q + 2] = Math.min(255, b); o[q + 3] = 255; } }
       for (let py = 0; py < MV; py++) { const d = p * PL - MG + (MV - 1 - py + 0.5) / MV * (PL + 2 * MG); ri = 0; const R = at(d);
         for (let px = 0; px < MU; px++) { const arc = (px + 0.5) / MU * Wb, q = (py * MU + px) * 4, acc = [0, 0, 0, 0];
           for (const da of [-0.05, 0, 0.05]) { sample(d, arc + da, R.ak, R.W, R.old, side); for (let c = 0; c < 4; c++) acc[c] += msk[c] / 3; }
@@ -3016,7 +3022,7 @@ function paintSideBands(res, only) {
 function terrainLibOn() { return DETAIL.enabled() && PACK.on && !!PACK.get('det_grass') && !!(PACK.get('det_forest') || PACK.get('det_dirt') || PACK.get('det_rock')); }
 const TERR_MULT = [1, 0.43, 1.31, 0.61]; // escalas relativas de los 4 detalles del terreno en modo mezcla (4,5 m · 10,5 m · 3,4 m · 7,4 m)
 function bakeInternalTerrain(B, ter, meshes, res, rd, env = {}) {
-  const TML = terrainLibOn(), TMIX = TML && !meshes.some(m => m.terrain && m.mat === 'forest'); DETAIL.tmix = TMIX;
+  const TML = terrainLibOn(), TMIX = TML && (!meshes.some(m => m.terrain && m.mat === 'forest') || (typeof PRESETS !== 'undefined' && PRESETS.cur && PRESETS.list[PRESETS.cur] && PRESETS.list[PRESETS.cur].arboles === 0)); DETAIL.tmix = TMIX;
   const smt = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   const groups = new Map();
   for (const m of meshes) if (m.terrain && m.chunk) { const k = m.chunk.join('_'); (groups.get(k) || groups.set(k, []).get(k)).push(m); }
@@ -4241,7 +4247,7 @@ async function rebuild(keepCam) {
     const rk = { name: 'ROCKS_side', mat: 'boulder', v: [], uv: [], f: [] }; let nr = 0;
     for (let i = 0; i < res.n; i++) for (const sd of [1, -1]) { const tp = SIDECAT.TYPES[SIDECAT.typeAt(res.dist[i], sd)]; if (hashU(i, sd, 311) > 0.3 * tp.rocks + 0.05) continue;
       const e = 0.9 + hashU(i, sd, 312) * 4, lat = sd * (res.W[i] / 2 + e), nx = -res.T[i][1], ny = res.T[i][0], x0 = res.C[i][0] + nx * lat, y0 = res.C[i][1] + ny * lat, h = sideH(i, sd, e, x0, y0); if (h == null) continue;
-      const r = 0.08 + Math.pow(hashU(i, sd, 313), 2) * 0.35, b = rk.v.length, rot = hashU(i, sd, 314) * 6.28, j = k => 0.75 + 0.5 * hashU(i * 7 + k, sd, 315);
+      const r = (res.sideBands ? 0.45 : 1) * (0.08 + Math.pow(hashU(i, sd, 313), 2) * 0.35), b = rk.v.length, // Etapa 7: con las bandas de Río Grande, piedras más chicas (las placas claras de 40 cm no están en las fotos) rot = hashU(i, sd, 314) * 6.28, j = k => 0.75 + 0.5 * hashU(i * 7 + k, sd, 315);
       [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 0.7], [0, 0, -0.5]].forEach(([X, Y, Z], k) => { const f = r * j(k), cx = X * Math.cos(rot) - Y * Math.sin(rot), cy = X * Math.sin(rot) + Y * Math.cos(rot); rk.v.push([x0 + cx * f, y0 + cy * f, h - r * 0.25 + Z * f]); rk.uv.push([(X + 1) / 2, (Y + 1) / 2]); });
       [[0, 2, 4], [2, 1, 4], [1, 3, 4], [3, 0, 4], [2, 0, 5], [1, 2, 5], [3, 1, 5], [0, 3, 5]].forEach(([a, bb, cc]) => rk.f.push([b + a, b + bb, b + cc])); nr++; }
     // piedras sueltas en las cunetas (labio, fondo y bordo), más donde la cuneta es de piedra y en el lado de afuera de las curvas

@@ -196,7 +196,7 @@ function cspExtConfig(R) {
 // ---------- Vista web: pasto con volumen instanciado alrededor de la cámara (equivalente a GrassFX de CSP) ----------
 // Matas de 5 hojas (5–14 cm), manchas secas con el mismo ruido que el terreno, flores amarillas (diente de león), rosetas planas con
 // centro rojizo y yuyos más altos (20–45 cm) en el borde del camino donde el costado es de pasto (tipos C y D). Denso cerca, ralo lejos:
-// 8 matas/m² hasta 10 m, 3 hasta 25 m, 0,8 hasta 45 m y 0,2 hasta 70 m. Se rearma cuando la cámara se mueve más de 8 m.
+// 14 matas/m² hasta 10 m, 5 hasta 25 m, 1,2 hasta 45 m y 0,3 hasta 70 m. Se rearma cuando la cámara se mueve más de 8 m.
 // Densidades y tamaños ESTIMADO_DE_FOTOS (6870, 6873, 6891).
 const PVGRASS = { on: true, last: null, objs: [],
   geo() { if (this.G) return this.G; const mk = (nb, w, lean) => { const pos = []; for (let k = 0; k < nb; k++) { const a = k / nb * 6.283 + 0.4 * Math.sin(k * 7.1), ca = Math.cos(a), sa = Math.sin(a), l = lean * (0.6 + 0.4 * Math.sin(k * 3.3));
@@ -217,7 +217,7 @@ const PVGRASS = { on: true, last: null, objs: [],
     if (this.last && Math.hypot(cx - this.last[0], cy - this.last[1]) < 8 && Math.abs(cam.y - this.last[2]) < 20) return; this.last = [cx, cy, cam.y];
     const res = this.R.res; let bi = 0, bd = Infinity; for (let i = 0; i < res.n; i += 2) { const q = Math.hypot(res.C[i][0] - cx, res.C[i][1] - cy); if (q < bd) { bd = q; bi = i; } }
     this.clear(); const camH = cam.y - res.hs[bi]; if (bd > 110 || camH > 60) return;
-    const G = this.geo(), T = { tuft: [], weed: [], ros: [], flw: [] }, d0 = res.dist[bi], zones = [[10, 8], [25, 3], [45, 0.8], [70, 0.2]];
+    const G = this.geo(), T = { tuft: [], weed: [], ros: [], flw: [] }, d0 = res.dist[bi], zones = [[10, 14], [25, 5], [45, 1.2], [70, 0.3]];
     const idxAt = d => { let lo = 0, hi = res.n - 1; while (hi - lo > 1) { const mi = (lo + hi) >> 1; if (res.dist[mi] < d) lo = mi; else hi = mi; } return lo; };
     let rmin = 0; for (const [rmax, dens] of zones) { const st = 1 / Math.sqrt(dens);
       for (let d = Math.max(0, d0 - rmax - 5); d < Math.min(res.total, d0 + rmax + 5); d += st) { const i = idxAt(d), C = res.C[i], Tt = res.T[i], hw = res.W[i] / 2;
@@ -227,7 +227,7 @@ const PVGRASS = { on: true, last: null, objs: [],
           let z = arc < 6.6 ? this.hB(x, y) : null; if (z == null) z = this.hT(x, y); if (z == null) continue;
           const u = hashU(Math.round(x * 7), Math.round(y * 7), 21), dry = vn2(x / 7, y / 7, 905) * 0.7 + vn2(x / 1.9, y / 1.9, 906) * 0.3;
           if (mt === 'weed' || (arc < 0.9 && arc > 0.05 && u < 0.35)) T.weed.push([x, y, z, 0.2 + 0.25 * u, dry]);
-          else if (u < 0.05) T.flw.push([x, y, z, 0.07 + 0.05 * u * 20, dry]); else if (u < 0.12) T.ros.push([x, y, z, 0.06 + 0.06 * (u - 0.05) * 14, dry]); else T.tuft.push([x, y, z, 0.05 + 0.09 * u, dry]); } }
+          else if (u < 0.05) T.flw.push([x, y, z, 0.07 + 0.05 * u * 20, dry]); else if (u < 0.12) T.ros.push([x, y, z, 0.06 + 0.06 * (u - 0.05) * 14, dry]); else T.tuft.push([x, y, z, 0.06 + 0.11 * u, dry]); } }
       rmin = rmax; }
     const mat = (col) => new THREE.MeshLambertMaterial({ color: col, side: THREE.DoubleSide }), M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), V = new THREE.Vector3(), Sc = new THREE.Vector3(), cl = new THREE.Color();
     const put = (geo, list, base, colFn, flat) => { if (!list.length) return; const im = new THREE.InstancedMesh(geo, mat(0xffffff), list.length);
