@@ -508,22 +508,23 @@ function edGizmoDefs() {
   return out;
 }
 function edGizmoPos(g) { const p = edAt(g.d, g.lat); return v3(p.x, p.y, p.h + g.yOff); }
-const GZ_GEO = {};
+const GZ_GEO = {}, GZ_MAT = {}, GZ_LINE_MAT = {};
+const SEL_MAT = new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4 });
 function edGizmoMesh(g) {
   const geo = GZ_GEO[g.type] || (GZ_GEO[g.type] = g.type === 'up' ? new THREE.SphereGeometry(1, 16, 12) : g.type === 'along' ? new THREE.BoxGeometry(1.5, 1.5, 1.5) : g.type === 'side' ? new THREE.BoxGeometry(1.4, 1.4, 1.4) : g.type === 'move' ? new THREE.OctahedronGeometry(1.2) : new THREE.SphereGeometry(0.9, 12, 8));
-  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: GZ_COL[g.col], depthTest: false, transparent: true, opacity: 0.95 }));
+  const m = new THREE.Mesh(geo, GZ_MAT[g.col] || (GZ_MAT[g.col] = new THREE.MeshBasicMaterial({ color: GZ_COL[g.col], depthTest: false, transparent: true, opacity: 0.95 })));
   m.renderOrder = 20; return m;
 }
 function edBuildGizmos() {
   if (!PV.scene) return;
-  if (ED.gzGroup) { PV.scene.remove(ED.gzGroup); ED.gzGroup.traverse(o => { if (o.material) o.material.dispose(); if (o.geometry && !Object.values(GZ_GEO).includes(o.geometry)) o.geometry.dispose(); }); }
+  if (ED.gzGroup) { PV.scene.remove(ED.gzGroup); ED.gzGroup.traverse(o => { if (o.material && !Object.values(GZ_MAT).includes(o.material) && !Object.values(GZ_LINE_MAT).includes(o.material)) o.material.dispose(); if (o.geometry && !Object.values(GZ_GEO).includes(o.geometry)) o.geometry.dispose(); }); }
   ED.gzGroup = new THREE.Group(); PV.scene.add(ED.gzGroup);
   if (!edOn()) { ED.gz = []; return; }
   ED.gz = edGizmoDefs();
   for (const g of ED.gz) {
     g.mesh = edGizmoMesh(g); ED.gzGroup.add(g.mesh);
     if (g.type === 'up' || g.type === 'side') { // tallo hasta el camino
-      g.stem = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: GZ_COL[g.col], depthTest: false }));
+      g.stem = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), GZ_LINE_MAT[g.col] || (GZ_LINE_MAT[g.col] = new THREE.LineBasicMaterial({ color: GZ_COL[g.col], depthTest: false })));
       g.stem.renderOrder = 19; ED.gzGroup.add(g.stem);
     }
   }
@@ -597,7 +598,7 @@ function camStep() {
 }
 // franja celeste sobre la selección
 function edBuildSelMesh() {
-  if (ED.selMesh) { PV.scene.remove(ED.selMesh); ED.selMesh.geometry.dispose(); ED.selMesh = null; }
+  if (ED.selMesh) { PV.scene.remove(ED.selMesh); ED.selMesh.geometry.dispose(); ED.selMesh = null; } // SEL_MAT se reutiliza
   const r = edR(); if (!r || !S.sel || !PV.scene || $('#viewer').style.display === 'none') return;
   let d0 = S.sel.d0, d1 = S.sel.d1; if (d1 - d0 < 1) { d0 -= 1.5; d1 += 1.5; }
   const pos = [], idx = [], N = Math.max(2, Math.min(4000, Math.ceil((d1 - d0) / 2)));
@@ -607,7 +608,7 @@ function edBuildSelMesh() {
     if (k) { const b = (k - 1) * 2; idx.push(b, b + 1, b + 3, b, b + 3, b + 2); }
   }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
-  ED.selMesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4 }));
+  ED.selMesh = new THREE.Mesh(g, SEL_MAT);
   ED.selMesh.renderOrder = 5; PV.scene.add(ED.selMesh);
 }
 function edScreen(p) {

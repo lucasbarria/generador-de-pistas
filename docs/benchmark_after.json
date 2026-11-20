@@ -1,0 +1,22 @@
+{
+  "pista": "sintetica_2k7_curvas",
+  "longitud_m": 2699.5,
+  "puntos_eje": 1351,
+  "mallas": 29,
+  "vertices": 47238,
+  "caras": 70200,
+  "uv_ok": true,
+  "build_ms": 84.11,
+  "edit_ms": 50.93,
+  "profile_ms": 17.34,
+  "hash_geometria": "83f751f8ba77b1ce",
+  "hash_mallas": "1bc506d92004f0c1",
+  "materiales": [
+    "asphalt",
+    "ditchbot",
+    "ditchwall",
+    "grass",
+    "loose",
+    "verge"
+  ]
+}

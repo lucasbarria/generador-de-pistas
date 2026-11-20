@@ -229,8 +229,9 @@ const PVGRASS = { on: true, last: null, objs: [],
           if (mt === 'weed' || (arc < 0.9 && arc > 0.05 && u < 0.35)) T.weed.push([x, y, z, 0.2 + 0.25 * u, dry]);
           else if (u < 0.05) T.flw.push([x, y, z, 0.07 + 0.05 * u * 20, dry]); else if (u < 0.12) T.ros.push([x, y, z, 0.06 + 0.06 * (u - 0.05) * 14, dry]); else T.tuft.push([x, y, z, 0.06 + 0.11 * u, dry]); } }
       rmin = rmax; }
-    const mat = (col) => new THREE.MeshLambertMaterial({ color: col, side: THREE.DoubleSide }), M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), V = new THREE.Vector3(), Sc = new THREE.Vector3(), cl = new THREE.Color();
-    const put = (geo, list, base, colFn, flat) => { if (!list.length) return; const im = new THREE.InstancedMesh(geo, mat(0xffffff), list.length);
+    // un solo material compartido para las cuatro tandas: antes se creaba y descartaba en cada movimiento de cámara
+    const gm = this._gmat || (this._gmat = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide })), M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), V = new THREE.Vector3(), Sc = new THREE.Vector3(), cl = new THREE.Color();
+    const put = (geo, list, base, colFn, flat) => { if (!list.length) return; const im = new THREE.InstancedMesh(geo, gm, list.length);
       list.forEach((p, k) => { E.set(flat ? 0 : (hashU(k, 1, 31) - 0.5) * 0.3, hashU(k, 2, 31) * 6.283, flat ? 0 : (hashU(k, 3, 31) - 0.5) * 0.3); Q.setFromEuler(E); V.set(p[0], p[2] - 0.01, -p[1]); const sc = p[3]; Sc.set(flat ? sc : sc * 0.9, flat ? 1 : sc, flat ? sc : sc * 0.9); M.compose(V, Q, Sc); im.setMatrixAt(k, M); colFn(cl, p, k); im.setColorAt(k, cl); });
       im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; im.frustumCulled = false; im.receiveShadow = true; PV.scene.add(im); this.objs.push(im); };
     const green = [0.33, 0.40, 0.19], dryc = [0.62, 0.56, 0.36];
@@ -238,7 +239,8 @@ const PVGRASS = { on: true, last: null, objs: [],
     put(G.weed, T.weed, null, (c, p, k) => { const v = 0.8 + 0.35 * hashU(k, 6, 7), w = 0.35 + 0.4 * p[4]; c.setRGB((0.30 * (1 - w) + 0.58 * w) * v, (0.36 * (1 - w) + 0.52 * w) * v, (0.18 * (1 - w) + 0.32 * w) * v); });
     put(G.ros, T.ros, null, (c, p, k) => { const red = hashU(k, 8, 7) < 0.4; c.setRGB(red ? 0.42 : 0.24, red ? 0.30 : 0.36, red ? 0.20 : 0.16); }, true);
     put(G.flw, T.flw, null, (c) => c.setRGB(0.95, 0.80, 0.12));
-    this.count = T.tuft.length + T.weed.length + T.ros.length + T.flw.length; },
+    this.count = T.tuft.length + T.weed.length + T.ros.length + T.flw.length;
+    if (PV.renderer && PV.renderer.shadowMap) PV.renderer.shadowMap.needsUpdate = true; },
 };
 
 // ---------- Huellones (Etapa 7): a mano (herramienta del editor) y al azar con semilla ----------
