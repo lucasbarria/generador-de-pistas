@@ -1601,14 +1601,18 @@ const RIPIO_AB = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBAUEBAYFBQUGBgYHCQ4JCQgICR
 
 // ---------- Lectura de texturas .dds (DXT1/DXT3/DXT5/sin comprimir), para usar texturas de otros tramos ----------
 function ddsToCanvas(buf) {
+  // Validar longitud antes de leer: un .dds cortado antes daba RangeError críptico o una imagen de basura.
+  if (buf.byteLength < 128) throw new Error('DDS inválido: cabecera incompleta');
   const dv = new DataView(buf); if (dv.getUint32(0, true) !== 0x20534444) throw new Error('no es DDS');
   const H = dv.getUint32(12, true), W = dv.getUint32(16, true), pfFlags = dv.getUint32(80, true);
   let four = String.fromCharCode(dv.getUint8(84), dv.getUint8(85), dv.getUint8(86), dv.getUint8(87)), off = 128;
   if (four === 'DX10') { const fmt = dv.getUint32(128, true); off = 148; four = [70, 71, 72].includes(fmt) ? 'DXT1' : [73, 74, 75].includes(fmt) ? 'DXT3' : [76, 77, 78].includes(fmt) ? 'DXT5' : fmt === 87 || fmt === 91 ? 'BGRA' : fmt === 28 || fmt === 29 ? 'RGBA' : '?'; }
+  if (!W || !H || W > 16384 || H > 16384 || off > buf.byteLength) throw new Error('DDS inválido: dimensiones o cabecera inconsistentes');
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const x = cv.getContext('2d'), img = x.createImageData(W, H), o = img.data, b = new Uint8Array(buf, off);
   const c565 = v => [((v >> 11) & 31) * 255 / 31, ((v >> 5) & 63) * 255 / 63, (v & 31) * 255 / 31];
   if (four === 'DXT1' || four === 'DXT3' || four === 'DXT5') {
     const bs = four === 'DXT1' ? 8 : 16, bw = Math.max(1, (W + 3) >> 2), bh = Math.max(1, (H + 3) >> 2), pal = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], al = new Uint8Array(16);
+    if (off + bw * bh * bs > buf.byteLength) throw new Error('DDS truncado: faltan bloques comprimidos');
     for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) {
       const p = (by * bw + bx) * bs, q = p + bs - 8;
       if (four === 'DXT3') for (let k = 0; k < 16; k++) al[k] = ((b[p + (k >> 1)] >> ((k & 1) * 4)) & 15) * 17;
@@ -1623,6 +1627,7 @@ function ddsToCanvas(buf) {
     }
   } else if (four === 'BGRA' || four === 'RGBA' || (pfFlags & 0x40)) {
     const bits = four === '?' || four.charCodeAt(0) === 0 ? dv.getUint32(88, true) : 32, bpp = bits >> 3, rm = dv.getUint32(92, true) || 0xff0000, am = dv.getUint32(104, true);
+    if (bpp < 1 || off + W * H * bpp > buf.byteLength) throw new Error('DDS truncado: faltan píxeles');
     const sh = m => { let s = 0; if (!m) return -1; while (!((m >> s) & 1)) s++; return s; }, rs = sh(rm), gs = sh(dv.getUint32(96, true) || 0xff00), bsh = sh(dv.getUint32(100, true) || 0xff), as = sh(am);
     for (let i = 0; i < W * H; i++) { let v = 0; for (let k = 0; k < bpp; k++) v |= b[i * bpp + k] << (8 * k); v >>>= 0;
       if (four === 'RGBA') { o[i * 4] = b[i * 4]; o[i * 4 + 1] = b[i * 4 + 1]; o[i * 4 + 2] = b[i * 4 + 2]; o[i * 4 + 3] = b[i * 4 + 3]; continue; }
@@ -3211,7 +3216,9 @@ function bleedRGB(img, w, h, umbral = 8) {
   return out;
 }
 function rgbaToDDS(img, W0, H0, five) {
-  if (five) img = bleedRGB(img, W0, H0);
+  // DXT1 no guarda alfa: si los píxeles transparentes tienen RGB negro, el negro aparece en mipmaps y en el juego.
+  // Rellenar el color también en DXT1 evita el tramo negro sin cambiar los píxeles visibles.
+  img = bleedRGB(img, W0, H0);
   const levels = []; let w = W0, h = H0;
   for (;;) {
     levels.push(five ? dxt5Encode(img, w, h) : dxt1Encode(img, w, h)); if (w <= 4 || h <= 4) break;
@@ -4658,13 +4665,18 @@ function rgbaResize(src, W, H) { // promedio por caja (achicar) o bilineal (agra
 // terreno de varias capas (máscara + 4 detalles, el shader multicapa de AC): RBR no lo tiene, se hornea en una sola textura
 function rbrBakeChan(mat, D) {
   const base = rgbaOf(TEX[mat]), W = rbrPow2(base.width || base.w, 2048), H = rbrPow2(base.h, 2048), b = rgbaResize(base, W, H);
-  const mk = TEX['mk_' + mat], m = rgbaResize(rgbaOf(mk), W, H), T = DETAIL.terrain(), mult = D.mult || 1;
+  const mk = TEX['mk_' + mat], m = mk ? rgbaResize(rgbaOf(mk), W, H) : null, T = DETAIL.terrain(), mult = D.mult || 1;
+  // Sin máscara o sin capas de detalle no se puede hornear: devolver la base evita texturas negras en el ZIP.
+  if (!m || !T || !T.R || !T.G || !T.B || !T.A) return b;
   const tw = Math.max(4, Math.round(W / mult)), th = Math.max(4, Math.round(H / mult)), dets = [T.R, T.G, T.B, T.A].map(c => rgbaResize(rgbaOf(c), tw, th));
   const out = new Uint8ClampedArray(W * H * 4), mg = D.magic || 1;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const i = (y * W + x) * 4, j = ((y % th) * tw + (x % tw)) * 4, wsum = (m.d[i] + m.d[i + 1] + m.d[i + 2] + m.d[i + 3]) || 1;
-    for (let c = 0; c < 3; c++) { let v = 0; for (let k = 0; k < 4; k++) v += dets[k].d[j + c] * m.d[i + k]; out[i + c] = b.d[i + c] * (v / 255 / 255) * mg * (255 / Math.max(255, wsum)) * 255 / 255; }
+    const i = (y * W + x) * 4, j = ((y % th) * tw + (x % tw)) * 4, wsum = m.d[i] + m.d[i + 1] + m.d[i + 2] + m.d[i + 3];
     out[i + 3] = 255;
+    if (wsum < 8) { for (let c = 0; c < 3; c++) out[i + c] = b.d[i + c]; continue; }
+    // detalle ponderado por la máscara; piso de 75 % para que una máscara o detalle oscuro no ennegrezca el tramo
+    const amp = Math.max(0.75, mg * 255 / Math.max(255, wsum));
+    for (let c = 0; c < 3; c++) { let v = 0; for (let k = 0; k < 4; k++) v += dets[k].d[j + c] * m.d[i + k]; out[i + c] = b.d[i + c] * Math.max(0.75, v / (255 * wsum)) * amp; }
   }
   return { w: W, h: H, d: out };
 }
@@ -4909,6 +4921,27 @@ function drawOutline(R, maxSize, margin, line) {
   return { c, W, H, sc, mnx, mxy };
 }
 
+// Auditoría previa al ZIP: texturas faltantes, materiales sin referencia y UV/posiciones inválidas.
+// Se escribe dentro del ZIP y se muestra en consola para que una exportación negra nunca pase desapercibida.
+function texAudit(R) {
+  const errs = [], warns = [], mats = [...new Set(R.meshes.map(m => m.mat))];
+  for (const k of mats) {
+    const cv = TEX[k];
+    if (!cv || !cv.width || !cv.height) { errs.push(`material "${k}": textura ausente`); continue; }
+    if (/\/|[\\]/.test(k)) errs.push(`material "${k}": nombre con ruta (debe ser relativo)`);
+    if (cv.__alpha && cv.__alpha.length !== cv.width * cv.height) errs.push(`textura "${k}": canal alfa de tamaño incorrecto`);
+  }
+  let uvBad = 0, posBad = 0;
+  for (const m of R.meshes) {
+    if (!m.uv || m.uv.length !== m.v.length) uvBad++;
+    else for (const q of m.uv) if (!isFinite(q[0]) || !isFinite(q[1])) { uvBad++; break; }
+    for (const v of m.v) if (!isFinite(v[0]) || !isFinite(v[1]) || !isFinite(v[2])) { posBad++; break; }
+  }
+  if (uvBad) errs.push(`${uvBad} mallas con UV faltantes o no finitas`);
+  if (posBad) errs.push(`${posBad} mallas con posiciones no finitas`);
+  if (typeof PACK !== 'undefined' && PACK.on) for (const it of PACK.items) if (!it.cv && !it.blob) warns.push(`pack: ${it.name || '?' } sin imagen utilizable`);
+  return { ok: !errs.length, errs, warns, materiales: mats.length };
+}
 async function buildZip(R) {
   await photoReady;
   const o = R.o, slug = slugify(o.name), zip = new JSZip();
@@ -4946,6 +4979,9 @@ async function buildZip(R) {
   const tags = R.mode === 'route' ? (R.closed ? ['circuit', 'real world'] : ['point to point', 'rally', 'real world']) : ['open world', 'real world'];
   if (o.snow) tags.push('snow');
   tr.file('MATERIALES.txt', materialsReport());
+  { const a = texAudit(R); tr.file('AUDITORIA_TEXTURAS.txt',
+      `Materiales: ${a.materiales}\nErrores: ${a.errs.length}\nAvisos: ${a.warns.length}\n${a.errs.map(e => 'ERROR: ' + e).join('\n')}\n${a.warns.map(e => 'AVISO: ' + e).join('\n')}\n`);
+    if (!a.ok) log('Auditoría de texturas: ' + a.errs.join(' · '), 'err'); }
   { const rep = VALID.run(R); if (rep) { VALID.show(rep); tr.file('VALIDACION.txt', VALID.text(rep) + `\n\nAprobado por el usuario antes de exportar: ${$('#valOk') && $('#valOk').checked ? 'sí' : 'no (exportado sin aprobar)'}\n`); log(`Validación: ${rep.zones.length} zonas para revisar (detalle en VALIDACION.txt y en el mapa).`); } }
   tr.file('LICENCIAS_DATOS.txt', ['Datos usados para generar esta pista:', '- Calles, agua y edificios: © colaboradores de OpenStreetMap (ODbL), vía OpenFreeMap.', '- Elevación: ' + [DEM.used && DEM.used.cop ? COP_ATTR : '', DEM.used && DEM.used.ter ? 'Terrain Tiles (AWS Open Data / Mapzen)' : '', ...DEM.custom.map(r => r.name)].filter(Boolean).join('; ') + '.', '- Texturas: todas generadas por la app (materiales internos)' + (PACK.on && PACK.items.length ? '; detalle fino de tu pack DDS local (verificá su licencia antes de publicar la pista)' : '') + '.', '- La imagen satelital se usó solo para analizar (ancho del camino, piso, bosque); no está incluida en la pista.'].filter(Boolean).join('\n'));
   ui.file('ui_track.json', JSON.stringify({ name: o.name, description: `Generada desde datos reales (OpenStreetMap + elevación). ${(R.length / 1000).toFixed(2)} km.${S.imgStats && S.imgStats.src ? ' Texturas del terreno: ' + S.imgStats.src.attr : ''}`, tags, geotags: [R.lat0.toFixed(5), R.lon0.toFixed(5)], country: '', city: '', length: Math.round(R.length) + 'm', width: o.width + 'm', pitboxes: String(o.pits), run: R.closed ? 'clockwise' : '' }, null, 2));
@@ -5082,13 +5118,13 @@ function pvAdd(m) {
   m.f.forEach((f, i) => idx.set(f, i * 3));
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(new THREE.BufferAttribute(idx, 1));
   if (m.n && m.n.length === m.v.length) { const nr = new Float32Array(m.n.length * 3); m.n.forEach((q, i) => { nr[i * 3] = q[0]; nr[i * 3 + 1] = q[2]; nr[i * 3 + 2] = -q[1]; }); g.setAttribute('normal', new THREE.BufferAttribute(nr, 3)); } else g.computeVertexNormals();
-  const mesh = new THREE.Mesh(g, pvMat(m.mat)); mesh.userData.src = m; if (m.pvHide || m.physOnly) mesh.visible = false; mesh.receiveShadow = true; mesh.castShadow = !/^(TERRAIN|terrain|WATER|SKY)/i.test(m.name || '') && m.mat !== 'line'; if (mesh.castShadow && mesh.material.alphaTest > 0 && mesh.material.map) mesh.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: mesh.material.map, alphaTest: mesh.material.alphaTest }); PV.group.add(mesh); PV.byMesh.set(m, mesh);
+  const mesh = new THREE.Mesh(g, pvMat(m.mat)); mesh.userData.src = m; if (m.pvHide || m.physOnly) mesh.visible = false; mesh.receiveShadow = true; mesh.castShadow = !/^(TERRAIN|terrain|WATER|SKY)/i.test(m.name || '') && m.mat !== 'line'; if (mesh.castShadow && mesh.material.alphaTest > 0 && mesh.material.map) mesh.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: mesh.material.map, alphaTest: mesh.material.alphaTest }); PV.group.add(mesh); PV.byMesh.set(m, mesh); if (PV.renderer && PV.renderer.shadowMap) PV.renderer.shadowMap.needsUpdate = true;
   if (m.terrain) PV.terrain.push({ mesh, src: m, mat: mesh.material });
   return mesh;
 }
 function pvRemove(m) {
   const mesh = PV.byMesh && PV.byMesh.get(m); if (!mesh) return;
-  PV.group.remove(mesh); mesh.geometry.dispose(); PV.byMesh.delete(m);
+  PV.group.remove(mesh); mesh.geometry.dispose(); PV.byMesh.delete(m); if (PV.renderer && PV.renderer.shadowMap) PV.renderer.shadowMap.needsUpdate = true;
 }
 // copia las posiciones de la malla de origen a la vista 3D
 function pvSync(m) {
@@ -5096,6 +5132,7 @@ function pvSync(m) {
   const g = mesh.geometry, a = g.attributes.position.array;
   for (let i = 0; i < m.v.length; i++) { const v = m.v[i]; a[i * 3] = v[0]; a[i * 3 + 1] = v[2]; a[i * 3 + 2] = -v[1]; }
   g.attributes.position.needsUpdate = true; if (!m.n) g.computeVertexNormals(); g.computeBoundingSphere(); g.computeBoundingBox();
+  if (PV.renderer && PV.renderer.shadowMap) PV.renderer.shadowMap.needsUpdate = true;
 }
 async function showPreview(R, keepCam) {
   $('#viewer').style.display = 'block';
@@ -5109,11 +5146,15 @@ async function showPreview(R, keepCam) {
     PV.controls = new THREE.OrbitControls(PV.camera, PV.renderer.domElement);
     // Etapa 5: sol con sombras (hemisférica más baja para que el sol marque el relieve de las piedras y el banco)
     PV.renderer.shadowMap.enabled = true; PV.renderer.shadowMap.type = THREE.PCFShadowMap; // PCF con radio: sombras blandas en el preset nublado
+    // Las sombras se recalculan sólo cuando cambia la geometría o el sol/cámara: en edición estática era el mayor costo por frame.
+    PV.renderer.shadowMap.autoUpdate = false; PV.renderer.shadowMap.needsUpdate = true;
     PV.hemi = new THREE.HemisphereLight(0xdfe7f0, 0x4a473c, 0.5); PV.scene.add(PV.hemi);
     const sun = new THREE.DirectionalLight(0xfff3e2, 0.95); PV.sunDir = new THREE.Vector3(-0.45, 0.62, -0.64).normalize(); // sol del norte-noroeste, ~38° de altura
     sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); const sc = sun.shadow.camera; sc.left = sc.bottom = -35; sc.right = sc.top = 35; sc.near = 1; sc.far = 600;
     sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03; PV.scene.add(sun); PV.scene.add(sun.target); PV.sun = sun;
-    PV.sunFollow = (r) => { const t = PV.controls.target, R = r || 35; sc.left = sc.bottom = -R; sc.right = sc.top = R; sc.updateProjectionMatrix(); sun.target.position.copy(t); sun.position.copy(t).addScaledVector(PV.sunDir, 250); sun.target.updateMatrixWorld(); };
+    PV.sunFollow = (r) => { const t = PV.controls.target, R = r || 35;
+      if (!PV._sunAt || PV._sunAt.distanceToSquared(t) > 0.25 || PV._sunR !== R) { PV._sunAt = t.clone(); PV._sunR = R; PV.renderer.shadowMap.needsUpdate = true; }
+      sc.left = sc.bottom = -R; sc.right = sc.top = R; sc.updateProjectionMatrix(); sun.target.position.copy(t); sun.position.copy(t).addScaledVector(PV.sunDir, 250); sun.target.updateMatrixWorld(); };
     PV.group = new THREE.Group(); PV.scene.add(PV.group);
     { const cs = document.getElementById('cielo'); pvCielo(cs ? cs.value : 'hdri_overcast_soil_puresky'); if (cs) cs.onchange = () => pvCielo(cs.value); }
     const resize = () => { const w = host.clientWidth, h = host.clientHeight; PV.renderer.setSize(w, h, false); PV.camera.aspect = w / h; PV.camera.updateProjectionMatrix(); };
@@ -5121,7 +5162,9 @@ async function showPreview(R, keepCam) {
     PV.render = () => PV.renderer.render(PV.scene, PV.camera);
     PV.mats = {};
     setTimeout(edHookViewer, 0);
-    const loop = () => { requestAnimationFrame(loop); if (PV.drive) PV.drive(); if (PV.onFrame) PV.onFrame(); if (typeof PVGRASS !== 'undefined') { try { PVGRASS.update(); } catch (e) { PVGRASS.on = false; console.warn('pasto', e); } } PV.controls.update(); if (PV.sunFollow && !PV.sunFixed) PV.sunFollow(); PV.render(); }; loop();
+    // viewer oculto: no manejar cámara, pasto ni render (antes seguía consumiendo CPU/GPU aunque no se viera)
+    const loop = () => { requestAnimationFrame(loop); if ($('#viewer').style.display === 'none') return;
+      if (PV.drive) PV.drive(); if (PV.onFrame) PV.onFrame(); if (typeof PVGRASS !== 'undefined') { try { PVGRASS.update(); } catch (e) { PVGRASS.on = false; console.warn('pasto', e); } } PV.controls.update(); if (PV.sunFollow && !PV.sunFixed) PV.sunFollow(); PV.render(); }; loop();
   }
   while (PV.group.children.length) { const c = PV.group.children.pop(); c.geometry.dispose(); }
   PV.terrain = []; PV.byMesh = new Map();
@@ -5576,7 +5619,7 @@ async function buildKN5(R, slug, invert) {
 function canvasToDDS(cv, grade, dxt) {
   let w = cv.width, h = cv.height;
   let img = cv.__raw || cv.getContext('2d').getImageData(0, 0, w, h).data;
-  if (!dxt && !cv.__raw) { let tr = false; for (let i = 3; i < img.length; i += 4 * 97) if (img[i] < 250) { tr = true; break; } if (tr) img = bleedRGB(img, w, h, 8); } // con transparencia: color sin bordes negros
+  { let tr = false; for (let i = 3; i < img.length; i += 4 * 97) if (img[i] < 250) { tr = true; break; } if (tr) img = bleedRGB(img, w, h, 8); } // con transparencia: color sin bordes negros, también en DXT1
   if (grade) { img = new Uint8ClampedArray(img); for (let i = 0; i < img.length; i += 4) { img[i] *= grade[0]; img[i + 1] *= grade[1]; img[i + 2] *= grade[2]; } }
   const levels = [];
   for (;;) {
