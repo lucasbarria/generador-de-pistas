@@ -149,6 +149,17 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
     <header><h1>Generador de <span>Pistas</span></h1><p>Elegí cualquier camino del mundo y convertilo en una pista para Assetto Corsa, RBR u otro simulador.</p></header>
     <section id="recover" style="display:none;background:#1f2a1f"><div id="recoverInfo" class="mut"></div><div class="row"><button class="b" id="recoverYes">Recuperar</button><button class="b" id="recoverNo">Descartar</button></div></section>
     <section class="row" style="padding-top:10px;padding-bottom:10px"><button class="b" id="saveProj">💾 Guardar proyecto</button><label class="b" style="cursor:pointer">📂 Abrir proyecto<input type="file" id="openProj" accept=".json" hidden></label></section>
+    <section id="reconProject" class="texbox">
+      <h2>0 · Proyecto de reconstrucción</h2>
+      <label class="f">Nombre del proyecto<input id="reconName" placeholder="Ej. Aguas Blancas · Tolhuin"></label>
+      <div class="row"><button class="b" id="reconNew">Nuevo proyecto</button><button class="b" id="reconPilot">Cargar piloto Aguas Blancas</button></div>
+      <div class="mut" id="reconStatus" style="margin-top:6px">Elegí el recorrido en el paso 1. Acá se guarda de dónde viene cada dato; no se inventan coordenadas.</div>
+      <details class="texbox"><summary>Datos reales y procedencia</summary>
+        <div class="row"><button class="b" id="reconElev">Descargar elevación</button><button class="b" id="reconPhotos">Buscar fotos</button></div>
+        <div class="row"><button class="b" id="reconValidate">Validar tramo</button></div>
+        <div class="mut" id="reconEvidence" style="margin-top:6px">Todavía no hay datos geográficos incorporados.</div>
+      </details>
+    </section>
     <section>
       <h2>1 · Trazado y mapa</h2>
       <div class="tabs"><button class="tab" data-mode="route">Tramo / circuito</button><button class="tab" data-mode="area">Zona abierta</button></div>
@@ -319,7 +330,7 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
       <div class="row"><button class="b" id="tApply">Aplicar ajustes de arriba</button><button class="b" id="tClearEd">Borrar todos los cambios</button></div>
     </section>
     <div id="verInfo" class="mut" style="font-size:11.5px;margin:8px 0 4px;line-height:1.5"></div>
-    <footer>Calles © colaboradores de OpenStreetMap (ODbL), vía OpenFreeMap. Elevación: Terrarium / AWS Open Data. Ruteo: OSRM. Assetto Corsa es marca de Kunos Simulazioni; Richard Burns Rally es marca de sus titulares. Herramienta no afiliada.</footer>
+    <footer>Calles © colaboradores de OpenStreetMap (ODbL), vía OpenFreeMap. Elevación: Terrarium / AWS Open Data y Copernicus DEM GLO-90 vía Open-Meteo. Fotos: Wikimedia Commons y Panoramax según cada licencia. Ruteo: OSRM. Assetto Corsa es marca de Kunos Simulazioni; Richard Burns Rally es marca de sus titulares. Herramienta no afiliada.</footer>
     <div id="helpbar"><b>ℹ️</b> Pasá el mouse (o tocá) cualquier opción para ver para qué sirve.</div>
   </aside>
 </div>

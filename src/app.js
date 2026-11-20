@@ -20,6 +20,7 @@ const S = {
   spawn: null, spawnMarker: null, picking: null, result: null,
   placed: [], // objetos puestos a mano en la vista 3D: árboles, casas, personas, puentes, lagos, zonas sin árboles
   side: [], sideLayer: null, // caminos laterales: [{ pts: [[lat, lng]…], cls, unpaved }]
+  recon: Recon.blankProject(), // proyecto de reconstrucción: coordena procedencia, elevación y fotos
 };
 
 function setMode(m) {
@@ -142,6 +143,10 @@ function setRouteGeom(geom, extra) {
   let d = 0; for (let i = 1; i < geom.length; i++) d += map.distance(geom[i - 1], geom[i]);
   setInfo(geom.length > 1 ? `Recorrido: ${(d / 1000).toFixed(2)} km · ${extra}` : 'Sin recorrido todavía.');
   kmCheck(geom.length > 1 ? d / 1000 : 0);
+  if (S.recon) {
+    Recon.syncRouteFromLegacy(S.recon, { routeGeom: geom, gps: S.gpsTrack, path: G.path, wps: S.wps });
+    renderReconPanel && renderReconPanel();
+  }
 }
 
 // ---------- Calles reales: teselas vectoriales de OpenFreeMap (datos de OpenStreetMap) ----------
@@ -5417,7 +5422,20 @@ $('#gpsFile').onchange = async ev => {
     const head = await readSlice(file, 0, Math.min(12, file.size));
     const isVideo = (file.size >= 12 && ['ftyp', 'moov', 'mdat', 'wide', 'free'].includes(fourcc(head, 4))) || /\.(mp4|mov|lrv|360)$/i.test(file.name);
     if (!isVideo && file.size > 50e6) throw new Error('El archivo es muy grande y no es un video MP4/MOV ni un GPX/KML.');
-    let pts = isVideo ? await gpsFromMP4(file) : gpsFromText(await file.text(), file.name);
+    let pts, importFormat = 'gps';
+    if (isVideo) pts = await gpsFromMP4(file);
+    else {
+      const text = await file.text();
+      if (/\.(gpx|kml|geojson|json)$/i.test(file.name)) {
+        const parsed = Recon.parseRouteText(text, file.name);
+        const route = parsed.routes[parsed.primary];
+        if (!route) throw new Error('No hay un recorrido válido en ' + file.name + (parsed.warnings.length ? ': ' + parsed.warnings.join(' ') : ''));
+        if (parsed.warnings.length) log('Avisos del archivo: ' + parsed.warnings.join(' | '), 'warn');
+        if (parsed.routes.length > 1) log(`El archivo trae ${parsed.routes.length} recorridos; se usa el más largo (${route.points.length} puntos).`);
+        pts = route.points.map(p => [p.lat, p.lon, p.ele || 0]);
+        importFormat = parsed.format;
+      } else pts = gpsFromText(text, file.name);
+    }
     // limpiar: descartar saltos imposibles y puntos repetidos (cada 3 m como mínimo)
     const clean = [];
     for (const p of pts) {
@@ -5436,7 +5454,13 @@ $('#gpsFile').onchange = async ev => {
     S.gpsTrack = clean;
     map.fitBounds(L.latLngBounds(clean.map(p => [p[0], p[1]])).pad(0.1));
     drawTrace();
-    log('Recorrido cargado. Revisalo sobre el satélite y apretá "Generar pista".');
+    Recon.setRoute(S.recon, clean, {
+      kind: importFormat + '-file', label: 'Archivo importado', filename: file.name,
+      provenance: Recon.PROVENANCE.MEASURED, importedAt: new Date().toISOString(),
+      originalPoints: pts.length, keptPoints: clean.length,
+    });
+    renderReconPanel();
+    log(`Recorrido cargado desde ${file.name}. Procedencia declarada: archivo ${importFormat.toUpperCase()}. Revisalo sobre el satélite y apretá "Generar pista".`);
   } catch (e) { log('No se pudo importar: ' + e.message, 'err'); }
   ev.target.value = '';
 };
@@ -5680,12 +5704,15 @@ function projectState() {
     rect: b ? [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()] : null,
     spawn: S.spawn ? [S.spawn.lat, S.spawn.lng] : null,
     side: S.side, placed: ED.session ? JSON.parse(ED.session.base).p || [] : S.placed,
+    recon: S.recon ? Recon.normalizeProject(S.recon) : null,
     view: map.getCenter ? [map.getCenter().lat, map.getCenter().lng, map.getZoom()] : null,
   };
 }
 async function loadProject(st) {
   if (!st || st.app !== 'generador-de-pistas') throw new Error('No es un proyecto del generador.');
   for (const [id, v] of Object.entries(st.inputs || {})) { const el = document.getElementById(id); if (!el) continue; if (el.type === 'checkbox') el.checked = v; else el.value = v; }
+  S.recon = st.recon ? Recon.normalizeProject(st.recon) : Recon.blankProject({ name: ($('#tname') && $('#tname').value) || 'Proyecto de reconstrucción' });
+  renderReconPanel();
   $('#snowOpts').style.display = $('#snow').checked ? '' : 'none';
   try { $('#season').onchange(); $('#grassType').onchange(); await $('#gravelStyle').onchange(); } catch (e) { }
   setMode(st.mode || 'route');
@@ -5715,8 +5742,89 @@ async function loadProject(st) {
   }
   if (st.view && !(mode === 'pick' && G.path.length)) map.setView([st.view[0], st.view[1]], st.view[2]);
   renderEdits && $('#editCount') && renderEdits();
+  if (!st.recon) Recon.syncRouteFromLegacy(S.recon, { routeGeom: S.routeGeom, gps: S.gpsTrack, path: G.path, wps: S.wps },
+    { kind: 'legacy-project', label: 'Proyecto anterior del generador', provenance: S.gpsTrack ? Recon.PROVENANCE.MEASURED : Recon.PROVENANCE.OBSERVED, retrievedAt: st.saved || new Date().toISOString() });
+  renderReconPanel();
   log(`Proyecto cargado${st.saved ? ' (guardado ' + new Date(st.saved).toLocaleString() + ')' : ''}. Apretá "Generar pista" para reconstruirlo.`, 'ok');
 }
+
+// ---------- Reconstrucción de tramos reales: procedencia, elevación y fotos ----------
+function escHtml(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function reconSourceLabel(p) {
+  const s = p && p.route.source;
+  if (!s) return 'sin fuente declarada';
+  return (s.label || s.kind || 'fuente') + (s.filename ? ' (' + s.filename + ')' : '');
+}
+function renderReconPanel() {
+  if (!$('#reconStatus') || !S.recon) return;
+  const p = S.recon, nameEl = $('#reconName');
+  if (document.activeElement !== nameEl) nameEl.value = p.name;
+  const issues = Recon.validateProject(p);
+  const anchor = p.stage.anchor ? `${p.stage.anchor.lat.toFixed(6)}, ${p.stage.anchor.lon.toFixed(6)} (${escHtml(p.stage.anchor.source && p.stage.anchor.source.label)})` : 'sin ancla verificada';
+  $('#reconStatus').innerHTML = `<b>${escHtml(p.name)}</b><br>Recorrido: ${p.route.points.length ? p.route.points.length.toLocaleString('es-AR') + ' puntos · ' + (p.route.lengthMeters / 1000).toFixed(2) + ' km' : 'sin definir'} · fuente: ${escHtml(reconSourceLabel(p))}<br>Ancla: ${anchor}<br>Validación: ${issues.length ? '<span style="color:#f59e0b">' + issues.length + ' punto(s) a resolver</span>' : '<span style="color:#4ade80">sin bloqueos</span>'}`;
+  const elev = p.elevation;
+  const photos = p.photos;
+  $('#reconEvidence').innerHTML = `<div>Alturas con procedencia: <b>${elev.samples.length}</b>${elev.provider ? ' · ' + escHtml(elev.dataset || elev.provider) + (elev.resolutionMeters ? ' · ' + elev.resolutionMeters + ' m/píxel' : '') : ''}</div>`
+    + `<div>Fotos georreferenciadas: <b>${photos.length}</b>${photos.length ? ' · ' + escHtml([...new Set(photos.map(f => f.provider))].join(', ')) : ''}</div>`
+    + `<div class="mut" style="font-size:11.5px">Las fotos no se usan como textura exportable sin revisión: solo evidencia visual.</div>`;
+}
+
+function reconMaybeReplace(what) {
+  const p = S.recon;
+  if (!p || (!p.photos.length && !p.elevation.samples.length && !p.changes.length)) return true;
+  return confirm(what + ' va a reemplazar la evidencia de este proyecto (elevación, fotos y cambios). ¿Continuar?');
+}
+
+$('#reconName').onchange = () => { if (S.recon) { S.recon.name = $('#reconName').value.trim() || 'Proyecto de reconstrucción'; S.recon.updatedAt = new Date().toISOString(); renderReconPanel(); } };
+$('#reconNew').onclick = () => {
+  if (!reconMaybeReplace('El proyecto nuevo')) return;
+  S.recon = Recon.blankProject({ name: $('#reconName').value.trim() || 'Proyecto de reconstrucción' });
+  Recon.syncRouteFromLegacy(S.recon, { routeGeom: S.routeGeom, gps: S.gpsTrack, path: G.path, wps: S.wps });
+  renderReconPanel();
+  log('Proyecto de reconstrucción creado. El tramo actual se conservó; las fuentes se declararán al importarlo o dibujarlo.', 'ok');
+};
+$('#reconPilot').onclick = () => {
+  if (!reconMaybeReplace('El piloto Aguas Blancas')) return;
+  S.recon = Recon.aguasBlancasSeed();
+  const a = S.recon.stage.anchor;
+  $('#stA').value = a.lat + ', ' + a.lon;
+  map.setView([a.lat, a.lon], 16);
+  renderReconPanel();
+  log('Piloto cargado: ancla real de OpenStreetMap en RP-27. El recorrido NO se inventó: importá GPX/KML o marcalo en el mapa.', 'ok');
+};
+$('#reconElev').onclick = async () => {
+  const btn = $('#reconElev');
+  if (!S.recon || S.recon.route.points.length < 2) { log('Primero definí el recorrido en el paso 1.', 'err'); return; }
+  btn.disabled = true;
+  try {
+    log('Descargando alturas reales del recorrido (Open-Meteo / Copernicus GLO-90, 90 m)…');
+    const r = await Recon.sampleElevations(S.recon.route.points);
+    Recon.setElevationSamples(S.recon, r.samples, r.meta);
+    renderReconPanel();
+    log(`Elevación: ${r.samples.length} muestras con fuente y resolución declaradas. No representan cunetas ni baches.`, 'ok');
+  } catch (e) { log('No se pudo descargar la elevación: ' + e.message, 'err'); }
+  btn.disabled = false;
+};
+$('#reconPhotos').onclick = async () => {
+  const btn = $('#reconPhotos');
+  if (!S.recon || S.recon.route.points.length < 2) { log('Primero definí el recorrido en el paso 1.', 'err'); return; }
+  btn.disabled = true;
+  try {
+    log('Buscando fotos georreferenciadas reales (Commons y Panoramax)…');
+    const r = await Recon.searchAlongRoute(S.recon.route.points, { maxSamples: 6, radiusMeters: 1000, limit: 10 });
+    r.photos.forEach(f => { try { Recon.addPhoto(S.recon, f); } catch (e) { } });
+    renderReconPanel();
+    log(`Fotos encontradas: ${r.photos.length}${r.errors.length ? ' · avisos: ' + r.errors.join(' | ') : ''}. Revisalas antes de usarlas como referencia visual.`, r.photos.length ? 'ok' : '');
+  } catch (e) { log('No se pudo buscar fotos: ' + e.message, 'err'); }
+  btn.disabled = false;
+};
+$('#reconValidate').onclick = () => {
+  if (!S.recon) return;
+  const issues = Recon.validateProject(S.recon);
+  S.recon.validation = { state: issues.length ? 'issues' : 'ok', checkedAt: new Date().toISOString(), issues };
+  renderReconPanel();
+  log(issues.length ? 'Validación: ' + issues.join(' · ') : 'Validación: el proyecto tiene recorrido, elevación y ancla declarados.', issues.length ? 'warn' : 'ok');
+};
 $('#saveProj').onclick = () => {
   const st = projectState(), blob = new Blob([JSON.stringify(st)], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = slugify($('#tname').value || 'pista') + '.pista.json';
@@ -5754,8 +5862,8 @@ const HELP = {
   demSrc: 'Elevación base: Copernicus GLO-30 es el modelo de elevación libre más preciso con cobertura mundial (30 m por píxel, radar 2011–2015). Se descarga gratis del catálogo abierto de HOT y queda guardado en la compu. Donde no hay dato, se completa con Terrarium (SRTM y otras). Los dos son modelos de 30 m: no reproducen cunetas ni baches.',
   freeImg: 'Imágenes libres del recorrido: busca sola en OpenAerialMap y en los datos abiertos de Maxar imágenes de drones o satélites con licencia libre (de 3 cm a 1 m por píxel). Si cubren el camino, se usan para la textura del camino y sus costados, con su atribución en LICENCIAS_DATOS.txt. Si no hay (lo más común en zonas rurales), sigue con Sentinel-2. Costo: cero.',
   refFile: 'Fotos del camino que subís: se analizan solas (color del piso, piedras, humedad, bordes) y arman los materiales del camino. Nunca se incluyen en la pista.',
-  refCal: 'Fotos del lugar automáticas: al generar, busca fotos libres geolocalizadas cerca del recorrido en Wikimedia Commons y Panoramax (sin registrarse), y en Mapillary si cargaste su token. Solo usa las que muestran un camino, y mide el color del piso, la banquina y las piedras sueltas. Las fotos nunca se incluyen en la pista.',
-  mlyToken: 'Token gratuito de Mapillary: entrá a mapillary.com, creá una cuenta, andá a Dashboard → Developers → Register application y copiá el "Client Token" (empieza con MLY|). Queda guardado solo en esta compu.',
+  refCal: 'Fotos del lugar: el panel "Proyecto de reconstrucción" busca fotos georreferenciadas reales en Wikimedia Commons y Panoramax sin credenciales. Se guardan como evidencia con su licencia y procedencia; no se afirma que muestran el camino hasta revisarlas. Mapillary requiere token y cliente GraphQL: todavía no está implementado, no se simulan resultados.',
+  mlyToken: 'Mapillary: el token se guarda en esta compu, pero en este hito NO hay búsqueda real con ese token (solo un enlace al visor web). No se presenta como función operativa.',
   matSrc: 'Materiales del suelo: la biblioteca libre usa fotos de materiales reales de Poly Haven (licencia CC0: uso libre, también comercial), con su escala real en metros. Se descarga una sola vez y sirve para todos los caminos del mundo. "Fotos de la app" usa las texturas tomadas en Tierra del Fuego.',
   libDl: 'Baja una sola vez unos 20 materiales (tierra compactada, ripio fino y grueso, grava, barro, arena, asfalto, pasto, suelo de bosque, hojarasca, roca, turba, nieve) y los guarda en esta compu. Los próximos proyectos no vuelven a descargarlos.',
   libExp: 'Guarda toda la biblioteca en un .zip para pasársela a otra persona o a otra compu (por ejemplo, a Nicolás).',
