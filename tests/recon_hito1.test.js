@@ -5,6 +5,7 @@ const M = require('../src/recon/model.js');
 const F = require('../src/recon/formats.js');
 const D = require('../src/recon/dem.js');
 const P = require('../src/recon/photos.js');
+const N = require('../src/recon/networks.js');
 
 test('piloto Aguas Blancas: ancla real OSM y ningún recorrido inventado', () => {
   const p = M.aguasBlancasSeed();
@@ -126,9 +127,12 @@ test('DEM: usa lotes de 100, declara procedencia y cachea respuestas reales', as
   }), /Open-Meteo: lat/);
 });
 
-test('fotos: Commons y Panoramax son clientes reales; Mapillary queda pending', async () => {
+test('fotos: Commons, Panoramax y Mapillary son clientes reales; sin token queda pending', async () => {
+  assert.equal(P.status().find(x => x.provider === 'mapillary').status, 'pending-client');
   const status = P.status('MLY|token-de-prueba');
-  assert.equal(status.find(x => x.provider === 'mapillary').ready, false);
+  assert.equal(status.find(x => x.provider === 'mapillary').ready, true);
+  assert.equal(status.find(x => x.provider === 'mapillary').status, 'ready');
+  assert.equal(N.statusMapillary({ token: 'MLY|token-de-prueba' }).status, 'ready');
   const commons = {
     query: { pages: { '123': { pageid: 123, title: 'File:AB.jpg', coordinates: [{ lat: -54.6267, lon: -67.2433 }], imageinfo: [{ url: 'https://upload.test/AB.jpg?utm_source=x', extmetadata: { LicenseShortName: { value: 'CC BY-SA 4.0' }, Artist: { value: '<b>Nombre</b>' } } }] } } },
   };

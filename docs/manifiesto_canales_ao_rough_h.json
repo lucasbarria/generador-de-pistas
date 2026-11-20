@@ -1,0 +1,84 @@
+{
+  "schema": "ao-rough-h-channel-manifest",
+  "version": 1,
+  "generatedAt": "2026-11-20",
+  "generatedBy": "tools/inspect_ao_rough_h.js",
+  "command": "node tools/inspect_ao_rough_h.js",
+  "scope": "presets/pisos/ripio_rio_grande/texturas/*_ao_rough_h.png",
+  "semantics": {
+    "status": "unknown",
+    "statement": "El nombre sugiere AO, rugosidad y altura, pero el repo no contiene texturas_v5.json ni otro contrato que demuestre qué canal es cada mapa. Las estadísticas reales no prueban la semántica.",
+    "channelOrder": ["R", "G", "B"],
+    "alpha": "El PNG es RGB: no hay canal A con significado declarado.",
+    "measuredNotAssumed": true
+  },
+  "export": {
+    "assettoCorsaKn5Slots": ["txDiffuse", "txNormal", "txMask", "txDetailR", "txDetailG", "txDetailB", "txDetailA", "txDetailNM"],
+    "aoRoughnessMetalnessSlots": false,
+    "pbrClaimed": false,
+    "roleInGenerator": "none",
+    "reason": "No hay slots AO/roughness/metalness verificados en .kn5 y la semántica de canales no está demostrada."
+  },
+  "consumption": {
+    "mode": "diagnostic-only",
+    "description": "Los PNG se leen y se miden al cargar el preset; el resultado se informa al usuario. No se convierten en AO, roughness ni height, y no se derivan texturas nuevas."
+  },
+  "files": [
+    {
+      "file": "rg_east_dry_ao_rough_h.png",
+      "bytes": 2115375,
+      "sha256": "1a42c3546a485f05b74ee08b8a2a3fbeea454dde18d7b25c5e819f3f0b8f06a5",
+      "width": 1024,
+      "height": 1024,
+      "colorType": "RGB",
+      "channels": [
+        { "name": "R", "min": 114, "max": 255, "mean": 222.3, "std": 42.5 },
+        { "name": "G", "min": 191, "max": 238, "mean": 214.84, "std": 7.26 },
+        { "name": "B", "min": 0, "max": 254, "mean": 101.02, "std": 26.99 }
+      ],
+      "corr": { "R-G": -0.569, "R-B": 0.764, "G-B": -0.788 }
+    },
+    {
+      "file": "rg_gravel_loose_ao_rough_h.png",
+      "bytes": 2154985,
+      "sha256": "351e66500d343cd59a76cc63aa94036cba6d843cdff382a09b89a86fbedbcbca",
+      "width": 1024,
+      "height": 1024,
+      "colorType": "RGB",
+      "channels": [
+        { "name": "R", "min": 114, "max": 255, "mean": 215.83, "std": 50.41 },
+        { "name": "G", "min": 191, "max": 242, "mean": 216.56, "std": 7.92 },
+        { "name": "B", "min": 0, "max": 254, "mean": 110.98, "std": 28.58 }
+      ],
+      "corr": { "R-G": -0.701, "R-B": 0.79, "G-B": -0.825 }
+    },
+    {
+      "file": "rg_track_compacted_ao_rough_h.png",
+      "bytes": 1653296,
+      "sha256": "584834823aab4b22f18f97cc05b871371ef00a08cc9c8a56483426effa92acb0",
+      "width": 1024,
+      "height": 1024,
+      "colorType": "RGB",
+      "channels": [
+        { "name": "R", "min": 114, "max": 255, "mean": 216.38, "std": 50.4 },
+        { "name": "G", "min": 191, "max": 240, "mean": 209.95, "std": 6.7 },
+        { "name": "B", "min": 0, "max": 254, "mean": 128.24, "std": 28.44 }
+      ],
+      "corr": { "R-G": -0.731, "R-B": 0.771, "G-B": -0.947 }
+    },
+    {
+      "file": "rg_west_dry_ao_rough_h.png",
+      "bytes": 2094341,
+      "sha256": "5d65afdee938aecaf69aa7d6e60c904332e20cb4844c632c00388ac0c5e0e97a",
+      "width": 1024,
+      "height": 1024,
+      "colorType": "RGB",
+      "channels": [
+        { "name": "R", "min": 114, "max": 255, "mean": 222.28, "std": 44.73 },
+        { "name": "G", "min": 191, "max": 242, "mean": 213.34, "std": 7.48 },
+        { "name": "B", "min": 0, "max": 254, "mean": 122.63, "std": 23.43 }
+      ],
+      "corr": { "R-G": -0.647, "R-B": 0.812, "G-B": -0.764 }
+    }
+  ]
+}

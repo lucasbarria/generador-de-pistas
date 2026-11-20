@@ -1,6 +1,6 @@
 // Búsqueda real de fotografías georreferenciadas.
-// Wikimedia Commons y Panoramax funcionan sin credenciales. Mapillary NO está implementado:
-// guardar un token no equivale a buscar fotos; este módulo lo dice explícitamente.
+// Wikimedia Commons y Panoramax funcionan sin credenciales. Mapillary usa el cliente REST v4
+// de networks.js: sin Client Token devuelve pending-client y NUNCA resultados simulados.
 (function (root) {
   'use strict';
 
@@ -18,7 +18,7 @@
     mapillary: {
       label: 'Mapillary',
       status: 'pending-client',
-      reason: 'Requiere Client Token y cliente GraphQL de Mapillary; este hito no lo implementa.',
+      reason: 'Requiere Client Token. El cliente Graph API v4 está en networks.js; sin token no se simulan resultados.',
     },
   });
 
@@ -110,10 +110,14 @@
   }
 
   function status(token) {
+    const R = root.Reconstruction || {};
+    const mly = typeof R.statusMapillary === 'function'
+      ? R.statusMapillary({ token })
+      : { ready: false, status: 'pending-client', detail: SOURCES.mapillary.reason };
     return [
       { provider: 'commons', ready: true, detail: 'geosearch + imageinfo, sin credenciales' },
       { provider: 'panoramax', ready: true, detail: 'STAC /api/search?bbox=…, sin credenciales' },
-      { provider: 'mapillary', ready: false, detail: token ? 'Hay token guardado, pero falta el cliente GraphQL: no se simulan resultados.' : SOURCES.mapillary.reason },
+      { provider: 'mapillary', ready: !!mly.ready, status: mly.status, detail: mly.detail },
     ];
   }
 
@@ -127,10 +131,19 @@
     for (let i = 0; i < pts.length && sampled.length < maxSamples; i += step) sampled.push({ lat: Number(pts[i].lat), lon: Number(pts[i].lon) });
     const photos = [], errors = [], seen = new Set();
     const providers = o.providers || ['commons', 'panoramax'];
+    const R = root.Reconstruction || {};
     for (const point of sampled) {
       for (const provider of providers) {
         try {
-          const found = provider === 'commons' ? await searchCommons(point, o) : provider === 'panoramax' ? await searchPanoramax(point, o) : [];
+          let found = [];
+          if (provider === 'commons') found = await searchCommons(point, o);
+          else if (provider === 'panoramax') found = await searchPanoramax(point, o);
+          else if (provider === 'mapillary') {
+            if (typeof R.searchMapillary !== 'function') throw new Error('cliente Mapillary no disponible en este entorno');
+            const r = await R.searchMapillary(point, o);
+            found = r.photos || [];
+            (r.errors || []).forEach(msg => errors.push('mapillary: ' + msg));
+          }
           for (const p of found) { if (!seen.has(p.id)) { seen.add(p.id); photos.push(p); } }
         } catch (e) { errors.push(provider + ': ' + e.message); }
       }

@@ -23,6 +23,12 @@ const S = {
   recon: Recon.blankProject(), // proyecto de reconstrucción: coordena procedencia, elevación y fotos
 };
 
+// Estado de la Etapa 2. Se declara antes de setMode(): el arranque dibuja el recorrido y
+// renderReconPanel() consulta estos mapas antes de que se ejecute el resto del archivo.
+let reconSources = null;
+const reconPlans = new Map();
+const reconApplied = new Map();
+
 function setMode(m) {
   S.mode = m;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.mode === m));
@@ -2024,6 +2030,44 @@ function dataKey(o) {
 }
 
 // ---------- PRESETS DE PISO (Etapa 6 · borrador) ----------
+// Manifiesto medido de los PNG *_ao_rough_h. No afirma qué canal es AO/rugosidad/altura:
+// declara estadísticas reales y que AC no tiene slots verificados para usarlos como PBR.
+const AO_ROUGH_MANIFEST = /*AO_MANIFEST*/null;
+
+// Los mapas *_ao_rough_h se consumen solo como diagnóstico verificable: se leen sus píxeles,
+// se miden R/G/B y se comparan con el manifiesto. Nunca se convierten en AO/roughness/height.
+function aoRoughSample(cv) {
+  const ctx = cv && cv.getContext && cv.getContext('2d');
+  if (!ctx || !cv.width || !cv.height) return null;
+  let d;
+  try { d = ctx.getImageData(0, 0, cv.width, cv.height).data; }
+  catch (e) { return null; }
+  const step = Math.max(1, Math.floor(Math.sqrt(cv.width * cv.height / 32768)));
+  const sum = [0, 0, 0], cnt = [0, 0, 0];
+  let n = 0;
+  for (let y = 0; y < cv.height; y += step) for (let x = 0; x < cv.width; x += step) {
+    const i = (y * cv.width + x) * 4;
+    for (let k = 0; k < 3; k++) { sum[k] += d[i + k]; cnt[k]++; }
+    n++;
+  }
+  if (!n) return null;
+  return { samples: n, mean: sum.map(v => Math.round(v / n * 100) / 100) };
+}
+function reportAoRoughH(got) {
+  const maps = (got || []).filter(it => /_ao_rough_h\.png$/i.test(it.name));
+  if (!maps.length) return;
+  const m = AO_ROUGH_MANIFEST || {}, meta = m.semantics || {};
+  const measured = maps.map(it => {
+    const s = aoRoughSample(it.cv);
+    const file = (m.files || []).find(f => f.file === it.name.replace(/\.dds$/i, '.png'));
+    const match = !!(s && file && s.mean.every((v, i) => Math.abs(v - (file.channels[i] && file.channels[i].mean || 0)) <= 4));
+    return { name: it.name, samples: s ? s.samples : 0, mean: s ? s.mean : null, match };
+  });
+  const ok = measured.every(x => x.match);
+  const status = meta.status || 'unknown';
+  log(`Mapas *_ao_rough_h: ${maps.length} archivo(s) leídos y medidos (${measured[0].samples} muestras por archivo); coinciden con el manifiesto: ${ok ? 'sí' : 'no, revisar'}. Semántica de canales: ${status}. NO se usan como AO/rugosidad/altura: no hay contrato verificado ni slots AC comprobados.`, ok ? '' : 'warn');
+}
+
 // "Ripio – Río Grande (Tierra del Fuego)": se elige solo cuando el centro del camino cae en su zona (PROVISIONAL, ver presets/pisos/ripio_rio_grande/preset.json).
 // En esa zona es estepa: sin árboles (salvo que el usuario elija otra densidad a mano).
 const PRESETS = { list: { ripio_rio_grande: { nombre: 'Ripio – Río Grande (Tierra del Fuego)', zona: { s: -54.10, n: -53.45, w: -68.70, e: -67.30 }, arboles: 0,
@@ -2045,6 +2089,7 @@ const PRESETS = { list: { ripio_rio_grande: { nombre: 'Ripio – Río Grande (Ti
     log(`Texturas del preset "${P.nombre}": cargando ${P.texturas.length} (la primera vez se bajan de GitHub, ~35 MB; después salen de la caché)…`);
     const got = []; let fail = 0;
     await Promise.all(P.texturas.map(async n => { try { const cv = await fileToCanvas(await this.texBlob(id, n), n + '.png'); got.push({ name: n + '.dds', cv, pre: true }); } catch (e) { fail++; console.warn('preset', n, e); } }));
+    if (got.length) reportAoRoughH(got);
     if (!got.length) { log(`No se pudieron cargar las texturas del preset (sin conexión con GitHub): se usan las generadas por la app.`, 'err'); return; }
     if (PACK.pre == null) PACK._prevOn = PACK.on;
     PACK.items = PACK.items.filter(i => !i.pre && !got.some(g => g.name === i.name)).concat(got.map(it => Object.assign(it, { role: PACK.classify(it) })));
@@ -5704,14 +5749,14 @@ function projectState() {
     rect: b ? [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()] : null,
     spawn: S.spawn ? [S.spawn.lat, S.spawn.lng] : null,
     side: S.side, placed: ED.session ? JSON.parse(ED.session.base).p || [] : S.placed,
-    recon: S.recon ? Recon.normalizeProject(S.recon) : null,
+    recon: S.recon ? Recon.normalizeProjectWithEvidence(S.recon) : null,
     view: map.getCenter ? [map.getCenter().lat, map.getCenter().lng, map.getZoom()] : null,
   };
 }
 async function loadProject(st) {
   if (!st || st.app !== 'generador-de-pistas') throw new Error('No es un proyecto del generador.');
   for (const [id, v] of Object.entries(st.inputs || {})) { const el = document.getElementById(id); if (!el) continue; if (el.type === 'checkbox') el.checked = v; else el.value = v; }
-  S.recon = st.recon ? Recon.normalizeProject(st.recon) : Recon.blankProject({ name: ($('#tname') && $('#tname').value) || 'Proyecto de reconstrucción' });
+  S.recon = st.recon ? Recon.normalizeProjectWithEvidence(st.recon) : Recon.blankProject({ name: ($('#tname') && $('#tname').value) || 'Proyecto de reconstrucción' });
   renderReconPanel();
   $('#snowOpts').style.display = $('#snow').checked ? '' : 'none';
   try { $('#season').onchange(); $('#grassType').onchange(); await $('#gravelStyle').onchange(); } catch (e) { }
@@ -5767,6 +5812,9 @@ function renderReconPanel() {
   $('#reconEvidence').innerHTML = `<div>Alturas con procedencia: <b>${elev.samples.length}</b>${elev.provider ? ' · ' + escHtml(elev.dataset || elev.provider) + (elev.resolutionMeters ? ' · ' + elev.resolutionMeters + ' m/píxel' : '') : ''}</div>`
     + `<div>Fotos georreferenciadas: <b>${photos.length}</b>${photos.length ? ' · ' + escHtml([...new Set(photos.map(f => f.provider))].join(', ')) : ''}</div>`
     + `<div class="mut" style="font-size:11.5px">Las fotos no se usan como textura exportable sin revisión: solo evidencia visual.</div>`;
+  const rasters = elev.rasters || [];
+  if (rasters.length) $('#reconEvidence').innerHTML += `<div class="mut" style="font-size:11.5px">GeoTIFF local: ${rasters.map(r => escHtml(Recon.rasterSummary(r))).join('<br>')}</div>`;
+  if (typeof renderReconExtras === 'function') renderReconExtras();
 }
 
 function reconMaybeReplace(what) {
@@ -5825,6 +5873,379 @@ $('#reconValidate').onclick = () => {
   renderReconPanel();
   log(issues.length ? 'Validación: ' + issues.join(' · ') : 'Validación: el proyecto tiene recorrido, elevación y ancla declarados.', issues.length ? 'warn' : 'ok');
 };
+
+// ---------- Etapa 2: GeoTIFF local, evidencia revisada, servicios y correcciones ----------
+const RECON_SURF_BY_MATERIAL = Object.freeze({
+  tierra: 'CLAY', cuneta: 'DBOT', ripio: 'GRAVEL', grava: 'LOOSE', barro: 'MUD',
+  pasto: 'GRASS', rocas: 'STONYL', banquina: 'BANQ', talud: 'CORDON',
+});
+function reconEvidenceSafe() { return S.recon && Recon.ensureEvidence(S.recon); }
+function reconCenter() {
+  const p = S.recon;
+  if (!p) return null;
+  if (p.route && p.route.points.length) return p.route.points[0];
+  if (p.stage && p.stage.anchor) return p.stage.anchor;
+  return null;
+}
+function reconOptions(list, selected, emptyLabel) {
+  const opts = ['<option value="">' + escHtml(emptyLabel) + '</option>'].concat(list.map(x =>
+    `<option value="${escHtml(x.id)}"${x.id === selected ? ' selected' : ''}>${escHtml(x.label)}</option>`));
+  return opts.join('');
+}
+function renderReconExtras() {
+  const p = S.recon; if (!p) return;
+  const e = reconEvidenceSafe();
+  renderReconReviews(p, e);
+  const sum = Recon.summaryEvidence(p);
+  const sEl = $('#reconEvidenceSummary');
+  if (sEl) sEl.innerHTML = `Fotos: ${sum.photos} · revisiones: ${sum.reviews.approved} aprobadas / ${sum.reviews.rejected} rechazadas<br>`
+    + `Materiales: ${sum.materials.total} (${sum.materials.byProvenance.observed} observados, ${sum.materials.byProvenance.estimated} estimados, ${sum.materials.byProvenance.procedural} procedurales)<br>`
+    + `Vegetación: ${sum.vegetation.total} zonas · ${sum.vegetation.byType.identified} identificadas / ${sum.vegetation.byType.estimated} estimadas / ${sum.vegetation.byType.procedural} procedurales<br>`
+    + `<span class="mut">${escHtml(sum.note)}</span>${sum.issues.length ? '<br><span style="color:#f59e0b">' + escHtml(sum.issues.join(' · ')) + '</span>' : ''}`;
+  const rasters = p.elevation.rasters || [];
+  const tEl = $('#reconTifInfo');
+  if (tEl) tEl.innerHTML = rasters.length
+    ? rasters.map(r => escHtml(Recon.rasterSummary(r)) + (r.quality && r.quality.warnings && r.quality.warnings.length
+      ? '<br><span style="color:#f59e0b">' + escHtml(r.quality.warnings.join(' · ')) + '</span>' : '')).join('<br>')
+    : 'Sin GeoTIFF local.';
+  const mly = Recon.statusMapillary({ token: ($('#mlyToken') && $('#mlyToken').value.trim()) || '' });
+  const netEl = $('#reconNetInfo');
+  if (netEl && !netEl.dataset.sticky) netEl.innerHTML = `Mapillary: <b>${escHtml(mly.status)}</b> · ${escHtml(mly.detail)}`
+    + (e.osmQuery ? `<br>Overpass: ${escHtml(e.osmQuery.status)} · ${e.osmQuery.elements} elementos · ${escHtml(e.osmQuery.at)}` : '');
+  if ($('#reconMlyLicense')) $('#reconMlyLicense').checked = !!(sum.licensePolicy.mapillaryAllowed);
+  renderReconIssues();
+}
+
+function renderReconReviews(p, e) {
+  const host = $('#reconReviews'); if (!host) return;
+  const photos = p.photos || [];
+  if (!photos.length) { host.innerHTML = '<div class="mut">Todavía no hay fotos. Usá "Buscar fotos" o el cliente Mapillary.</div>'; return; }
+  const reviews = (e.reviews || []).slice().reverse();
+  host.innerHTML = photos.map(f => {
+    const r = reviews.find(x => String(x.photoId) === String(f.id));
+    const mat = r && r.status === 'approved' ? r.materialClass : '';
+    const veg = r && r.status === 'approved' ? r.vegetationClass : '';
+    const d0 = r && r.sector && r.sector.d0 !== undefined ? r.sector.d0 : '';
+    const d1 = r && r.sector && r.sector.d1 !== undefined ? r.sector.d1 : '';
+    return `<div style="border:1px solid var(--line);border-radius:7px;padding:6px;margin:6px 0">
+      <div style="font-size:12.5px"><b>${escHtml(f.provider || 'foto')}</b> · ${escHtml(f.title || f.id || 'sin título')}</div>
+      <div class="mut">${escHtml(f.license || 'sin licencia declarada')}${Number.isFinite(f.distanceMeters) ? ' · ' + Math.round(f.distanceMeters) + ' m' : ''} · ${r ? escHtml(r.status) : 'sin revisar'}</div>
+      ${r && r.reason ? '<div class="mut" style="color:#f59e0b">' + escHtml(r.reason) + '</div>' : ''}
+      <label class="f">Material <select data-rrep="${escHtml(f.id)}" data-rfield="mat">${reconOptions(Recon.MATERIAL_CLASSES, mat, 'No asignar')}</select></label>
+      <label class="f">Vegetación <select data-rrep="${escHtml(f.id)}" data-rfield="veg">${reconOptions(Recon.VEGETATION_CLASSES, veg, 'No asignar')}</select></label>
+      <div class="row"><span class="mut">Sector (km)</span><input type="number" step="0.01" min="0" placeholder="desde" data-rrep="${escHtml(f.id)}" data-rfield="d0" value="${escHtml(d0)}" style="width:70px"><input type="number" step="0.01" min="0" placeholder="hasta" data-rrep="${escHtml(f.id)}" data-rfield="d1" value="${escHtml(d1)}" style="width:70px"></div>
+      <label class="row"><input type="checkbox" data-rrep="${escHtml(f.id)}" data-rfield="vv"> Confirmo que revisé visualmente esta foto</label>
+      <div class="row"><button class="b" data-rrep="${escHtml(f.id)}" data-raction="approve">Aprobar</button><button class="b" data-rrep="${escHtml(f.id)}" data-raction="reject">Rechazar</button></div>
+    </div>`;
+  }).join('');
+  host.querySelectorAll('[data-raction]').forEach(btn => btn.onclick = () => {
+    const id = btn.dataset.rrep, q = sel => host.querySelector(`[data-rrep="${CSS.escape(id)}"][data-rfield="${sel}"]`);
+    const reviewer = ($('#reconReviewer').value || '').trim();
+    if (!reviewer) { log('Poné tu nombre en "Revisado por" antes de revisar fotos.', 'err'); return; }
+    const d0 = parseFloat(q('d0').value), d1 = parseFloat(q('d1').value);
+    const sector = Number.isFinite(d0) && Number.isFinite(d1) && d1 > d0 ? { d0, d1 } : null;
+    if ((Number.isFinite(d0) || Number.isFinite(d1)) && !sector) { log('El sector necesita km desde y hasta válidos (hasta > desde).', 'err'); return; }
+    const decision = {
+      approved: btn.dataset.raction === 'approve', reviewer,
+      materialClass: q('mat').value || undefined,
+      vegetationClass: q('veg').value || undefined,
+      visualVerified: q('vv').checked,
+      sector,
+    };
+    try {
+      const rev = Recon.reviewPhoto(S.recon, id, decision);
+      log(`Foto revisada: ${rev.status}${rev.reason ? ' · ' + rev.reason : ''}.`, rev.status === 'approved' ? 'ok' : '');
+      renderReconPanel();
+    } catch (err) { log('No se pudo guardar la revisión: ' + err.message, 'err'); }
+  });
+}
+
+if ($('#reconTif')) $('#reconTif').onchange = async ev => {
+  if (!S.recon) { log('Creá un proyecto de reconstrucción antes de importar un GeoTIFF.', 'err'); ev.target.value = ''; return; }
+  const override = ($('#reconTifCrs').value || '').trim();
+  for (const f of ev.target.files) {
+    try {
+      log(`Leyendo ${f.name} como GeoTIFF local (${(f.size / 1e6).toFixed(1)} MB)…`);
+      const imported = await Recon.openGeoTIFF(f, { filename: f.name, crsOverride: override || undefined });
+      if (!S.recon.route.points.length) throw new Error('el proyecto no tiene recorrido: no hay dónde muestrear el raster');
+      const sampled = await Recon.sampleRaster(imported, S.recon.route.points);
+      if (!sampled.samples.length) throw new Error('ninguna coordenada del recorrido cae en el raster con datos válidos');
+      const attached = Recon.attachRaster(S.recon, imported, sampled.samples);
+      log(`${Recon.rasterSummary(attached.meta)} · ${attached.samples} alturas muestreadas. ${sampled.missing.length} sin dato. Base geográfica del terreno; no deriva cunetas ni baches.`, 'ok');
+      if (sampled.quality && sampled.quality.warnings.length) log('Avisos del raster: ' + sampled.quality.warnings.join(' · '), 'warn');
+      // El generador existente necesita su lector legacy para alimentar DEM.custom. Si no puede leer este
+      // formato, el raster queda documentado en el proyecto pero no se usa como base de la malla 3D.
+      try {
+        const buf = await f.arrayBuffer(), legacy = await readGeoTIFF(buf, f.name);
+        if (!DEM.custom.some(r => r.name === f.name)) DEM.custom.push(legacy);
+        S.base = null; renderElevSources();
+        log(`El mismo archivo se registró como base de elevación del generador (${legacy.W}×${legacy.H}).`, 'ok');
+      } catch (legacyErr) {
+        log(`El lector simple del generador no pudo usar ${f.name} (${legacyErr.message}); los metadatos quedan guardados, pero la malla 3D no cambió.`, 'warn');
+      }
+    } catch (err) { log(`No se pudo importar ${f.name}: ${err.message}`, 'err'); }
+  }
+  ev.target.value = ''; renderReconPanel();
+};
+
+$('#reconDerive').onclick = () => {
+  if (!S.recon) return;
+  try {
+    const e = reconEvidenceSafe();
+    const m = Recon.deriveMaterials(S.recon);
+    const v = Recon.deriveVegetation(S.recon, { osmFeatures: e.osmFeatures || [] });
+    log(`Evidencia derivada: ${m.length} material(es) reutilizados del repo y ${v.length} zona(s) de vegetación. No se generaron texturas ni especies nuevas.`, 'ok');
+    renderReconPanel();
+  } catch (err) { log('No se pudo derivar evidencia: ' + err.message, 'err'); }
+};
+$('#reconApplyEvidence').onclick = () => {
+  if (!S.recon) return;
+  const sum = Recon.summaryEvidence(S.recon);
+  if (!sum.valid) { log('La evidencia tiene problemas: ' + sum.issues.join(' · '), 'err'); return; }
+  const mats = (S.recon.evidence.materials || []).filter(m => m.presetId);
+  const dens = (S.recon.evidence.vegetation || []).map(v => v.density).filter(Number.isFinite);
+  if (!mats.length && !dens.length) { log('No hay materiales ni vegetación derivada para aplicar.', 'err'); return; }
+  const presetIds = [...new Set(mats.map(m => m.presetId))];
+  const wanted = presetIds.length === 1 && Recon.PRESET_ID === presetIds[0] ? Recon.PRESET_ID : null;
+  const density = dens.length ? Math.max(...dens) : null;
+  const chosen = density === null ? '' : [0, 0.5, 1, 1.8].reduce((a, b) => Math.abs(b - density) < Math.abs(a - density) ? b : a);
+  if (!confirm(`Aplicar evidencia a la vista 3D?\nPreset de piso: ${wanted || 'no cambiar (los materiales no son de un único preset reconocido)'}\nDensidad de árboles: ${chosen || 'no cambiar'} (derivada de vegetación, no medida directamente)\nEsto no crea texturas nuevas ni modifica las fotos.`)) return;
+  if (wanted && $('#pisoPreset')) { $('#pisoPreset').value = wanted; log(`Evidencia → preset de piso: ${wanted} (texturas reales ya existentes en el repo).`, 'ok'); }
+  if (chosen !== '' && $('#density')) { $('#density').value = String(chosen); $('#density').dataset.manual = '1'; log(`Evidencia → densidad de árboles: ${chosen} (distribución estimada; no es un conteo medido).`, 'ok'); }
+  Recon.addChange(S.recon, { kind: 'evidence-applied', detail: `preset=${wanted || 'sin cambio'}; density=${chosen === '' ? 'sin cambio' : chosen}`, reversible: true });
+  renderReconPanel();
+};
+
+if ($('#mlyToken')) {
+  $('#mlyToken').value = localStorage.getItem('mlyToken') || '';
+  $('#mlyToken').onchange = () => { localStorage.setItem('mlyToken', $('#mlyToken').value.trim()); renderReconPanel(); };
+}
+if ($('#reconMlyLicense')) $('#reconMlyLicense').onchange = () => {
+  const e = reconEvidenceSafe(); if (!e) return;
+  const base = Recon.resolveAllowedLicenses();
+  const allow = $('#reconMlyLicense').checked;
+  e.config.allowedLicenses = Recon.resolveAllowedLicenses(base.map(r => r.id === 'Mapillary Terms'
+    ? Object.assign({}, r, { allowed: allow, label: allow ? 'Mapillary Terms of Use (aceptado explícitamente por el revisor)' : r.label }) : r));
+  log(allow ? 'Mapillary Terms aceptados como política de esta compu: las fotos seguirán sin visualVerified hasta que las revisiones una por una.'
+    : 'Mapillary Terms volvieron a estar excluidos.', allow ? 'ok' : '');
+  renderReconPanel();
+};
+$('#reconMlyStatus').onclick = () => {
+  const st = Recon.statusMapillary({ token: ($('#mlyToken').value || '').trim() });
+  const el = $('#reconNetInfo'); el.dataset.sticky = '1';
+  el.innerHTML = `Mapillary: <b>${escHtml(st.status)}</b> · ${escHtml(st.detail)}<br><span class="mut">Endpoint ${escHtml(st.endpoint)} · ${escHtml(Recon.mapillaryConfig().authentication.example)}</span>`;
+  log(`Mapillary: ${st.status}${st.tokenSource ? ' (token desde ' + st.tokenSource + ')' : ''}.`, st.ready ? 'ok' : '');
+};
+$('#reconMlySearch').onclick = async () => {
+  const c = reconCenter(); if (!c) { log('Primero marcá un tramo o cargá el piloto para tener un centro de búsqueda.', 'err'); return; }
+  const btn = $('#reconMlySearch'); btn.disabled = true;
+  try {
+    const st = Recon.statusMapillary({ token: ($('#mlyToken').value || '').trim() });
+    if (!st.ready) { log('Mapillary ' + st.status + ': ' + st.detail + ' No se devuelven fotos simuladas.', 'warn'); return; }
+    const r = await Recon.searchMapillary(c, { token: ($('#mlyToken').value || '').trim(), radiusMeters: 1000, limit: 20 });
+    for (const photo of r.photos) { try { Recon.addPhoto(S.recon, photo); } catch (e) { } }
+    renderReconPanel();
+    log(`Mapillary: ${r.photos.length} foto(s) reales añadidas como evidencia sin revisar${r.errors.length ? ' · avisos: ' + r.errors.join(' | ') : ''}.`, r.photos.length ? 'ok' : '');
+  } catch (err) { log('Mapillary: ' + err.message, 'err'); }
+  btn.disabled = false;
+};
+$('#reconOverpass').onclick = async () => {
+  const c = reconCenter(); if (!c) { log('Primero marcá un tramo o cargá el piloto para tener un centro de búsqueda.', 'err'); return; }
+  const btn = $('#reconOverpass'); btn.disabled = true;
+  try {
+    const tag = $('#reconOvTag').value, radiusMeters = Math.max(50, Math.min(10000, +$('#reconOvRadius').value || 1000));
+    const r = await Recon.overpassNear(c.lat, c.lon, { tag, radiusMeters });
+    const e = reconEvidenceSafe();
+    const at = new Date().toISOString();
+    e.osmQuery = { tag, radiusMeters, status: r.status, elements: r.elements.length, at, sectorCount: r.sectorCount, attempts: r.attempts, errors: r.errors };
+    if (r.status === 'service-error') {
+      log(`Overpass no respondió (${r.unavailableSectors}/${r.sectorCount} sectores, ${r.attempts} intentos): no se afirma que no haya datos. ${r.errors.slice(0, 2).join(' | ')}`, 'err');
+    } else {
+      const features = r.elements.filter(x => x.tags && typeof x.tags === 'object').map(x => {
+        const pos = x.center || x;
+        return { id: x.type + ':' + x.id, tags: x.tags, lat: pos.lat, lon: pos.lon, retrievedAt: at };
+      }).filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lon));
+      e.osmFeatures = features;
+      Recon.addChange(S.recon, { kind: 'osm-query', detail: `${tag} · ${radiusMeters} m · ${r.status} · ${features.length} elementos con coordenadas`, reversible: true });
+      log(r.status === 'empty-result'
+        ? `Overpass respondió sin elementos para ${tag}: ausencia Confirmada por el servicio, no error.`
+        : `Overpass: ${r.elements.length} elemento(s), ${features.length} con coordenadas útiles. Se pueden usar como vegetación estimada por etiqueta OSM.`, r.status === 'empty-result' ? '' : 'ok');
+    }
+    const el = $('#reconNetInfo'); el.dataset.sticky = '1';
+    el.innerHTML = `Overpass: <b>${escHtml(r.status)}</b> · ${r.elements.length} elementos · ${r.sectorCount} sectores · ${r.attempts} intentos<br><span class="mut">${escHtml(r.errors.slice(0, 3).join(' | ') || 'sin avisos')}</span>`;
+    renderReconPanel();
+  } catch (err) { log('Overpass: ' + err.message, 'err'); }
+  btn.disabled = false;
+};
+
+// --- adaptador entre el asistente determinista y las ediciones reales del generador ---
+function reconRouteDistances() {
+  const pts = (S.recon && S.recon.route.points) || [], out = [0];
+  for (let i = 1; i < pts.length; i++) out.push(out[i - 1] + Recon.haversine(pts[i - 1], pts[i]));
+  return out;
+}
+function reconDistanceAt(lat, lon, dist) {
+  const pts = (S.recon && S.recon.route.points) || []; if (!pts.length) return null;
+  let best = Infinity, d = 0;
+  for (let i = 0; i < pts.length; i++) { const q = Recon.haversine(pts[i], { lat, lon }); if (q < best) { best = q; d = dist[i] || 0; } }
+  return d;
+}
+function reconCoverFromTags(tags) {
+  const t = tags || {};
+  if (t.species || t['tree:species']) return t.species || t['tree:species'];
+  if (t.natural === 'wood' || t.landuse === 'forest') return 'bosque';
+  if (t.landuse === 'grass' || t.landuse === 'farm' || t.landuse === 'meadow') return 'pastizal';
+  if (t.natural === 'grassland' || t.natural === 'heath') return 'pasto';
+  return null;
+}
+function reconAssistSources() {
+  const p = S.recon; if (!p) return {};
+  const e = reconEvidenceSafe(), dist = reconRouteDistances(), total = p.route.lengthMeters || dist[dist.length - 1] || 0;
+  const profile = (p.elevation.samples || []).map((s, i) => ({
+    ref: 'dem:' + i, d: reconDistanceAt(s.lat, s.lon, dist), elevation: s.elevation,
+    provenance: 'measured', source: s.source && s.source.label,
+  })).filter(s => Number.isFinite(s.d));
+  const inRoute = rec => {
+    const d0 = rec && rec.d0, d1 = rec && rec.d1;
+    return Number.isFinite(d0) && Number.isFinite(d1) && d1 > d0 && d0 >= 0 && d1 <= total + 1;
+  };
+  const surface = (e.materials || []).map((m, i) => ({ ref: 'mat:' + i, materialClass: m.materialClass, d0: m.sector && m.sector.d0, d1: m.sector && m.sector.d1, provenance: m.provenance || 'estimated' })).filter(inRoute);
+  const reviews = (e.reviews || []).map((r, i) => ({
+    ref: r.id || 'review:' + i, d0: r.sector && r.sector.d0, d1: r.sector && r.sector.d1,
+    status: r.status, approved: r.approved === true,
+    materialClass: r.materialClass, vegetationClass: r.vegetationClass,
+    cover: r.vegetationClass, provenance: 'observed',
+  }));
+  const osm = (e.osmFeatures || []).map((f, i) => {
+    const d = (Number.isFinite(f.lat) && Number.isFinite(f.lon)) ? reconDistanceAt(f.lat, f.lon, dist) : null;
+    const cover = reconCoverFromTags(f.tags);
+    return { ref: f.id || 'osm:' + i, d0: d === null ? null : Math.max(0, d - 25), d1: d === null ? null : Math.min(total, d + 25), cover, tags: f.tags, provenance: 'measured' };
+  });
+  const slopes = (S.edits || []).map((ed, i) => ({ ref: 'edit:' + i, d0: ed.d0, d1: ed.d1, ratio: ed.talud, side: ed.side || 'both', provenance: 'estimated' })).filter(x => Number.isFinite(x.ratio) && inRoute(x));
+  return { surface, profile, vegetation: e.vegetation || [], slopes, reviews, osm, materials: e.materials || [] };
+}
+// Actualiza la lista de ediciones y, solo si ya hay una pista generada, la vista 3D.
+// Sin S.result no hay malla que reconstruir: la edición queda registrada y se avisa, sin lanzar un error falso.
+function reconRefreshEdits() {
+  renderEdits();
+  if (!S.result) { log('Edición registrada; todavía no hay pista 3D generada para actualizar.', ''); return; }
+  try { editsChanged(); }
+  catch (e) { log('La vista 3D no se pudo actualizar (' + e.message + '); la edición quedó registrada igual.', 'warn'); }
+}
+let reconEngineInstance = null;
+function reconEngine() {
+  if (reconEngineInstance) return reconEngineInstance;
+  reconEngineInstance = {
+    snapshot() { return Recon.clone({ edits: S.edits || [], evidence: S.recon ? S.recon.evidence : null }); },
+    applyLocal(scope, action) {
+      const p = action.payload || {};
+      if (action.type === 'set-vegetation') {
+        const e = reconEvidenceSafe(); const cls = Recon.VEGETATION_CLASS_BY_ID[p.value];
+        const dist = Recon.DISTRIBUTION_DEFAULTS[cls ? cls.id : 'estimated'] || { density: 0.35, patchiness: 0.6 };
+        e.vegetation = e.vegetation || [];
+        e.vegetation.push({
+          sector: { d0: scope.d0, d1: scope.d1 }, type: 'estimated', provenance: 'observed',
+          vegetationClass: cls ? cls.id : null, label: cls ? cls.label : String(p.value || 'cobertura declarada'),
+          value: p.value, sourceRef: p.sourceRef || null, density: dist.density, patchiness: dist.patchiness,
+          measured: false, distributionNote: Recon.DISTRIBUTION_NOTE,
+          note: 'Cobertura tomada de una revisión o etiqueta OSM; density/patchiness son parámetros de distribución, no conteos.',
+        });
+        return null;
+      }
+      let edit;
+      switch (action.type) {
+        case 'set-profile': {
+          const dh = (Number(p.to) || 0) - (Number(p.from) || 0);
+          edit = Math.abs(dh) < 0.01
+            ? { kind: 'flat', ref: 'abs', h: Number(p.to), k: 1, f: 25 }
+            : { kind: 'grade', dh, f: 25 };
+          break;
+        }
+        case 'set-slope': edit = { kind: 'section', side: p.side || 'both', ditch: null, talud: p.ratio }; break;
+        case 'set-surface': case 'set-material': {
+          const key = RECON_SURF_BY_MATERIAL[p.materialClass];
+          if (!key) throw new Error(`No hay superficie del generador para "${p.materialClass}": no se inventa una.`);
+          edit = { kind: 'surface', key }; break;
+        }
+        case 'blend-materials': {
+          const text = String(p.from || '') + ' ' + String(p.to || '');
+          edit = { kind: 'floor', type: /pedregos|roca|grava/.test(text) ? 'pedregoso' : 'ripio', len: Math.max(0, Math.min(400, p.rampMeters || 25)), irr: 0.6 }; break;
+        }
+        default: throw new Error(`Acción "${action.type}" sin equivalente verificable en el editor; no se aplicó.`);
+      }
+      const full = Object.assign({}, edit, { d0: scope.d0, d1: scope.d1 });
+      S.edits = S.edits || []; S.edits.push(full);
+      return full;
+    },
+    restore(snap) {
+      S.edits = Recon.clone((snap && snap.edits) || []);
+      if (S.recon && snap && snap.evidence !== undefined) S.recon.evidence = Recon.clone(snap.evidence);
+      ED.active = null;
+      reconRefreshEdits(); renderReconPanel();
+      return this.snapshot();
+    },
+  };
+  return reconEngineInstance;
+}
+function renderReconIssues() {
+  const host = $('#reconIssues'); if (!host) return;
+  const applied = reconApplied;
+  if (!reconSources || !reconSources._issues) { host.innerHTML = '<div class="mut">Todavía no se analizó el tramo.</div>'; return; }
+  const issues = reconSources._issues;
+  if (!issues.length) { host.innerHTML = '<div class="mut">Sin problemas detectados con los datos disponibles.</div>'; return; }
+  host.innerHTML = issues.map(issue => {
+    const plan = reconPlans.get(issue.id), ap = applied.get(issue.id);
+    return `<div class="edit" style="display:block"><div><b>${escHtml(issue.kind)}</b> · ${escHtml(issue.severity)} · ${(issue.d0 / 1000).toFixed(2)}–${(issue.d1 / 1000).toFixed(2)} km</div>
+      <div class="mut">${escHtml(issue.inference || '')}</div>
+      <div class="mut">Evidencia: ${escHtml((issue.evidence || []).map(x => x.type + ':' + x.ref).join(', ') || 'sin cita')}</div>
+      <div class="row"><button class="b" data-issue="${escHtml(issue.id)}" data-fix="plan">Planificar</button>
+      ${plan ? '<button class="b" data-issue="' + escHtml(issue.id) + '" data-fix="apply">Aplicar</button><button class="b" data-issue="' + escHtml(issue.id) + '" data-fix="compare">Comparar</button>' : ''}
+      ${ap ? '<button class="b" data-issue="' + escHtml(issue.id) + '" data-fix="undo">Deshacer</button>' : ''}</div></div>`;
+  }).join('');
+  host.querySelectorAll('[data-fix]').forEach(btn => btn.onclick = () => {
+    const id = btn.dataset.issue, issue = (reconSources._issues || []).find(x => x.id === id);
+    if (!issue) return;
+    try {
+      if (btn.dataset.fix === 'plan') {
+        const plan = Recon.planFix(S.recon, issue, reconSources);
+        reconPlans.set(id, plan); reconApplied.delete(id);
+        log(`Plan ${plan.kind}: ${plan.action.type} en ${(plan.scope.d0 / 1000).toFixed(2)}–${(plan.scope.d1 / 1000).toFixed(2)} km. Confianza ${plan.confidence}. NO aplicado todavía.`, 'ok');
+      } else if (btn.dataset.fix === 'apply') {
+        const plan = reconPlans.get(id); if (!plan) return;
+        const r = Recon.applyFix(S.recon, plan, reconEngine(), { routeLength: S.recon.route.lengthMeters, route: { points: S.recon.route.points } });
+        reconApplied.set(id, r);
+        Recon.addChange(S.recon, { kind: 'assist-fix', detail: `${plan.kind} · ${plan.action.type} · ${plan.scope.d0}-${plan.scope.d1} m`, reversible: true });
+        reconRefreshEdits();
+        log(`Corrección aplicada: ${plan.action.type}. Deshacé con el botón "Deshacer" de este panel.`, 'ok');
+      } else if (btn.dataset.fix === 'compare') {
+        const r = reconApplied.get(id), plan = reconPlans.get(id);
+        if (!r || !plan) return;
+        const c = Recon.compareFix(r.before, r.after, plan.scope);
+        const el = $('#reconFixInfo');
+        el.innerHTML = `<b>Comparación del scope ${(plan.scope.d0 / 1000).toFixed(2)}–${(plan.scope.d1 / 1000).toFixed(2)} km</b><br><span class="mut" style="white-space:pre-wrap">${escHtml(c.text)}</span>`
+          + (c.outside.length ? '<br><span style="color:#f59e0b">Cambios fuera del scope: ' + escHtml(c.outside.join(', ')) + '</span>' : '<br><span style="color:#4ade80">Sin cambios fuera del scope.</span>');
+      } else if (btn.dataset.fix === 'undo') {
+        const r = reconApplied.get(id); if (!r) return;
+        Recon.undoFix(S.recon, r.undoToken, reconEngine(), { routeLength: S.recon.route.lengthMeters });
+        reconApplied.delete(id); reconPlans.delete(id);
+        log('Corrección deshecha: se restauró el estado previo de ediciones y evidencia.', 'ok');
+      }
+      renderReconPanel();
+    } catch (err) { log('Corrección asistida: ' + err.message, 'err'); }
+  });
+}
+$('#reconDetect').onclick = () => {
+  if (!S.recon) return;
+  try {
+    reconSources = reconAssistSources();
+    const issues = Recon.detectIssues(S.recon, null, reconSources);
+    reconSources._issues = issues;
+    reconPlans.clear(); reconApplied.clear();
+    renderReconPanel();
+    log(`Correcciones asistidas: ${issues.length} problema(s) detectable(s) con evidencia citada. Ninguno se aplicó automáticamente.`, issues.length ? 'warn' : 'ok');
+  } catch (err) { log('No se pudo analizar el tramo: ' + err.message, 'err'); }
+};
+
 $('#saveProj').onclick = () => {
   const st = projectState(), blob = new Blob([JSON.stringify(st)], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = slugify($('#tname').value || 'pista') + '.pista.json';
@@ -5862,8 +6283,14 @@ const HELP = {
   demSrc: 'Elevación base: Copernicus GLO-30 es el modelo de elevación libre más preciso con cobertura mundial (30 m por píxel, radar 2011–2015). Se descarga gratis del catálogo abierto de HOT y queda guardado en la compu. Donde no hay dato, se completa con Terrarium (SRTM y otras). Los dos son modelos de 30 m: no reproducen cunetas ni baches.',
   freeImg: 'Imágenes libres del recorrido: busca sola en OpenAerialMap y en los datos abiertos de Maxar imágenes de drones o satélites con licencia libre (de 3 cm a 1 m por píxel). Si cubren el camino, se usan para la textura del camino y sus costados, con su atribución en LICENCIAS_DATOS.txt. Si no hay (lo más común en zonas rurales), sigue con Sentinel-2. Costo: cero.',
   refFile: 'Fotos del camino que subís: se analizan solas (color del piso, piedras, humedad, bordes) y arman los materiales del camino. Nunca se incluyen en la pista.',
-  refCal: 'Fotos del lugar: el panel "Proyecto de reconstrucción" busca fotos georreferenciadas reales en Wikimedia Commons y Panoramax sin credenciales. Se guardan como evidencia con su licencia y procedencia; no se afirma que muestran el camino hasta revisarlas. Mapillary requiere token y cliente GraphQL: todavía no está implementado, no se simulan resultados.',
-  mlyToken: 'Mapillary: el token se guarda en esta compu, pero en este hito NO hay búsqueda real con ese token (solo un enlace al visor web). No se presenta como función operativa.',
+  refCal: 'Fotos del lugar: el panel "Proyecto de reconstrucción" busca fotos reales en Wikimedia Commons y Panoramax sin credenciales. Con Client Token también consulta Mapillary Graph API v4. Se guardan como evidencia con licencia y procedencia; no se afirma que muestran el camino hasta revisarlas una por una.',
+  mlyToken: 'Mapillary Client Token: se guarda solo en este navegador y se envía como Authorization: OAuth a Graph API v4. Sin token el estado es pending-client y no se inventan fotos. Sus fotos requieren aceptar explícitamente los Mapillary Terms of Use antes de aprobarlas como evidencia.',
+  reconTif: 'GeoTIFF local: se lee en tu compu, sin subirlo. Se registran CRS, unidades (incluidas las verticales), resolución, NoData y procedencia. Es base geográfica del terreno: no genera cunetas, roderas ni baches, y no reemplaza las mediciones del camino.',
+  reconDerive: 'Derivar materiales y vegetación: solo asocia fotos aprobadas con materiales que ya existen en el repo y con clases de vegetación. No crea texturas, normales, AO ni PBR a partir de las fotos.',
+  reconApplyEvidence: 'Aplicar evidencia a la vista 3D: con materiales de un único preset reconocido elige ese preset (texturas reales ya incluidas); con vegetación derivada ajusta la densidad como parámetro de distribución, nunca como conteo medido. Siempre se puede revertir cambiando los controles.',
+  reconOverpass: 'Overpass: consulta OpenStreetMap en sectores pequeños, con reintentos y caché. Si falla el servicio se reporta service-error (no se dice que no hay datos); si responde 200 con lista vacía se reporta empty-result.',
+  reconDetect: 'Correcciones asistidas: reglas deterministas sobre alturas, fotos revisadas, etiquetas OSM y ediciones. Muestra la evidencia citada y el alcance en km. Nada se aplica hasta que planificás y confirmás; todo se puede deshacer.',
+  rgAoRoughH: 'Mapas *_ao_rough_h del preset Río Grande: se leen y se miden al cargar el preset, y se comparan con docs/manifiesto_canales_ao_rough_h.json. Su semántica de canales es desconocida: no se usan como AO, roughness ni altura, y no se afirma PBR.',
   matSrc: 'Materiales del suelo: la biblioteca libre usa fotos de materiales reales de Poly Haven (licencia CC0: uso libre, también comercial), con su escala real en metros. Se descarga una sola vez y sirve para todos los caminos del mundo. "Fotos de la app" usa las texturas tomadas en Tierra del Fuego.',
   libDl: 'Baja una sola vez unos 20 materiales (tierra compactada, ripio fino y grueso, grava, barro, arena, asfalto, pasto, suelo de bosque, hojarasca, roca, turba, nieve) y los guarda en esta compu. Los próximos proyectos no vuelven a descargarlos.',
   libExp: 'Guarda toda la biblioteca en un .zip para pasársela a otra persona o a otra compu (por ejemplo, a Nicolás).',
@@ -6015,8 +6442,6 @@ if ($('#matSrc')) $('#matSrc').onchange = async () => { await photoReady; MATLIB
   if (S.result) refreshPreviewTextures(); renderLibInfo(); };
 if ($('#cacheClr')) $('#cacheClr').onclick = async () => { await LOCAL.clear('tiles'); log('Caché de descargas (elevación e imágenes) vaciada. La biblioteca de materiales se conserva.', 'ok'); };
 photoReady.then(async () => { try { await MATLIB.apply(); } catch (e) { } renderLibInfo(); });
-
-if ($('#mlyToken')) { $('#mlyToken').value = localStorage.getItem('mlyToken') || ''; $('#mlyToken').onchange = () => { localStorage.setItem('mlyToken', $('#mlyToken').value.trim()); log('Token de Mapillary guardado en esta compu.', 'ok'); }; }
 
 // ---------- Coordenadas del punto donde está la cámara en el 3D (para abrir el mismo lugar en Google Earth / Street View) ----------
 (function coordHud() {

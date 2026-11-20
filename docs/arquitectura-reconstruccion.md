@@ -41,7 +41,11 @@ Precisión: no se aplica `toFixed` a lat/lon en el modelo ni en el importador. S
 - `src/recon/model.js` — esquema, normalización, roundtrip, validación, conversión desde el estado anterior.
 - `src/recon/formats.js` — GPX (trkseg/rtept/wpt), KML (LineString/gx:Track) y GeoJSON con rutas separadas y precisión conservada.
 - `src/recon/dem.js` — Open-Meteo Elevation API, lotes de 100, caché y procedencia por muestra.
-- `src/recon/photos.js` — Commons geosearch y Panoramax STAC bbox; Mapillary queda `pending-client`.
+- `src/recon/photos.js` — Commons geosearch y Panoramax STAC bbox; para Mapillary delega en `networks.js` y queda `pending-client` sin token.
+- `src/recon/geotiff.js` — GeoTIFF local con CRS/unidades/NoData, muestreo y perfiles con procedencia.
+- `src/recon/evidence.js` — revisión de fotos, licencias, materiales existentes y vegetación identificada/estimada/procedural.
+- `src/recon/networks.js` — Mapillary Graph API v4 REST y Overpass resiliente (service-error vs empty-result).
+- `src/recon/assist.js` — detección, planes, aplicación y deshacer de correcciones dentro de un scope.
 
 `build.py` incrusta estos módulos antes de `app.js`; el alias corto `Recon` está disponible para la UI.
 
@@ -52,13 +56,17 @@ Precisión: no se aplica `toFixed` a lat/lon en el modelo ni en el importador. S
 | Open-Meteo Elevation | Real, sin credenciales | Alturas del recorrido | Copernicus DEM GLO-90, 90 m; endpoint público **no comercial**. Atribución y DOI en la respuesta. |
 | Wikimedia Commons | Real, sin credenciales | Fotos georreferenciadas | `generator=geosearch` + `imageinfo`, licencia por archivo. |
 | Panoramax | Real, sin credenciales | Fotos georreferenciadas | `/api/search?bbox=...` STAC. En Aguas Blancas devolvió 0. |
-| Mapillary | **Pendiente** | No implementado | Requiere Client Token y cliente GraphQL. Guardar el token no activa búsqueda. |
-| Overpass | Real pero frágil | Calles/objetos | El endpoint público devolvió 502 en una consulta amplia; el generador ya continúa sin esos datos. |
+| Mapillary | Real con Client Token | Fotos georreferenciadas | Graph API v4 REST (`Authorization: OAuth`). Sin token: `pending-client`, sin red y sin simulaciones. |
+| Overpass | Real y resiliente | Calles/objetos | Sectores pequeños, reintentos y caché. `service-error` no se reporta como ausencia de datos; `empty-result` solo con HTTP 200 y lista vacía. |
 
 ## Límites honestos
 
 - La elevación de 90 m no sustituye un levantamiento topográfico ni reproduce cunetas.
 - Las fotos se guardan como evidencia; `visualVerified=false` hasta revisión humana.
 - El piloto no incluye un tramo real importado: solo el ancla verificada.
-- El undo/redo actual cubre ediciones del generador; las correcciones IA del siguiente hito deben apoyarse en ese mismo mecanismo.
-- No se amplió el consumo de `_ao_rough_h`: primero hay que auditar/validar los assets ausentes (`texturas_v5.json`, permisos DDS).
+- El undo/redo cubre ediciones del generador; las correcciones asistidas se apoyan en ese mismo mecanismo con `snapshot()`/`applyLocal()`/`restore()` y scope validado.
+- Los PNG `*_ao_rough_h` se leen y miden como diagnóstico (`docs/manifiesto_canales_ao_rough_h.json`), pero su semántica de canales sigue siendo desconocida: no se afirma PBR ni se crean slots AO/roughness en `.kn5`.
+
+## Actualización Etapa 2
+
+El detalle de integración, pruebas y límites está en `docs/REAL_STAGE_RECONSTRUCTION_PHASE_2.md`. Incluye GeoTIFF local, evidencia revisada → materiales/vegetación, Mapillary v4, Overpass resiliente y correcciones asistidas reversibles.

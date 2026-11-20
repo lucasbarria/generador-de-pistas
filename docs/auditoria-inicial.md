@@ -37,3 +37,7 @@ Fecha: 2026-11-20. Rama: `reconstructor/real-stages`. Auditoría anterior a cual
 ## 4. Decisión de implementación del primer hito
 
 No se migró nada a Blender ni se reemplazó el generador. Se agregó una capa `src/recon/` encima del estado existente y se extendió el JSON de proyecto con un campo `recon`. Así el flujo anterior queda intacto y los proyectos viejos se convierten al cargarlos.
+
+## 5. Resolución parcial en la Etapa 2
+
+Las deudas de guardado, fotos y Overpass se cerraron en la Etapa 2: persistencia con `normalizeProjectWithEvidence()`, clientes reales de Commons/Panoramax/Mapillary v4 y Overpass con reintentos. Los `_ao_rough_h` ahora se leen y miden como diagnóstico con semántica declarada como desconocida (`docs/manifiesto_canales_ao_rough_h.json`), sin afirmar PBR. El detalle está en `docs/REAL_STAGE_RECONSTRUCTION_PHASE_2.md`.

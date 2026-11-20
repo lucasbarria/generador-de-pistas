@@ -83,6 +83,8 @@
         attribution: null,
         fetchedAt: null,
         samples: [],
+        rasters: [],
+        geographicBase: null,
       },
       imagery: [],
       photos: [],
@@ -238,8 +240,12 @@
       p.elevation.samples = (raw.elevation.samples || []).map(s => {
         const pt = normalizePoint(s);
         const e = num(s.elevation !== undefined ? s.elevation : s.ele);
-        return pt && e !== null ? { lat: pt.lat, lon: pt.lon, elevation: e, provenance: PROVENANCE.MEASURED, confidence: 0.9, source: clone(s.source || null) } : null;
+        const provenance = Object.values(PROVENANCE).includes(s.provenance) ? s.provenance : PROVENANCE.MEASURED;
+        const confidence = num(s.confidence) === null ? DEFAULT_CONFIDENCE[provenance] : clamp(num(s.confidence), 0, 1);
+        return pt && e !== null ? { lat: pt.lat, lon: pt.lon, elevation: e, provenance, confidence, source: clone(s.source || null), rasterId: s.rasterId || null } : null;
       }).filter(Boolean);
+      p.elevation.rasters = Array.isArray(raw.elevation.rasters) ? clone(raw.elevation.rasters) : [];
+      p.elevation.geographicBase = raw.elevation.geographicBase ? clone(raw.elevation.geographicBase) : null;
     }
     p.imagery = Array.isArray(raw.imagery) ? clone(raw.imagery) : [];
     p.photos = Array.isArray(raw.photos) ? clone(raw.photos).filter(f => f && f.url && f.provider) : [];

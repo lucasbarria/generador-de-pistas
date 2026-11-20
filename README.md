@@ -20,10 +20,12 @@ En el panel **0 · Proyecto de reconstrucción** podés crear un proyecto, carga
 
 1. Elegir o importar el recorrido con las herramientas del paso 1 (no se inventa trazado).
 2. Descargar alturas reales del recorrido desde Open-Meteo (Copernicus DEM GLO-90, 90 m).
-3. Buscar fotos georreferenciadas reales (Commons / Panoramax) y revisarlas antes de usarlas como referencia.
-4. Guardar / abrir el proyecto: el JSON mantiene coordenadas, fuentes, confianza y evidencia.
+3. Importar un GeoTIFF local: se registra CRS, unidades, resolución, NoData y procedencia; es base del terreno, no genera cunetas ni baches.
+4. Buscar fotos reales (Commons / Panoramax y, con Client Token, Mapillary v4) y revisarlas antes de usarlas como referencia. Las fotos aprobadas solo asocian materiales y vegetación ya existentes: no se derivan texturas ni PBR.
+5. Consultar OpenStreetMap con Overpass resiliente y usar correcciones asistidas: se planifican, se pueden comparar y se deshacen.
+6. Guardar / abrir el proyecto: el JSON mantiene coordenadas, fuentes, confianza, evidencia y rasters.
 
-El generador clásico sigue funcionando igual; los proyectos viejos se convierten automáticamente al formato nuevo. Ver `docs/auditoria-inicial.md`, `docs/arquitectura-reconstruccion.md` y `docs/piloto-aguas-blancas.md`.
+El generador clásico sigue funcionando igual; los proyectos viejos se convierten automáticamente al formato nuevo. Ver `docs/auditoria-inicial.md`, `docs/arquitectura-reconstruccion.md`, `docs/piloto-aguas-blancas.md` y `docs/REAL_STAGE_RECONSTRUCTION_PHASE_2.md`.
 
 ## Cómo modificarla
 El código está en `src/`:
@@ -32,7 +34,7 @@ El código está en `src/`:
 - `src/editor3d.js` — edición directa en la vista 3D: selección, manijas, actualización en vivo y perfil sincronizado.
 - `src/objetos.js` — objetos puestos a mano (árboles con pincel, casas, personas, piedras, puentes, lagos) y navegación simple (mapa chico, botones, barra de km).
 - `src/template.html` — la página y los controles.
-- `src/recon/` — modelo de proyecto, lectores GPX/KML/GeoJSON, cliente DEM y clientes de fotos.
+- `src/recon/` — modelo de proyecto, GPX/KML/GeoJSON, DEM, GeoTIFF local, evidencia, clientes Mapillary/Overpass y correcciones asistidas.
 
 Después de cambiar algo en `src/`, corré `python3 build.py` para regenerar `index.html` y subí los dos.
 

@@ -154,10 +154,39 @@ footer{padding:14px 20px;color:var(--mut);font-size:11.5px;margin-top:auto}
       <label class="f">Nombre del proyecto<input id="reconName" placeholder="Ej. Aguas Blancas · Tolhuin"></label>
       <div class="row"><button class="b" id="reconNew">Nuevo proyecto</button><button class="b" id="reconPilot">Cargar piloto Aguas Blancas</button></div>
       <div class="mut" id="reconStatus" style="margin-top:6px">Elegí el recorrido en el paso 1. Acá se guarda de dónde viene cada dato; no se inventan coordenadas.</div>
-      <details class="texbox"><summary>Datos reales y procedencia</summary>
+      <details class="texbox" open><summary>Datos reales y procedencia</summary>
         <div class="row"><button class="b" id="reconElev">Descargar elevación</button><button class="b" id="reconPhotos">Buscar fotos</button></div>
         <div class="row"><button class="b" id="reconValidate">Validar tramo</button></div>
         <div class="mut" id="reconEvidence" style="margin-top:6px">Todavía no hay datos geográficos incorporados.</div>
+        <details class="texbox"><summary>GeoTIFF local (base geográfica)</summary>
+          <div class="mut">Se lee tu archivo sin subirlo. Se registran CRS, unidades, resolución, NoData y procedencia. Es solo la base del terreno: no genera cunetas, roderas ni baches.</div>
+          <label class="b gpsbtn" style="margin-top:6px">📐 Importar GeoTIFF al proyecto<input type="file" id="reconTif" accept=".tif,.tiff" multiple hidden></label>
+          <label class="f" title="Solo si el archivo no declara su sistema de coordenadas; por ejemplo EPSG:32719">CRS alternativa <input id="reconTifCrs" placeholder="EPSG:32719 (opcional)"></label>
+          <div class="mut" id="reconTifInfo" style="margin-top:6px">Sin GeoTIFF local.</div>
+        </details>
+        <details class="texbox"><summary>Fotos revisadas → materiales y vegetación</summary>
+          <div class="mut">Las fotos se guardan como evidencia con licencia. Vos decidís qué muestra cada una; la app no afirma que una foto muestra el camino hasta que lo confirmes. No se derivan texturas ni mapas PBR de las fotos.</div>
+          <label class="f">Revisado por <input id="reconReviewer" placeholder="Nombre y apellido"></label>
+          <div id="reconReviews" style="margin:6px 0"></div>
+          <div class="row"><button class="b" id="reconDerive">Derivar materiales y vegetación</button><button class="b" id="reconApplyEvidence">Aplicar evidencia a la vista 3D</button></div>
+          <div class="mut" id="reconEvidenceSummary" style="margin-top:6px">Sin derivación todavía.</div>
+          <div class="mut" id="rgAoRoughH" style="font-size:11.5px">Mapas <code>*_ao_rough_h</code>: se miden al cargar el preset; la semántica de canales es desconocida y no se usan como PBR.</div>
+        </details>
+        <details class="texbox"><summary>Servicios externos (real, sin simulaciones)</summary>
+          <label class="f" title="Client Token de Mapillary. Se guarda solo en este navegador y se envía como Authorization: OAuth a Graph API v4.">Mapillary Client Token <input id="mlyToken" type="password" placeholder="MLY|…"></label>
+          <label class="row"><input type="checkbox" id="reconMlyLicense"> Acepto los Mapillary Terms of Use para usar sus fotos como referencia</label>
+          <div class="row"><button class="b" id="reconMlyStatus">Estado Mapillary</button><button class="b" id="reconMlySearch">Buscar fotos cerca</button></div>
+          <label class="f">Overpass: etiqueta <select id="reconOvTag"><option value="highway">highway</option><option value="natural">natural</option><option value="landuse">landuse</option><option value="waterway">waterway</option></select></label>
+          <label class="f">Radio de búsqueda (m) <input id="reconOvRadius" type="number" value="1000" min="50" max="10000" step="50"></label>
+          <div class="row"><button class="b" id="reconOverpass">Consultar OpenStreetMap</button></div>
+          <div class="mut" id="reconNetInfo" style="margin-top:6px">Sin consultas externas nuevas.</div>
+        </details>
+        <details class="texbox"><summary>Correcciones asistidas (reversibles)</summary>
+          <div class="mut">Reglas deterministas sobre mediciones, fotos revisadas y datos OSM. Nada se aplica sin tu confirmación; cada cambio se puede deshacer.</div>
+          <div class="row" style="margin-top:6px"><button class="b" id="reconDetect">Detectar problemas</button></div>
+          <div id="reconIssues" style="margin:6px 0"></div>
+          <div class="mut" id="reconFixInfo">Sin análisis todavía.</div>
+        </details>
       </details>
     </section>
     <section>
